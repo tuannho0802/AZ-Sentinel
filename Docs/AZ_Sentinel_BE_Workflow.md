@@ -68,6 +68,7 @@
 |---|---|---|---|---|
 | X-BE-01 | Sửa `seed-link.ts` cho đường dẫn có dấu cách | [x] | 2026-10-20 | Dùng `--file=.wrangler/seed-link.sql` với `cwd` là `BE`. |
 | X-BE-02 | Script remote cho P1-20..22: `pnpm db:migrate:remote`, `pnpm db:seed:remote`, `pnpm deploy:api`; `seed-link.ts --remote` | [x] | 2026-10-20 | ĐÃ CHẠY local (seed vẫn ổn, `pnpm check` xanh). **Phần `--remote` CHƯA CHẠY** vì cần đăng nhập Cloudflare. Khóa remote lưu ở `BE/.wrangler/remote-api-key.txt`. |
+| X-BE-03 | IDE (VS Code + MQL Clangd) báo lỗi giả và biên dịch EA từ repo | [~] | 2026-10-20 | Nguyên nhân lỗi giả: `C_Cpp.intelliSenseEngine` bị đặt `"Disabled"` (sai hoa/thường, phải là `"disabled"`) nên C/C++ IntelliSense vẫn chạy. Đã sửa; thêm `ea/compile.ps1` + `.vscode/tasks.json` (Ctrl+Shift+B), Biome bỏ qua `.vscode`/tệp tự sinh, `.gitignore` các tệp MQL Clangd tự sinh. **CHƯA CHẠY** trên Windows (không có MetaEditor ở môi trường viết). |
 
 ## 4. Quyết định và lệch so với Plan (chỉ append)
 
@@ -92,6 +93,7 @@
 - [ ] Biên dịch `ea/AZ_Spike.mq5` trong MetaEditor và sửa lỗi cú pháp nếu có (P1-26 chưa được biên dịch).
 - [ ] Khi thử MT5 (P1-27) dùng một khóa remote **tạo riêng, không truyền `--login/--server`** để khóa tự gắn vào tài khoản MT5 ở lần gửi đầu; khóa dùng cho `fake-ea` là khóa khác.
 - [ ] Chưa biết MT5 có chấp nhận URL có cổng (vd `127.0.0.1:8787`) trong danh sách Allow WebRequest hay không; P1-29 sẽ xác nhận.
+- [ ] Chạy một lần `git rm --cached --ignore-unmatch .clangd .clang-format compile_commands.json -r .mql-auto-forwards` để Git ngừng theo dõi tệp tự sinh (giữ nguyên tệp trên máy). `.vscode/settings.json` vẫn được theo dõi nhưng chứa đường dẫn riêng của máy (`c:/Users/Admin/...`); cân nhắc bỏ theo dõi sau.
 
 ## 6. Nhật ký (chỉ append, mới nhất ở cuối)
 
@@ -103,3 +105,4 @@
 | 2026-10-20 | Claude | P1-19 | Thêm endpoint spike PBKDF2 + 5 test | `pnpm check`: 67 test BE xanh; commit `0691280` | Chưa đo thời gian trên remote |
 | 2026-10-20 | Claude | (tài liệu) | Tạo tệp workflow này | | |
 | 2026-10-20 | Claude | P1-26, X-BE-02 | Viết `ea/AZ_Spike.mq5`; thêm script migrate/seed/deploy remote và `--remote` cho `seed-link.ts` | `pnpm check` xanh (19 + 67 + 2); seed local chạy lại ổn; JSON mô phỏng qua zod | Không có MetaEditor/MT5 để biên dịch EA |
+| 2026-10-20 | Claude | X-BE-03 | Sửa cấu hình IDE: `intelliSenseEngine` -> `disabled`, tắt `errorSquiggles`; thêm `ea/compile.ps1`, `.vscode/tasks.json`; Biome bỏ qua `.vscode` và tệp tự sinh; cập nhật `.gitignore` | `pnpm check` xanh; JSON hợp lệ | Chưa chạy `compile.ps1` trên Windows/MetaEditor thật |

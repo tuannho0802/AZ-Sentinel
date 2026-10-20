@@ -8,3 +8,9 @@ coverage/
 *.ex5
 .vite/
 *.patch
+
+# Tệp tự sinh bởi extension MQL Clangd (chứa đường dẫn riêng của từng máy)
+.clangd
+.clang-format
+compile_commands.json
+.mql-auto-forwards/
