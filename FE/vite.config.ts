@@ -9,6 +9,6 @@ const useMockAuth = process.env.AZ_MOCK_AUTH !== '0'
 
 export default defineConfig({
   plugins: [react(), tailwindcss(), ...(useMockAuth ? [mockAuth()] : [])],
-  server: { port: 5173, proxy: { '/api': 'http://127.0.0.1:8787' } },
+  server: { port: 5173, proxy: { '/api': { target: 'http://127.0.0.1:8787', ws: true } } },
   test: { environment: 'jsdom', include: ['src/**/*.test.{ts,tsx}'] },
 })

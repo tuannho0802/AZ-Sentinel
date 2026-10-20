@@ -3,13 +3,23 @@ import { Link } from 'wouter'
 import { formatMoney, formatRelative, formatSigned, plClass } from '../../lib/format'
 import { strings } from '../../lib/strings'
 import { useNow } from '../../lib/use-now'
+import { LiveBadge } from './live/LiveBadge'
+import { effectiveLiveState, getLiveEntry, liveAgeSec, mergeLive } from './live/live-store'
 import { PresenceBadge } from './PresenceBadge'
 import { RotateKeyButton } from './RotateKeyButton'
 
 const th = 'px-3 py-2 whitespace-nowrap'
 
-export function LinksTable({ links }: { links: LinkSummary[] }) {
+export function LinksTable({
+  links,
+  connected = false,
+}: {
+  links: LinkSummary[]
+  /** WebSocket live đang nối: chỉ khi đó mới phủ dữ liệu live lên số liệu D1. */
+  connected?: boolean
+}) {
   const now = useNow()
+  const perf = performance.now()
   return (
     <div className="overflow-x-auto rounded-lg border bg-white">
       <table className="w-full text-left text-sm">
@@ -28,7 +38,12 @@ export function LinksTable({ links }: { links: LinkSummary[] }) {
           </tr>
         </thead>
         <tbody>
-          {links.map((l) => {
+          {links.map((raw) => {
+            const entry = connected ? getLiveEntry(raw.id) : undefined
+            const l = mergeLive(raw, entry)
+            const liveState =
+              raw.status === 'active' ? effectiveLiveState(entry, connected, perf) : null
+            const age = liveAgeSec(entry, perf)
             const currency = l.account?.currency ?? null
             return (
               <tr key={l.id} className="border-b last:border-0">
@@ -49,6 +64,7 @@ export function LinksTable({ links }: { links: LinkSummary[] }) {
                 <td className="px-3 py-2">{l.account?.name || '—'}</td>
                 <td className="px-3 py-2">
                   <PresenceBadge link={l} />
+                  <LiveBadge state={liveState} />
                 </td>
                 <td className="px-3 py-2 whitespace-nowrap">
                   {formatMoney(l.state?.balance, currency)}
@@ -60,7 +76,11 @@ export function LinksTable({ links }: { links: LinkSummary[] }) {
                   {formatSigned(l.state?.floating_pl, currency)}
                 </td>
                 <td className="px-3 py-2 whitespace-nowrap">
-                  {l.state ? formatRelative(l.state.last_seen_at, now) : '—'}
+                  {age !== null
+                    ? strings.agoSeconds(age)
+                    : l.state
+                      ? formatRelative(l.state.last_seen_at, now)
+                      : '—'}
                 </td>
                 <td className="px-3 py-2 text-right">
                   <Link href={`/links/${l.id}`} className="underline">

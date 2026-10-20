@@ -298,27 +298,20 @@ describe('cột và tự làm mới', () => {
     expect(cells.filter((c) => c === '—').length).toBeGreaterThanOrEqual(4)
   })
 
-  it('tự cập nhật số liệu mới mà không cần bấm Làm mới; chọn Tắt thì dừng', async () => {
+  it('danh sách không tự poll; bấm Làm mới gọi lại D1 đúng một lần', async () => {
     let calls = 0
-    const withBalance = (balance: number): LinkSummary => ({
-      ...bound,
-      state: bound.state ? { ...bound.state, balance } : null,
-    })
     renderApp('/links', {
       ...base,
       'GET /api/dev/links': () => {
         calls += 1
-        return json(200, { links: [withBalance(calls === 1 ? 1000 : 1500)] })
+        return json(200, { links: [bound] })
       },
     })
-    expect(await screen.findByText('1,000.00 USD')).toBeTruthy()
-    fireEvent.change(screen.getByLabelText(strings.autoRefresh), { target: { value: '1000' } })
-    expect(await screen.findByText('1,500.00 USD', {}, { timeout: 4000 })).toBeTruthy()
-
-    fireEvent.change(screen.getByLabelText(strings.autoRefresh), { target: { value: '0' } })
-    const before = calls
-    await new Promise((r) => setTimeout(r, 1500))
-    expect(calls).toBe(before)
+    await screen.findByText('5550001')
+    await new Promise((r) => setTimeout(r, 2500))
+    expect(calls).toBe(1)
+    fireEvent.click(screen.getByRole('button', { name: strings.refresh }))
+    await waitFor(() => expect(calls).toBe(2))
   })
 
   it('có ô chọn chu kỳ và giờ cập nhật; trang chi tiết cũng có', async () => {

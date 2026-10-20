@@ -1,15 +1,27 @@
+import { useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import { ApiError } from '../../lib/api-client'
+import { formatTime } from '../../lib/format'
 import { strings } from '../../lib/strings'
-import { useCreateLink, useLinks } from './api'
+import { LINKS_KEY, useCreateLink, useLinks } from './api'
 import { KeyDialog } from './KeyDialog'
 import { LinksTable } from './LinksTable'
-import { RefreshControl } from './RefreshControl'
-import { DEFAULT_REFRESH_MS } from './refresh'
+import { LiveControl } from './live/LiveControl'
+import { effectiveLiveState, getLiveEntry } from './live/live-store'
+import { useLiveLease } from './live/useLiveLease'
 
 export function LinksList() {
-  const [refreshMs, setRefreshMs] = useState(DEFAULT_REFRESH_MS)
-  const links = useLinks(refreshMs)
+  const client = useQueryClient()
+  const links = useLinks()
+  const live = useLiveLease({
+    enabled: true, // route chỉ mount khi đã đăng nhập (RequireAuth)
+    onResync: () => void client.invalidateQueries({ queryKey: LINKS_KEY }),
+  })
+  const perf = performance.now()
+  const anyLive =
+    links.data?.links.some(
+      (l) => effectiveLiveState(getLiveEntry(l.id), live.connected, perf) === 'live',
+    ) ?? false
   const create = useCreateLink()
   const [revealedKey, setRevealedKey] = useState<string | null>(null)
 
@@ -30,12 +42,26 @@ export function LinksList() {
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-semibold">{strings.linksPageTitle}</h1>
         <div className="flex flex-wrap items-center gap-3">
-          <RefreshControl
-            value={refreshMs}
-            onChange={setRefreshMs}
-            updatedAt={links.dataUpdatedAt}
-            onRefresh={() => links.refetch()}
+          <LiveControl
+            status={live.status}
+            anyLive={anyLive}
+            kick={live.kick}
+            onPause={live.pause}
+            onResume={live.resume}
+            onRetry={live.retry}
           />
+          {links.dataUpdatedAt > 0 && (
+            <span className="text-sm text-gray-500">
+              {strings.updatedAt} {formatTime(links.dataUpdatedAt)}
+            </span>
+          )}
+          <button
+            type="button"
+            className="rounded border px-3 py-1"
+            onClick={() => links.refetch()}
+          >
+            {strings.refresh}
+          </button>
           <button
             type="button"
             className="rounded bg-gray-900 px-3 py-1 text-white disabled:opacity-60"
@@ -75,7 +101,9 @@ export function LinksList() {
             <p className="text-sm text-gray-500">{strings.linksEmptyHint}</p>
           </div>
         )}
-        {links.isSuccess && links.data.links.length > 0 && <LinksTable links={links.data.links} />}
+        {links.isSuccess && links.data.links.length > 0 && (
+          <LinksTable links={links.data.links} connected={live.connected} />
+        )}
       </div>
 
       {revealedKey && <KeyDialog apiKey={revealedKey} onClose={() => setRevealedKey(null)} />}

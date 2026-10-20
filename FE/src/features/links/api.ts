@@ -17,11 +17,12 @@ const linkKey = (id: number) => ['links', id] as const
  * Chu kỳ tự làm mới do người dùng chọn trên màn hình thử (xem `refresh.ts`); 0 = tắt.
  * Luôn dừng khi tab ẩn (Rules FE mục 5).
  */
-export function useLinks(refreshMs: number = DEFAULT_REFRESH_MS) {
+export function useLinks() {
+  // Danh sách KHÔNG tự poll: dữ liệu sống đến qua WebSocket (Plan 3B). Làm mới D1 chỉ khi vào
+  // trang, khi nối lại, hoặc khi người dùng bấm Làm mới (Rules FE mục 5).
   return useQuery({
     queryKey: LINKS_KEY,
     queryFn: () => apiGet<LinkListResponse>(BASE),
-    refetchInterval: refreshMs > 0 ? refreshMs : false,
   })
 }
 
