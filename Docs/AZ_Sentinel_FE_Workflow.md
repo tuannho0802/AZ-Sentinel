@@ -74,6 +74,7 @@
 - [ ] Part 2: thay `FE/dev-mock-auth.ts` bằng xác thực thật của BE rồi xóa tệp này và dòng dùng nó trong `FE/vite.config.ts`; xóa `DevAuthHint`.
 - [ ] Trang đăng ký và màn hình "chờ duyệt" (Plan 2 mục 6); hiện chỉ có đăng nhập.
 - [ ] Chưa có kiểm tra Origin/CSRF phía FE cần thiết (thuộc BE, Part 2).
+- [ ] (2026-10-20) Màn hình `Liên kết EA` (`FE/src/features/links`, trang `/links`, `/links/:id`) là bản thử Part 1, gọi `/api/dev/links`; chỉ có trong `pnpm dev` (`import.meta.env.DEV`, bản build không chứa). Part 3 thay bằng màn hình thật theo Plan 2 (phân quyền, giới hạn số TKGD); dùng lại `lib/format.ts`, `PresenceBadge`, `KeyDialog`.
 
 ## 6. Nhật ký (chỉ append, mới nhất ở cuối)
 
@@ -84,3 +85,4 @@
 | 2026-10-20 | Claude | (tài liệu) | Tạo tệp workflow này | | |
 | 2026-10-20 | Claude | P1-24 | Thêm `FE/wrangler.jsonc`, devDependency `wrangler`, script `deploy` (FE) và `deploy:web` (gốc) | `vite build` OK; `wrangler deploy --dry-run` đọc tệp assets | Chưa deploy thật (cần đăng nhập Cloudflare) |
 | 2026-10-20 | Claude | X-FE-02..04 | Thêm Wouter, đăng nhập, `RequireAuth`, tổng quan, 404, giả lập đăng nhập dev | `pnpm check` xanh (Shared 26, BE 67, FE 10); dev server: login 200/401/403/429; `dist` không chứa tài khoản giả lập | Đăng nhập thật chờ Part 2; hình dạng API xem phần 4 |
+| 2026-10-20 | Claude | X-FE-05 | Thêm menu Liên kết EA: danh sách, tạo liên kết + hộp thoại hiện khóa một lần, chi tiết (tài khoản, số liệu, lệnh, sự kiện), khóa/mở/gỡ gắn/xóa có xác nhận; `lib/format.ts` | `pnpm check` xanh (FE 22 test); `dist` không chứa `/api/dev/links` | Chưa có ảnh chụp màn hình; poll 30 giây theo Rules FE |

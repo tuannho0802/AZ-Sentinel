@@ -98,6 +98,7 @@
 - [ ] Chưa biết MT5 có chấp nhận URL có cổng (vd `127.0.0.1:8787`) trong danh sách Allow WebRequest hay không; P1-29 sẽ xác nhận.
 - [ ] Chạy một lần `git rm --cached --ignore-unmatch .clangd .clang-format compile_commands.json -r .mql-auto-forwards` để Git ngừng theo dõi tệp tự sinh (giữ nguyên tệp trên máy). `.vscode/settings.json` vẫn được theo dõi nhưng chứa đường dẫn riêng của máy (`c:/Users/Admin/...`); cân nhắc bỏ theo dõi sau.
 - [ ] Part 2: BE cần cung cấp `POST /api/auth/login`, `POST /api/auth/logout`, `GET /api/me` đúng hợp đồng ghi ở `AZ_Sentinel_FE_Workflow.md` phần 4 (FE đã viết sẵn). Chốt hướng băm mật khẩu sau khi có số đo P1-23 (Plan 2 mục "Mật khẩu"); không viết băm mật khẩu trước đó.
+- [ ] (2026-10-20) XÓA khi có Part 2/3: `BE/src/routes/dev-links.ts`, dòng `/api/dev` trong `BE/src/app.ts`, `--var DEV_LINKS_API:1` trong script `dev` của `BE/package.json`, `BE/test/integration/dev-links.test.ts`, kiểu trong `Shared/src/links-schema.ts` (giữ nếu API thật dùng lại). API này KHÔNG có xác thực; chỉ an toàn vì bật bằng cờ lúc chạy `wrangler dev`. Không bao giờ đặt `DEV_LINKS_API` trong `wrangler.jsonc` hay secret.
 
 ## 6. Nhật ký (chỉ append, mới nhất ở cuối)
 
@@ -112,3 +113,4 @@
 | 2026-10-20 | Claude | X-BE-03 | Sửa cấu hình IDE: `intelliSenseEngine` -> `disabled`, tắt `errorSquiggles`; thêm `ea/compile.ps1`, `.vscode/tasks.json`; Biome bỏ qua `.vscode` và tệp tự sinh; cập nhật `.gitignore` | `pnpm check` xanh; JSON hợp lệ | Chưa chạy `compile.ps1` trên Windows/MetaEditor thật |
 | 2026-10-20 | Claude | X-BE-04, X-BE-05, P1-30 | Sửa `deploy:api`; thêm `deploy:web`; sửa test chập chờn; tạo mẫu `Docs/spike-results.md` | `--dry-run` hai script OK; `pnpm check` xanh | Đính chính X-BE-02: script `deploy:api` ghi ở đó chạy sai (xem X-BE-04) |
 | 2026-10-20 | Claude | X-BE-06 | Thêm schema đăng nhập vào `Shared` | Shared 26 test xanh | BE chưa có endpoint xác thực (Part 2) |
+| 2026-10-20 | Claude | X-BE-07 | Thêm `/api/dev/links` (danh sách, tạo, chi tiết, khóa/mở, gỡ gắn, xóa) để thử đăng ký EA bằng giao diện; bật bằng `--var DEV_LINKS_API:1` | `pnpm check` xanh (BE 83 test, gồm ingest end-to-end qua khóa vừa tạo); chạy thật `wrangler dev`: tạo khóa, ingest gắn tài khoản, danh sách hiện số liệu; không cờ thì 404 | Không có xác thực, chỉ dùng local |

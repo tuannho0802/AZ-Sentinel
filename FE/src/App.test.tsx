@@ -25,10 +25,10 @@ describe('điều hướng và phiên', () => {
 
   it('đã đăng nhập vào "/" thì thấy tổng quan, tên người dùng và API OK', async () => {
     renderApp('/', { 'GET /api/me': () => json(200, me), 'GET /api/health': healthOk })
-    expect(await screen.findByText(strings.overviewTitle)).toBeTruthy()
+    expect(await screen.findByRole('heading', { name: strings.overviewTitle })).toBeTruthy()
     expect((await screen.findAllByText('Tuan')).length).toBeGreaterThan(0)
     expect(await screen.findByText(strings.apiOk)).toBeTruthy()
-    expect(screen.getByText(strings.linksEmpty)).toBeTruthy()
+    expect(screen.getByRole('link', { name: strings.linksManage })).toBeTruthy()
   })
 
   it('đường dẫn lạ hiện trang không tìm thấy', async () => {
@@ -54,7 +54,7 @@ describe('đăng nhập', () => {
     })
     await screen.findByLabelText(strings.email)
     fill('a@az.local', 'mat-khau')
-    expect(await screen.findByText(strings.overviewTitle)).toBeTruthy()
+    expect(await screen.findByRole('heading', { name: strings.overviewTitle })).toBeTruthy()
   })
 
   it('sai mật khẩu (401) hiện thông điệp từ server', async () => {

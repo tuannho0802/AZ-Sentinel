@@ -18,7 +18,11 @@ export function setUnauthorizedHandler(fn: (() => void) | null): void {
   onUnauthorized = fn
 }
 
-async function request<T>(method: 'GET' | 'POST', path: string, body?: unknown): Promise<T> {
+async function request<T>(
+  method: 'GET' | 'POST' | 'DELETE',
+  path: string,
+  body?: unknown,
+): Promise<T> {
   const res = await fetch(path, {
     method,
     credentials: 'same-origin',
@@ -42,3 +46,4 @@ async function request<T>(method: 'GET' | 'POST', path: string, body?: unknown):
 /** Mọi lời gọi API đi qua đây (Rules FE mục 4). */
 export const apiGet = <T>(path: string) => request<T>('GET', path)
 export const apiPost = <T>(path: string, body?: unknown) => request<T>('POST', path, body)
+export const apiDelete = (path: string) => request<void>('DELETE', path, {})
