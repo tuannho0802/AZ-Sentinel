@@ -41,6 +41,15 @@ export function useCreateLink() {
   })
 }
 
+/** Cấp lại khóa; cũng phải lấy khóa trong `onSuccess` của `mutate` rồi `reset()`. */
+export function useRotateKey(id: number) {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: () => apiPost<CreateLinkResponse>(`${BASE}/${id}/rotate-key`, {}),
+    onSuccess: () => client.invalidateQueries({ queryKey: LINKS_KEY }),
+  })
+}
+
 export function useSetLinkStatus(id: number) {
   const client = useQueryClient()
   return useMutation({

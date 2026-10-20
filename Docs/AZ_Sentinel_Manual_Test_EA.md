@@ -34,9 +34,12 @@ Mở http://localhost:5173, đăng nhập `admin@az.local` / `admin1234` (tài k
 | Gắn lại | **Gỡ gắn tài khoản** | Dữ liệu cũ bị xóa; lần gửi kế tiếp gắn lại |
 | Offline | Tắt EA, chờ hơn 60 giây, làm mới | Trạng thái Offline |
 | Khóa sai | Sửa `InpApiKey` | `http=401` |
+| Lỡ đóng hộp thoại khóa | Bấm **Cấp lại khóa** ở danh sách (hoặc trang chi tiết), xác nhận, bấm **Sao chép khóa** | Khóa cũ bị 401, khóa mới dán vào `InpApiKey` thì 200; tài khoản đã gắn không đổi |
 
 ## Lưu ý
 
+- Hệ thống chỉ lưu băm của khóa nên không thể xem lại khóa cũ; mất khóa thì dùng **Cấp lại khóa**.
+- Cột Tài khoản MT5 hiện số tài khoản, tên (`ACCOUNT_NAME`) và server, lấy từ lần gửi đầu tiên của EA.
 - Online/Offline do server tính theo ngưỡng 60 giây (EA gửi mỗi 10 giây). Cron đánh dấu offline thật là Part 5.
 - Giới hạn 20 liên kết ở chế độ thử; xóa bớt bằng nút **Xóa liên kết**.
 - Khi có Part 2/3: xóa `BE/src/routes/dev-links.ts` và thay màn hình bằng API có phân quyền (xem BE/FE Workflow).

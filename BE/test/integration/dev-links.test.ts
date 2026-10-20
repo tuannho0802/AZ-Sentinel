@@ -136,6 +136,29 @@ describe('/api/dev (chỉ bật khi DEV_LINKS_API=1)', () => {
     expect(res.status).toBe(400)
   })
 
+  it('cấp lại khóa: khóa cũ bị 401, khóa mới dùng được và giữ nguyên tài khoản đã gắn', async () => {
+    const { link, api_key: oldKey } = await createLink()
+    await post(oldKey, makePayload())
+    const res = await dev(`/links/${link.id}/rotate-key`, { method: 'POST', body: '{}' })
+    expect(res.status).toBe(200)
+    expect(res.headers.get('Cache-Control')).toBe('no-store')
+    const rotated = (await res.json()) as CreateLinkResponse
+    expect(rotated.api_key).not.toBe(oldKey)
+    expect(rotated.link.key_prefix).toBe(rotated.api_key.slice(0, 8))
+    expect(rotated.link.account?.login).toBe(12345678)
+    expect((await post(oldKey, makePayload())).status).toBe(401)
+    expect((await post(rotated.api_key, makePayload())).status).toBe(200)
+    const list = JSON.stringify(await (await dev('/links')).json())
+    expect(list).not.toContain(rotated.api_key)
+  })
+
+  it('cấp lại khóa cho id không tồn tại hoặc khi chưa bật cờ', async () => {
+    expect((await dev('/links/12345/rotate-key', { method: 'POST', body: '{}' })).status).toBe(404)
+    const { link } = await createLink()
+    const off = await dev(`/links/${link.id}/rotate-key`, { method: 'POST', body: '{}' }, false)
+    expect(off.status).toBe(404)
+  })
+
   it('gỡ gắn cho phép gắn tài khoản MT5 khác, xóa dữ liệu cũ', async () => {
     const { link, api_key } = await createLink()
     await post(api_key, makePayload())

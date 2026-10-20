@@ -207,6 +207,22 @@ devLinks.post(
   },
 )
 
+/**
+ * Cấp lại khóa: sinh khóa mới, khóa cũ vô hiệu ngay. Giữ nguyên tài khoản đã gắn.
+ * (DB chỉ lưu băm nên không thể lấy lại khóa cũ.) Khóa mới chỉ trả ở phản hồi này.
+ */
+devLinks.post('/links/:id/rotate-key', async (c) => {
+  const id = parseId(c.req.param('id'))
+  await loadLink(c.env.DB, id)
+  const { key, keyHash, keyPrefix } = await generateApiKey()
+  await c.env.DB.prepare('UPDATE ea_links SET key_hash = ?, key_prefix = ? WHERE id = ?')
+    .bind(keyHash, keyPrefix, id)
+    .run()
+  const body: CreateLinkResponse = { link: await loadLink(c.env.DB, id), api_key: key }
+  c.header('Cache-Control', 'no-store')
+  return c.json(body)
+})
+
 /** Gỡ gắn tài khoản để thử lại luồng "đăng ký lần đầu" (kể cả với tài khoản MT5 khác). */
 devLinks.post('/links/:id/unbind', async (c) => {
   const id = parseId(c.req.param('id'))

@@ -92,6 +92,9 @@ describe('danh sách liên kết', () => {
     expect(screen.getByText(`● ${strings.online}`)).toBeTruthy()
     expect(screen.getByText('1,012.50 USD')).toBeTruthy()
     expect(screen.getByText('+12.50 USD')).toBeTruthy()
+    expect(screen.getByText('Tester')).toBeTruthy()
+    expect(screen.queryByText(/wxyz9876/)).toBeNull()
+    expect(screen.queryByText(/abcd1234/)).toBeNull()
   })
 
   it('API dev chưa bật (404): báo cách bật, không cho tạo', async () => {
@@ -143,7 +146,7 @@ describe('tạo liên kết', () => {
     fireEvent.click(within(dialog).getByRole('button', { name: strings.close }))
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
     expect(screen.queryByDisplayValue(created.api_key)).toBeNull()
-    expect(await screen.findByText('abcd1234…')).toBeTruthy()
+    expect(await screen.findByText(strings.awaitingEa)).toBeTruthy()
   })
 
   it('tạo lỗi thì báo lỗi, không hiện hộp thoại', async () => {
@@ -221,6 +224,50 @@ describe('chi tiết liên kết', () => {
     await waitFor(() => expect(setStatus).toHaveBeenCalledTimes(1))
     const call = fetchMock.mock.calls.find(([url]) => url === '/api/dev/links/2/status')
     expect(JSON.parse(String(call?.[1]?.body))).toEqual({ status: 'disabled' })
+  })
+})
+
+describe('cấp lại khóa', () => {
+  it('xác nhận rồi hiện khóa mới có nút copy; từ chối thì không gọi API', async () => {
+    const rotate = vi.fn(() =>
+      json(200, { link: bound, api_key: 'NEW-KEY-VALUE-ABCDEFGHIJKLMNOP' }),
+    )
+    renderApp('/links', {
+      ...base,
+      'GET /api/dev/links': () => json(200, { links: [bound] }),
+      'POST /api/dev/links/2/rotate-key': rotate,
+    })
+    const btn = await screen.findByRole('button', { name: strings.rotateKey })
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    fireEvent.click(btn)
+    expect(confirm).toHaveBeenCalledWith(strings.confirmRotate)
+    expect(rotate).not.toHaveBeenCalled()
+    expect(screen.queryByRole('dialog')).toBeNull()
+
+    confirm.mockReturnValue(true)
+    fireEvent.click(btn)
+    const dialog = await screen.findByRole('dialog')
+    expect((within(dialog).getByLabelText(strings.keyLabel) as HTMLInputElement).value).toBe(
+      'NEW-KEY-VALUE-ABCDEFGHIJKLMNOP',
+    )
+    expect(within(dialog).getByRole('button', { name: strings.copyKey })).toBeTruthy()
+    expect(within(dialog).getByText(strings.rotateDialogWarning)).toBeTruthy()
+    fireEvent.click(within(dialog).getByRole('button', { name: strings.close }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    expect(screen.queryByDisplayValue('NEW-KEY-VALUE-ABCDEFGHIJKLMNOP')).toBeNull()
+  })
+
+  it('có nút cấp lại khóa ở trang chi tiết; lỗi thì báo lỗi', async () => {
+    renderApp('/links/2', {
+      ...base,
+      'GET /api/dev/links/2': () => json(200, detail),
+      'POST /api/dev/links/2/rotate-key': () =>
+        json(500, { error: { code: 'INTERNAL', message: 'x' } }),
+    })
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    fireEvent.click(await screen.findByRole('button', { name: strings.rotateKey }))
+    expect((await screen.findByText(strings.rotateFailed)).textContent).toBe(strings.rotateFailed)
+    expect(screen.queryByRole('dialog')).toBeNull()
   })
 })
 

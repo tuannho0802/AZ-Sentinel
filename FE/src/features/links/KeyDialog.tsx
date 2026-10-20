@@ -2,10 +2,15 @@ import { useState } from 'react'
 import { strings } from '../../lib/strings'
 import { ingestUrl } from './ingest-url'
 
-type Props = { apiKey: string; onClose: () => void }
+type Props = { apiKey: string; onClose: () => void; title?: string; warning?: string }
 
 /** Hiện khóa đúng một lần; khóa chỉ nằm trong state của hộp thoại này. */
-export function KeyDialog({ apiKey, onClose }: Props) {
+export function KeyDialog({
+  apiKey,
+  onClose,
+  title = strings.keyDialogTitle,
+  warning = strings.keyDialogWarning,
+}: Props) {
   const [message, setMessage] = useState<string | null>(null)
 
   async function copy(text: string) {
@@ -26,10 +31,10 @@ export function KeyDialog({ apiKey, onClose }: Props) {
         className="w-full max-w-lg rounded-lg bg-white p-5 shadow-lg"
       >
         <h2 id="key-dialog-title" className="text-lg font-semibold">
-          {strings.keyDialogTitle}
+          {title}
         </h2>
         <p role="alert" className="mt-2 rounded bg-yellow-50 p-2 text-sm text-yellow-800">
-          {strings.keyDialogWarning}
+          {warning}
         </p>
 
         <label className="mt-4 block text-sm font-medium" htmlFor="new-api-key">
@@ -44,7 +49,7 @@ export function KeyDialog({ apiKey, onClose }: Props) {
             onFocus={(e) => e.currentTarget.select()}
           />
           <button type="button" className="rounded border px-3 py-1" onClick={() => copy(apiKey)}>
-            {strings.copy}
+            {strings.copyKey}
           </button>
         </div>
 
@@ -64,7 +69,7 @@ export function KeyDialog({ apiKey, onClose }: Props) {
             className="rounded border px-3 py-1"
             onClick={() => copy(ingestUrl())}
           >
-            {strings.copy}
+            {strings.copyUrl}
           </button>
         </div>
 

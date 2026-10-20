@@ -42,7 +42,7 @@ export const strings = {
   linkCreateFailed: 'Không tạo được liên kết',
   refresh: 'Làm mới',
   colId: 'ID',
-  colKey: 'Khóa',
+  colKey: 'API key',
   colAccount: 'Tài khoản MT5',
   colPresence: 'Trạng thái',
   colEquity: 'Equity',
@@ -63,9 +63,18 @@ export const strings = {
     'Khóa này chỉ hiện một lần. Hãy sao chép ngay, đóng hộp thoại là không xem lại được.',
   keyLabel: 'API key',
   ingestUrlLabel: 'URL (InpUrl)',
-  copy: 'Sao chép',
+  copyKey: 'Sao chép khóa',
+  copyUrl: 'Sao chép URL',
   copied: 'Đã sao chép',
   copyFailed: 'Không sao chép được, hãy chọn và copy thủ công',
+  rotateKey: 'Cấp lại khóa',
+  rotating: 'Đang cấp...',
+  rotateFailed: 'Không cấp lại được khóa',
+  rotateDialogTitle: 'API key mới',
+  rotateDialogWarning:
+    'Khóa cũ đã ngừng hoạt động. Hãy sao chép khóa mới ngay (chỉ hiện một lần) và dán vào InpApiKey của EA; tài khoản đã gắn không đổi.',
+  confirmRotate:
+    'Cấp lại khóa? Khóa cũ ngừng hoạt động ngay: EA đang chạy bằng khóa cũ sẽ bị từ chối (401) cho đến khi bạn dán khóa mới vào InpApiKey. Tài khoản đã gắn vẫn giữ nguyên.',
   keyDialogSteps:
     'Trong MT5: Tools → Options → Expert Advisors → Allow WebRequest, thêm địa chỉ gốc của URL trên. Gắn AZ_Spike lên chart, điền InpUrl và InpApiKey.',
   close: 'Đóng',
