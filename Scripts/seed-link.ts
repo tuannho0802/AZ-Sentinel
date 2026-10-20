@@ -2,6 +2,7 @@
  * Tạo một liên kết EA giả trong D1 LOCAL (P1-13) và in API key MỘT LẦN.
  *   pnpm db:seed:local
  *   pnpm db:seed:local -- --login 12345678 --server Broker-Live01   (gắn sẵn tài khoản)
+ *   pnpm db:seed:remote   (D1 thật trên Cloudflare, P1-21; khóa lưu ở BE/.wrangler/remote-api-key.txt)
  * Khóa cũng được ghi vào BE/.wrangler/local-api-key.txt (thư mục đã nằm trong .gitignore)
  * để fake-ea.ts tự đọc.
  */
@@ -13,6 +14,7 @@ import { generateApiKey } from '../BE/src/lib/crypto'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const beDir = path.join(root, 'BE')
+const target = process.argv.includes('--remote') ? 'remote' : 'local'
 
 function arg(name: string): string | undefined {
   const i = process.argv.indexOf(`--${name}`)
@@ -51,16 +53,17 @@ writeFileSync(sqlFile, sql)
 
 const result = spawnSync(
   'pnpm',
-  ['exec', 'wrangler', 'd1', 'execute', 'DB', '--local', '--file=.wrangler/seed-link.sql'],
+  ['exec', 'wrangler', 'd1', 'execute', 'DB', `--${target}`, '--file=.wrangler/seed-link.sql'],
   { cwd: beDir, stdio: 'inherit', shell: true },
 )
 if (result.status !== 0) {
-  console.error('\nSeed thất bại. Đã chạy `pnpm db:migrate:local` chưa?')
+  console.error(`\nSeed thất bại. Đã chạy \`pnpm db:migrate:${target}\` chưa?`)
   process.exit(result.status ?? 1)
 }
 
-writeFileSync(path.join(tmpDir, 'local-api-key.txt'), `${key}\n`)
-console.log('\nĐã tạo liên kết EA giả (D1 local).')
+const keyFile = `${target}-api-key.txt`
+writeFileSync(path.join(tmpDir, keyFile), `${key}\n`)
+console.log(`\nĐã tạo liên kết EA giả (D1 ${target}).`)
 console.log(`  API key (chỉ hiện một lần): ${key}`)
 console.log(`  Tiền tố: ${keyPrefix}`)
-console.log('  Đã lưu vào BE/.wrangler/local-api-key.txt cho fake-ea.')
+console.log(`  Đã lưu vào BE/.wrangler/${keyFile} (thư mục bị .gitignore).`)

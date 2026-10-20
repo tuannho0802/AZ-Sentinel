@@ -10,7 +10,8 @@
     "test:watch": "vitest",
     "types": "wrangler types",
     "db:migrate:local": "wrangler d1 migrations apply DB --local",
-    "deploy": "wrangler deploy"
+    "deploy": "wrangler deploy",
+    "db:migrate:remote": "wrangler d1 migrations apply DB --remote"
   },
   "dependencies": {
     "@az-sentinel/shared": "workspace:*",

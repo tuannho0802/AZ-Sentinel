@@ -15,7 +15,10 @@
     "check": "pnpm lint && pnpm typecheck && pnpm test",
     "db:seed:local": "tsx Scripts/seed-link.ts",
     "fake-ea": "tsx Scripts/fake-ea.ts",
-    "db:migrate:local": "pnpm --filter @az-sentinel/api db:migrate:local"
+    "db:migrate:local": "pnpm --filter @az-sentinel/api db:migrate:local",
+    "db:migrate:remote": "pnpm --filter @az-sentinel/api db:migrate:remote",
+    "db:seed:remote": "tsx Scripts/seed-link.ts --remote",
+    "deploy:api": "pnpm --filter @az-sentinel/api deploy"
   },
   "devDependencies": {
     "@biomejs/biome": "latest",

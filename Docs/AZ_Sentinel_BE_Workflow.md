@@ -53,7 +53,7 @@
 | P1-23 | Đo `/api/_spike/hash` remote (3 mức x 10 lần) | [ ] | | |
 | P1-24 | Deploy `FE` (chỉ assets), kiểm static assets không tính request | [ ] | | Chung với FE workflow. |
 | P1-25 | Đối chiếu dòng ghi/đọc D1 dashboard với dự báo | [ ] | | |
-| P1-26 | `ea/AZ_Spike.mq5` | [ ] | | Chưa có thư mục `ea/`. |
+| P1-26 | `ea/AZ_Spike.mq5` | [~] | 2026-10-20 | CHƯA CHẠY: đã viết (OnTimer 10 giây, `JsonEscape`, in mã trả về và `GetLastError()`), **chưa biên dịch trong MetaEditor**. JSON mô phỏng đã qua schema zod. Tệp UTF-8 có BOM. |
 | P1-27 | Chạy MT5 demo gọi `workers.dev` | [ ] | | |
 | P1-28 | Ghi mã `GetLastError()` thực tế khi chưa cho phép URL | [ ] | | |
 | P1-29 | (Tùy chọn) MT5 gọi `127.0.0.1:8787` | [ ] | | |
@@ -67,6 +67,7 @@
 | Mã | Việc | Trạng thái | Ngày | Ghi chú |
 |---|---|---|---|---|
 | X-BE-01 | Sửa `seed-link.ts` cho đường dẫn có dấu cách | [x] | 2026-10-20 | Dùng `--file=.wrangler/seed-link.sql` với `cwd` là `BE`. |
+| X-BE-02 | Script remote cho P1-20..22: `pnpm db:migrate:remote`, `pnpm db:seed:remote`, `pnpm deploy:api`; `seed-link.ts --remote` | [x] | 2026-10-20 | ĐÃ CHẠY local (seed vẫn ổn, `pnpm check` xanh). **Phần `--remote` CHƯA CHẠY** vì cần đăng nhập Cloudflare. Khóa remote lưu ở `BE/.wrangler/remote-api-key.txt`. |
 
 ## 4. Quyết định và lệch so với Plan (chỉ append)
 
@@ -88,6 +89,9 @@
 - [ ] `INGEST_DEBUG_META` phải tắt ngoài môi trường spike.
 - [ ] `seed-link.ts` dùng `spawnSync(..., { shell: true })` gây cảnh báo Node `DEP0190`; xử lý khi có dịp, hiện không ảnh hưởng.
 - [ ] Wrangler chính thức chỉ hỗ trợ Windows 11; Windows 10 đã chạy được `wrangler dev`. Nếu `workerd` lỗi thì dùng WSL2.
+- [ ] Biên dịch `ea/AZ_Spike.mq5` trong MetaEditor và sửa lỗi cú pháp nếu có (P1-26 chưa được biên dịch).
+- [ ] Khi thử MT5 (P1-27) dùng một khóa remote **tạo riêng, không truyền `--login/--server`** để khóa tự gắn vào tài khoản MT5 ở lần gửi đầu; khóa dùng cho `fake-ea` là khóa khác.
+- [ ] Chưa biết MT5 có chấp nhận URL có cổng (vd `127.0.0.1:8787`) trong danh sách Allow WebRequest hay không; P1-29 sẽ xác nhận.
 
 ## 6. Nhật ký (chỉ append, mới nhất ở cuối)
 
@@ -98,3 +102,4 @@
 | 2026-10-20 | Claude + người dùng | X-BE-01, P1-13, P1-18 | Sửa seed cho đường dẫn có dấu cách; chạy seed và `fake-ea` | `fake-ea`: "Tất cả đạt." (7 tình huống) | Lỗi do `shell: true` không đặt nháy đường dẫn |
 | 2026-10-20 | Claude | P1-19 | Thêm endpoint spike PBKDF2 + 5 test | `pnpm check`: 67 test BE xanh; commit `0691280` | Chưa đo thời gian trên remote |
 | 2026-10-20 | Claude | (tài liệu) | Tạo tệp workflow này | | |
+| 2026-10-20 | Claude | P1-26, X-BE-02 | Viết `ea/AZ_Spike.mq5`; thêm script migrate/seed/deploy remote và `--remote` cho `seed-link.ts` | `pnpm check` xanh (19 + 67 + 2); seed local chạy lại ổn; JSON mô phỏng qua zod | Không có MetaEditor/MT5 để biên dịch EA |

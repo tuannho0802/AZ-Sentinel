@@ -1,0 +1,28 @@
+{
+    "clangd.fallbackFlags": [
+        "-xc++",
+        "-std=c++17",
+        "-D__MQL__",
+        "-D__MQL5__",
+        "-includec:/Users/Admin/.vscode/extensions/ngsoftware.mql-clangd-1.1.63/files/mql_clangd_compat.h",
+        "-fms-extensions",
+        "-fms-compatibility",
+        "-ferror-limit=0",
+        "-Wno-invalid-token-paste",
+        "-Wno-unused-value",
+        "-Wno-unknown-pragmas",
+        "-Wno-writable-strings",
+        "-Xclang",
+        "-Wno-invalid-pp-directive",
+        "-Wno-unknown-directives",
+        "-Wno-language-extension-token",
+        "-Id:/Du An Az/AZ-Sentinel",
+        "-Id:/Du An Az/AZ-Sentinel/Include"
+    ],
+    "C_Cpp.intelliSenseEngine": "Disabled",
+    "files.associations": {
+        "*.mqh": "cpp",
+        "*.mq4": "cpp",
+        "*.mq5": "cpp"
+    }
+}
