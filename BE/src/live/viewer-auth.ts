@@ -15,23 +15,23 @@ export type ViewerAuth = (c: Context<AppEnv>) => Promise<Viewer | null> | Viewer
 /** Trùng với `FE/dev-mock-auth.ts`. Chỉ dùng khi chạy dev; không phải đăng nhập thật. */
 const MOCK_COOKIE = 'az_mock_session'
 const DEV_VIEWERS: Record<string, Viewer> = {
-    'admin@az.local': { userId: 1, role: 'root_admin', expiresAt: null },
-    'user@az.local': { userId: 2, role: 'user', expiresAt: null },
+  'admin@az.local': { userId: 1, role: 'root_admin', expiresAt: null },
+  'user@az.local': { userId: 2, role: 'user', expiresAt: null },
 }
 
 function readCookie(header: string | undefined, name: string): string | null {
-    if (!header) return null
-    for (const part of header.split(';')) {
-        const eq = part.indexOf('=')
-        if (eq < 0) continue
-        if (part.slice(0, eq).trim() !== name) continue
-        try {
-            return decodeURIComponent(part.slice(eq + 1).trim())
-        } catch {
-            return null
-        }
+  if (!header) return null
+  for (const part of header.split(';')) {
+    const eq = part.indexOf('=')
+    if (eq < 0) continue
+    if (part.slice(0, eq).trim() !== name) continue
+    try {
+      return decodeURIComponent(part.slice(eq + 1).trim())
+    } catch {
+      return null
     }
-    return null
+  }
+  return null
 }
 
 /**
@@ -40,9 +40,9 @@ function readCookie(header: string | undefined, name: string): string | null {
  * cho tới khi Part 2 có xác thực thật (an toàn mặc định).
  */
 export const devViewerAuth: ViewerAuth = (c) => {
-    if (c.env.DEV_LINKS_API !== '1') return null
-    const email = readCookie(c.req.header('Cookie'), MOCK_COOKIE)
-    return email ? (DEV_VIEWERS[email.toLowerCase()] ?? null) : null
+  if (c.env.DEV_LINKS_API !== '1') return null
+  const email = readCookie(c.req.header('Cookie'), MOCK_COOKIE)
+  return email ? (DEV_VIEWERS[email.toLowerCase()] ?? null) : null
 }
 
 /** Part 2: thay bằng tra phiên thật. */

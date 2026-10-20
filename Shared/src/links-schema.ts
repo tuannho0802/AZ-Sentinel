@@ -5,8 +5,11 @@ import type { Position } from './ingest-schema'
  * Khi có xác thực thật (Part 2/3) các endpoint sẽ có phân quyền; hình dạng có thể đổi.
  */
 
-/** EA gửi mỗi 10 giây; quá ngưỡng này không có dữ liệu mới thì coi là offline. */
-export const LINK_ONLINE_THRESHOLD_SECONDS = 60
+/**
+ * Plan 3B: lúc không ai xem EA chỉ hỏi gate mỗi 120 giây và `last_seen_at` ghi tối đa mỗi 240
+ * giây, nên tuổi tối đa bình thường ~360 giây. 420 giây chừa biên cho jitter.
+ */
+export const LINK_ONLINE_THRESHOLD_SECONDS = 420
 
 export const LINK_STATUSES = ['active', 'disabled'] as const
 export type LinkStatus = (typeof LINK_STATUSES)[number]

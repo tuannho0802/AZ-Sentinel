@@ -2,7 +2,7 @@
 const DEV_ORIGINS = ['http://localhost:5173', 'http://127.0.0.1:5173']
 
 function normalize(origin: string): string {
-    return origin.trim().toLowerCase().replace(/\/+$/, '')
+  return origin.trim().toLowerCase().replace(/\/+$/, '')
 }
 
 /**
@@ -13,24 +13,24 @@ function normalize(origin: string): string {
  * - Nằm trong danh sách cấu hình (`LIVE_ALLOWED_ORIGINS`) hoặc, ở dev, origin của Vite: chấp nhận.
  */
 export function isOriginAllowed(input: {
-    origin: string | undefined
-    requestHost: string
-    allowedCsv: string | undefined
-    dev: boolean
+  origin: string | undefined
+  requestHost: string
+  allowedCsv: string | undefined
+  dev: boolean
 }): boolean {
-    const { origin, requestHost, allowedCsv, dev } = input
-    if (origin === undefined || origin === '') return true
-    let host: string
-    try {
-        host = new URL(origin).host
-    } catch {
-        return false
-    }
-    if (host === requestHost) return true
-    const allowed = (allowedCsv ?? '')
-        .split(',')
-        .map(normalize)
-        .filter((o) => o !== '')
-    if (dev) allowed.push(...DEV_ORIGINS)
-    return allowed.includes(normalize(origin))
+  const { origin, requestHost, allowedCsv, dev } = input
+  if (origin === undefined || origin === '') return true
+  let host: string
+  try {
+    host = new URL(origin).host
+  } catch {
+    return false
+  }
+  if (host === requestHost) return true
+  const allowed = (allowedCsv ?? '')
+    .split(',')
+    .map(normalize)
+    .filter((o) => o !== '')
+  if (dev) allowed.push(...DEV_ORIGINS)
+  return allowed.includes(normalize(origin))
 }

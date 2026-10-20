@@ -1,7 +1,17 @@
 import { z } from 'zod'
 
 /** Lý do gửi (Plan 1 mục 3). */
-export const REASONS = ['trade_event', 'risk', 'm5_bar', 'volatility', 'heartbeat'] as const
+export const REASONS = [
+  'trade_event',
+  'risk',
+  'm5_bar',
+  'volatility',
+  'heartbeat',
+  /** Plan 3B: lô mẫu gửi khi có người xem. */
+  'live',
+  /** Plan 3B: gửi bù nến M5 và sự kiện tích lại lúc idle. */
+  'backfill',
+] as const
 export type Reason = (typeof REASONS)[number]
 
 /** Loại lệnh/vị thế (Plan 1 mục 5). */
@@ -73,6 +83,19 @@ export const accountSchema = z.object({
 export type Account = z.infer<typeof accountSchema>
 
 export const MAX_POSITIONS = 200
+/** Plan 3B: số mẫu tối đa mỗi lô live và số nến M5 bù tối đa (24 giờ). */
+export const MAX_SAMPLES = 20
+export const MAX_BARS = 288
+
+/** Mẫu equity mỗi giây EA gom vào lô (Plan 3B mục 4). `t` là Unix giây. */
+export const sampleSchema = z.object({
+  t: z.number().int().nonnegative(),
+  eq: z.number().finite(),
+  bal: z.number().finite(),
+  fl: z.number().finite(),
+  ml: z.number().finite().nullish(),
+})
+export type Sample = z.infer<typeof sampleSchema>
 export const MAX_EVENTS = 100
 /** Giới hạn body ingest (Rules BE mục 7). */
 export const MAX_INGEST_BODY_BYTES = 64 * 1024
@@ -87,19 +110,41 @@ export const ingestPayloadSchema = z.object({
   vps: shortText(64).optional(),
   ea_ver: shortText(16).optional(),
   account: accountSchema,
-  positions: z.array(positionSchema).max(MAX_POSITIONS).default([]),
+  /** Vắng mặt = "không đổi" (đường live chỉ gửi khi `pos_hash` đổi). */
+  positions: z.array(positionSchema).max(MAX_POSITIONS).optional(),
   pending: z.array(positionSchema).max(MAX_POSITIONS).optional(),
   events: z.array(tradeEventSchema).max(MAX_EVENTS).default([]),
+  samples: z.array(sampleSchema).max(MAX_SAMPLES).optional(),
+  /** Nến M5 bù (`reason: backfill`); `t` = đầu nến. */
+  bars: z.array(sampleSchema).max(MAX_BARS).optional(),
+  pos_hash: z.string().max(64).optional(),
   truncated: z.boolean().optional(),
   total_positions: z.number().int().nonnegative().optional(),
 })
 export type IngestPayload = z.infer<typeof ingestPayloadSchema>
+
+export type GateMode = 'live' | 'idle'
+
+/** Phản hồi `GET /api/ea/v1/gate` (Plan 3B mục 4). */
+export type GateResponse = {
+  mode: GateMode
+  interval_sec: number
+  lease_sec: number
+  next_poll_sec: number
+  server_time: number
+}
 
 /** Phản hồi của server cho EA (Plan 1 mục 6). */
 export type IngestResponse = {
   ack_seq: number
   next_interval_sec?: number
   commands: { type: 'set_interval' | 'ping'; value?: number }[]
+  /** Plan 3B: cấp/thu hồi quyền live. Vắng mặt với client cũ (AZ_Spike). */
+  mode?: GateMode
+  interval_sec?: number
+  lease_sec?: number
+  next_poll_sec?: number
+  server_time?: number
   duplicate?: boolean
   /** Chỉ có ở chế độ spike/dev. */
   meta?: { rows_written: number; rows_read: number }
