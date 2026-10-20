@@ -37,7 +37,7 @@
 | P1-09 | `pnpm dev` chạy hai ứng dụng; `http://localhost:5173` thấy "API OK" | [x] | 2026-10-20 | NGƯỜI DÙNG XÁC NHẬN: ảnh chụp trình duyệt trong VS Code hiện "AZ Sentinel" + "API OK"; log BE `GET /api/health 200`. Ảnh cần lưu vào Plan 3 (P1-09). |
 | P1-08 | `pnpm install` (phần FE) | [x] | 2026-10-20 | NGƯỜI DÙNG XÁC NHẬN cùng lượt cài chung. |
 | P1-10 | `pnpm check` xanh có cả FE | [~] | 2026-10-20 | ĐÃ CHẠY trên Linux: 88 test xanh (19 + 67 + 2). **Còn thiếu:** người dùng xác nhận `pnpm check` xanh sau khi pull FE trên Windows. |
-| P1-24 | Deploy `FE` (chỉ assets) lên `workers.dev`; đo static assets không tính request | [ ] | | Chưa có `FE/wrangler.jsonc`. Chung với BE workflow. |
+| P1-24 | Deploy `FE` (chỉ assets) lên `workers.dev`; đo static assets không tính request | [~] | 2026-10-20 | Chưa có `FE/wrangler.jsonc`. Chung với BE workflow. Cập nhật 2026-10-20: đã có `FE/wrangler.jsonc` (assets `./dist`, SPA fallback) và `pnpm deploy:web`; ĐÃ CHẠY `--dry-run`. **Chưa deploy thật, chưa đo.** Trên `workers.dev` trang sẽ hiện lỗi API vì khác origin (bình thường ở Part 1). |
 
 ### Việc ngoài Plan (mã `X-FE-nn`)
 
@@ -71,3 +71,4 @@
 | 2026-10-20 | Claude | P1-07 | Dựng `FE/` (Vite, React, Tailwind, TanStack Query), trang `HealthPage`, 2 test | `pnpm check` xanh trên bản clone sạch; commit `0691280` | Lần ghi đầu thiếu thư mục (brace expansion của `sh`); đã ghi lại |
 | 2026-10-20 | Người dùng | P1-09 | Chạy `pnpm dev`, mở `localhost:5173` | Ảnh chụp: "API OK" | |
 | 2026-10-20 | Claude | (tài liệu) | Tạo tệp workflow này | | |
+| 2026-10-20 | Claude | P1-24 | Thêm `FE/wrangler.jsonc`, devDependency `wrangler`, script `deploy` (FE) và `deploy:web` (gốc) | `vite build` OK; `wrangler deploy --dry-run` đọc tệp assets | Chưa deploy thật (cần đăng nhập Cloudflare) |

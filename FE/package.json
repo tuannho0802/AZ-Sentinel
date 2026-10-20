@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "deploy": "pnpm build && wrangler deploy"
   },
   "dependencies": {
     "@az-sentinel/shared": "workspace:*",
@@ -26,6 +27,7 @@
     "tailwindcss": "^4.3.3",
     "typescript": "^7.0.2",
     "vite": "^8.3.4",
-    "vitest": "^4.1.12"
+    "vitest": "^4.1.12",
+    "wrangler": "^4.151.1"
   }
 }

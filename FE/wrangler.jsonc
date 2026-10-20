@@ -1,0 +1,10 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "az-sentinel-web",
+  // Cùng ngày với BE; cập nhật khi nâng wrangler.
+  "compatibility_date": "2026-10-01",
+  // Worker chỉ phục vụ static assets (không có mã chạy). Request tới assets không tính vào
+  // hạn mức request của Worker (cần xác nhận ở P1-24).
+  "assets": { "directory": "./dist", "not_found_handling": "single-page-application" }
+  // Part 4: thêm "routes" khi có domain để /api/* về Worker API cùng origin.
+}

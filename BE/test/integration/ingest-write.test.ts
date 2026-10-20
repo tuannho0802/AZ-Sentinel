@@ -114,7 +114,9 @@ describe('ingest: nội dung được lưu', () => {
 
   it('equity_m5 chỉ có một dòng cho mỗi nến M5 dù gửi nhiều lần', async () => {
     const { key } = await seedLink()
-    const ts = Math.floor(Date.now() / 1000)
+    // Căn về đầu nến M5 để ts và ts + 10 luôn cùng một nến (tránh test chập chờn
+    // khi chạy sát ranh giới 5 phút).
+    const ts = Math.floor(Date.now() / 1000 / 300) * 300
     await send(key, makePayload({ reason: ['m5_bar'], ts_utc: ts }))
     await send(key, makePayload({ reason: ['m5_bar'], ts_utc: ts + 10 }))
     expect(await count('equity_m5')).toBe(1)

@@ -18,7 +18,8 @@
     "db:migrate:local": "pnpm --filter @az-sentinel/api db:migrate:local",
     "db:migrate:remote": "pnpm --filter @az-sentinel/api db:migrate:remote",
     "db:seed:remote": "tsx Scripts/seed-link.ts --remote",
-    "deploy:api": "pnpm --filter @az-sentinel/api deploy"
+    "deploy:api": "pnpm --filter @az-sentinel/api run deploy",
+    "deploy:web": "pnpm --filter @az-sentinel/web run deploy"
   },
   "devDependencies": {
     "@biomejs/biome": "latest",

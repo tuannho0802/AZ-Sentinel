@@ -57,7 +57,7 @@
 | P1-27 | Chạy MT5 demo gọi `workers.dev` | [ ] | | |
 | P1-28 | Ghi mã `GetLastError()` thực tế khi chưa cho phép URL | [ ] | | |
 | P1-29 | (Tùy chọn) MT5 gọi `127.0.0.1:8787` | [ ] | | |
-| P1-30 | Điền `docs/spike-results.md` | [ ] | | Lưu ý: thư mục thực tế là `Docs/` (chữ D hoa). |
+| P1-30 | Điền `docs/spike-results.md` | [~] | 2026-10-20 | Đã tạo mẫu `Docs/spike-results.md` (số local P1-18 đã điền, mọi ô remote là `____`). **Chưa có số đo remote.** Lưu ý: thư mục thực tế là `Docs/` (chữ D hoa). |
 | P1-31 | Xóa mã spike (`/api/_spike/*`, D1 spike, dữ liệu giả) | [ ] | | Gồm `BE/src/routes/spike.ts`, dòng mount trong `BE/src/app.ts`, `BE/test/integration/spike-hash.test.ts`. |
 | P1-32 | Chốt quyết định cuối Part 1 | [ ] | | |
 | P1-33 | Merge `part-1-spike` vào `main`, tag `part-1-done` | [ ] | | |
@@ -69,6 +69,8 @@
 | X-BE-01 | Sửa `seed-link.ts` cho đường dẫn có dấu cách | [x] | 2026-10-20 | Dùng `--file=.wrangler/seed-link.sql` với `cwd` là `BE`. |
 | X-BE-02 | Script remote cho P1-20..22: `pnpm db:migrate:remote`, `pnpm db:seed:remote`, `pnpm deploy:api`; `seed-link.ts --remote` | [x] | 2026-10-20 | ĐÃ CHẠY local (seed vẫn ổn, `pnpm check` xanh). **Phần `--remote` CHƯA CHẠY** vì cần đăng nhập Cloudflare. Khóa remote lưu ở `BE/.wrangler/remote-api-key.txt`. |
 | X-BE-03 | IDE (VS Code + MQL Clangd) báo lỗi giả và biên dịch EA từ repo | [~] | 2026-10-20 | Nguyên nhân lỗi giả: `C_Cpp.intelliSenseEngine` bị đặt `"Disabled"` (sai hoa/thường, phải là `"disabled"`) nên C/C++ IntelliSense vẫn chạy. Đã sửa; thêm `ea/compile.ps1` + `.vscode/tasks.json` (Ctrl+Shift+B), Biome bỏ qua `.vscode`/tệp tự sinh, `.gitignore` các tệp MQL Clangd tự sinh. **CHƯA CHẠY** trên Windows (không có MetaEditor ở môi trường viết). |
+| X-BE-04 | Sửa lỗi script `deploy:api`: dùng `pnpm --filter ... run deploy` | [x] | 2026-10-20 | Lỗi do X-BE-02: `pnpm ... deploy` gọi lệnh `deploy` có sẵn của pnpm (`ERR_PNPM_INVALID_DEPLOY_TARGET`) thay vì script `wrangler deploy`. ĐÃ CHẠY: `pnpm deploy:api --dry-run` và `pnpm deploy:web --dry-run` đều đúng. |
+| X-BE-05 | Sửa test chập chờn `equity_m5 chỉ có một dòng cho mỗi nến M5` | [x] | 2026-10-20 | Test gửi `ts` và `ts + 10`, sai khi chạy trong 10 giây cuối của nến M5 (~3% số lần). Đã căn `ts` về đầu nến. Lỗi này nằm trong 62 test BE ban đầu, không phải lỗi logic của BE. |
 
 ## 4. Quyết định và lệch so với Plan (chỉ append)
 
@@ -106,3 +108,4 @@
 | 2026-10-20 | Claude | (tài liệu) | Tạo tệp workflow này | | |
 | 2026-10-20 | Claude | P1-26, X-BE-02 | Viết `ea/AZ_Spike.mq5`; thêm script migrate/seed/deploy remote và `--remote` cho `seed-link.ts` | `pnpm check` xanh (19 + 67 + 2); seed local chạy lại ổn; JSON mô phỏng qua zod | Không có MetaEditor/MT5 để biên dịch EA |
 | 2026-10-20 | Claude | X-BE-03 | Sửa cấu hình IDE: `intelliSenseEngine` -> `disabled`, tắt `errorSquiggles`; thêm `ea/compile.ps1`, `.vscode/tasks.json`; Biome bỏ qua `.vscode` và tệp tự sinh; cập nhật `.gitignore` | `pnpm check` xanh; JSON hợp lệ | Chưa chạy `compile.ps1` trên Windows/MetaEditor thật |
+| 2026-10-20 | Claude | X-BE-04, X-BE-05, P1-30 | Sửa `deploy:api`; thêm `deploy:web`; sửa test chập chờn; tạo mẫu `Docs/spike-results.md` | `--dry-run` hai script OK; `pnpm check` xanh | Đính chính X-BE-02: script `deploy:api` ghi ở đó chạy sai (xem X-BE-04) |
