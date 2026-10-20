@@ -190,7 +190,9 @@ export class LiveHub extends DurableObject<Bindings> {
     }
 
     const slot = m5Slot(Math.floor(nowMs / 1000))
-    decision.barDue = mem.lastBarSlot !== slot
+    // Chỉ ghi nến khi VỪA QUA ranh giới M5 (lần đầu sau khi hub nhớ liên kết chỉ đặt mốc).
+    // Nến bị lỡ lúc idle được `backfill` bù.
+    decision.barDue = mem.lastBarSlot !== -1 && mem.lastBarSlot !== slot
     mem.lastBarSlot = slot
 
     if (input.positions !== undefined) {

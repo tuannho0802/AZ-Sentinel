@@ -100,3 +100,8 @@ export function tradeEvent(over: Record<string, unknown>) {
     ...over,
   }
 }
+
+/** Gán chủ sở hữu cho liên kết (test phạm vi xem). */
+export async function setOwner(linkId: number, ownerId: number): Promise<void> {
+  await env.DB.prepare('UPDATE ea_links SET owner_id = ? WHERE id = ?').bind(ownerId, linkId).run()
+}
