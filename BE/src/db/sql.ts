@@ -14,13 +14,18 @@ export type LinkRow = {
   last_sid: string | null
   last_seq: number | null
   presence: number | null
+  /** Chủ sở hữu; null ở chế độ dev (liên kết tạo qua /api/dev chưa có chủ). */
+  owner_id: number | null
+  /** Giờ nhận gần nhất; làm "đồng hồ" cho ghi điều tiết (Plan 3B mục 7). null = chưa có. */
+  last_seen_at: number | null
 }
 
 /** Đọc ~3 dòng (chỉ mục key_hash -> ea_links -> link_state). Ghi 0. */
 export function findLinkByKeyHash(db: D1Database, keyHash: string): Promise<LinkRow | null> {
   return db
     .prepare(
-      `SELECT l.id, l.status, l.login, l.server, s.last_sid, s.last_seq, s.presence
+      `SELECT l.id, l.status, l.login, l.server, l.owner_id,
+              s.last_sid, s.last_seq, s.presence, s.last_seen_at
        FROM ea_links l LEFT JOIN link_state s ON s.link_id = l.id
        WHERE l.key_hash = ?`,
     )
@@ -61,7 +66,11 @@ export type LinkStateInput = {
   now: number
 }
 
-/** Ghi 1 dòng (upsert theo khóa chính, không chỉ mục phụ). */
+/**
+ * Ghi 1 dòng (upsert theo khóa chính, không chỉ mục phụ).
+ * `positions` vắng mặt (undefined) thì giữ nguyên `positions_json` đang lưu; có mặt (kể cả mảng
+ * rỗng) thì thay bằng danh sách mới.
+ */
 export function upsertLinkStateStmt(db: D1Database, i: LinkStateInput): D1PreparedStatement {
   const { payload: p, now } = i
   const a = p.account
@@ -76,7 +85,8 @@ export function upsertLinkStateStmt(db: D1Database, i: LinkStateInput): D1Prepar
          balance = excluded.balance, equity = excluded.equity, margin = excluded.margin,
          margin_free = excluded.margin_free, margin_level = excluded.margin_level,
          floating_pl = excluded.floating_pl,
-         positions_json = excluded.positions_json, pending_json = excluded.pending_json,
+         positions_json = COALESCE(excluded.positions_json, link_state.positions_json),
+         pending_json = excluded.pending_json,
          last_reason = excluded.last_reason,
          last_seen_at = excluded.last_seen_at, last_seq = excluded.last_seq,
          last_sid = excluded.last_sid, ea_ver = excluded.ea_ver, last_ip = excluded.last_ip,
@@ -90,7 +100,7 @@ export function upsertLinkStateStmt(db: D1Database, i: LinkStateInput): D1Prepar
       a.margin_free ?? null,
       a.margin_level ?? null,
       a.floating_pl,
-      JSON.stringify(p.positions),
+      p.positions === undefined ? null : JSON.stringify(p.positions),
       p.pending ? JSON.stringify(p.pending) : null,
       p.reason.join(','),
       now,
@@ -204,4 +214,47 @@ export function insertAuthFailEventStmt(
        )`,
     )
     .bind(linkId, now, JSON.stringify(detail), linkId, now - AUTH_FAIL_THROTTLE_SECONDS)
+}
+
+/**
+ * Nến M5 bù từ EA (reason `backfill`). Ghi 0-1 dòng mỗi nến (INSERT OR IGNORE trên bảng
+ * WITHOUT ROWID, không chỉ mục phụ); nến đã có thì bỏ qua, không ghi đè.
+ */
+export function insertEquityBarStmt(
+  db: D1Database,
+  linkId: number,
+  barTs: number,
+  bar: { bal: number; eq: number; fl: number; ml?: number | null },
+): D1PreparedStatement {
+  return db
+    .prepare(
+      `INSERT OR IGNORE INTO equity_m5 (link_id, ts, balance, equity, floating_pl, margin_level)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+    )
+    .bind(linkId, barTs, bar.bal, bar.eq, bar.fl, bar.ml ?? null)
+}
+
+/**
+ * Gate: đánh dấu EA còn sống. Chỉ có tác dụng khi đã có dòng link_state; service gọi tối đa
+ * một lần mỗi 240 giây (hoặc khi presence = 1). Ghi 0-1 dòng.
+ */
+export function touchLinkSeenStmt(
+  db: D1Database,
+  linkId: number,
+  now: number,
+): D1PreparedStatement {
+  return db
+    .prepare('UPDATE link_state SET last_seen_at = ?, presence = 0 WHERE link_id = ?')
+    .bind(now, linkId)
+}
+
+/** Chủ sở hữu của một liên kết, để kiểm quyền xem (Plan 3B mục 7, quy tắc 6). Đọc 1 dòng. */
+export function findLinkOwner(
+  db: D1Database,
+  linkId: number,
+): Promise<{ owner_id: number | null } | null> {
+  return db
+    .prepare('SELECT owner_id FROM ea_links WHERE id = ?')
+    .bind(linkId)
+    .first<{ owner_id: number | null }>()
 }

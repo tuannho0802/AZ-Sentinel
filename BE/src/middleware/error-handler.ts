@@ -19,6 +19,7 @@ function codeForStatus(status: number): ErrorCode {
 /** Bắt mọi lỗi, trả đúng dạng lỗi chuẩn, không lộ chi tiết nội bộ (Rules BE mục 9). */
 export const onError: ErrorHandler<AppEnv> = (err, c) => {
   if (err instanceof AppError) {
+    if (err.retryAfterSec !== undefined) c.header('Retry-After', String(err.retryAfterSec))
     return c.json(errorBody(err.code, err.message), err.status)
   }
   if (err instanceof HTTPException && err.status >= 400 && err.status < 500) {

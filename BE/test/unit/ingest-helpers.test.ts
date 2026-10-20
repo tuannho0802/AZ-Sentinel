@@ -11,6 +11,8 @@ const link = (over: Partial<LinkRow>): LinkRow => ({
   last_sid: 'sess01',
   last_seq: 10,
   presence: 0,
+  owner_id: null,
+  last_seen_at: 1,
   ...over,
 })
 

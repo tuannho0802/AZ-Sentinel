@@ -16,6 +16,10 @@
       "database_id": "00000000-0000-0000-0000-000000000000",
       "migrations_dir": "migrations"
     }
-  ]
+  ],
+  // Plan 3B: hub live. Gói free bắt buộc SQLite-backed (new_sqlite_classes); hub không dùng
+  // storage nên không tốn dòng ghi của DO.
+  "durable_objects": { "bindings": [{ "name": "LIVE_HUB", "class_name": "LiveHub" }] },
+  "migrations": [{ "tag": "v1-live-hub", "new_sqlite_classes": ["LiveHub"] }]
   // Part 4: thêm "routes" khi có domain; Part 5: thêm "triggers.crons".
 }

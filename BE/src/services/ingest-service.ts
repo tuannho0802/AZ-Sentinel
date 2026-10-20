@@ -12,12 +12,16 @@ import {
 import { AppError } from '../lib/app-error'
 import { barTimestamp } from '../lib/time'
 
-export type IngestInput = {
+/** Đủ để xác thực liên kết; dùng chung đường ingest cũ và đường live. */
+export type AuthInput = {
   db: D1Database
   keyHash: string
   payload: IngestPayload
-  ip: string | null
   now: number
+}
+
+export type IngestInput = AuthInput & {
+  ip: string | null
   /** true = trả meta rows_written/rows_read (dev/spike). */
   debugMeta: boolean
 }
@@ -47,7 +51,7 @@ export function isDuplicate(link: LinkRow, payload: IngestPayload): boolean {
 }
 
 async function rejectWith(
-  input: IngestInput,
+  input: AuthInput,
   link: LinkRow,
   reason: string,
   error: AppError,
@@ -65,20 +69,16 @@ async function rejectWith(
   throw error
 }
 
-/**
- * Luồng ingest theo Plan 2 mục 6 (sau bước kiểm tra body và zod ở route):
- * tra khóa -> kiểm tra trạng thái và (server, login) -> loại trùng -> một DB.batch().
- */
-export async function ingest(input: IngestInput): Promise<IngestResponse> {
-  const { db, payload, now } = input
-
-  const link = await findLinkByKeyHash(db, input.keyHash)
+/** Rules BE mục 7, bước 3-4: tra khóa (một truy vấn), kiểm tra trạng thái và (server, login). */
+export async function authorizeLink(
+  input: AuthInput,
+): Promise<{ link: LinkRow; firstBind: boolean }> {
+  const link = await findLinkByKeyHash(input.db, input.keyHash)
   if (!link) throw new AppError(401, 'INVALID_API_KEY', 'API key không hợp lệ')
   if (link.status !== 'active') {
     throw new AppError(403, 'LINK_DISABLED', 'Liên kết EA đã bị khóa')
   }
-
-  const account = payload.account
+  const account = input.payload.account
   const firstBind = link.login === null
   if (!firstBind && (link.login !== account.login || link.server !== account.server)) {
     return rejectWith(
@@ -92,17 +92,52 @@ export async function ingest(input: IngestInput): Promise<IngestResponse> {
       ),
     )
   }
+  return { link, firstBind }
+}
+
+/** Lỗi D1 khi ghi batch: ràng buộc duy nhất lúc gắn lần đầu là 409, còn lại 503. */
+export async function failBatch(
+  input: AuthInput,
+  link: LinkRow,
+  firstBind: boolean,
+  error: unknown,
+): Promise<never> {
+  if (firstBind && isUniqueViolation(error)) {
+    return rejectWith(
+      input,
+      link,
+      'bound_elsewhere',
+      new AppError(
+        409,
+        'LINK_BOUND_TO_OTHER_ACCOUNT',
+        'Tài khoản giao dịch này đã được liên kết với API key khác',
+      ),
+    )
+  }
+  // D1 lỗi: 503 để EA giữ hàng đợi và gửi lại (Rules BE mục 7).
+  throw new AppError(503, 'SERVICE_UNAVAILABLE', 'Dịch vụ tạm thời không khả dụng')
+}
+
+/**
+ * Luồng ingest cũ (heartbeat, m5_bar, trade_event...): tra khóa -> kiểm tra -> loại trùng ->
+ * một DB.batch(). Đường `live`/`backfill` nằm ở `live-service.ts`.
+ */
+export async function ingest(input: IngestInput): Promise<IngestResponse> {
+  const { db, payload, now } = input
+  const { link, firstBind } = await authorizeLink(input)
 
   if (isDuplicate(link, payload)) {
     return { ack_seq: link.last_seq ?? payload.seq, commands: [], duplicate: true }
   }
 
+  const account = payload.account
   const statements: D1PreparedStatement[] = []
   if (firstBind) statements.push(bindLinkStmt(db, link.id, account, now))
   statements.push(
     upsertLinkStateStmt(db, {
       linkId: link.id,
-      payload,
+      // Đường cũ coi `positions` vắng mặt là rỗng (hành vi trước Plan 3B).
+      payload: { ...payload, positions: payload.positions ?? [] },
       vpsLabel: normalizeVpsLabel(payload.vps),
       ip: input.ip,
       now,
@@ -118,20 +153,7 @@ export async function ingest(input: IngestInput): Promise<IngestResponse> {
   try {
     results = await db.batch(statements)
   } catch (error) {
-    if (firstBind && isUniqueViolation(error)) {
-      return rejectWith(
-        input,
-        link,
-        'bound_elsewhere',
-        new AppError(
-          409,
-          'LINK_BOUND_TO_OTHER_ACCOUNT',
-          'Tài khoản giao dịch này đã được liên kết với API key khác',
-        ),
-      )
-    }
-    // D1 lỗi: 503 để EA giữ hàng đợi và gửi lại (Rules BE mục 7).
-    throw new AppError(503, 'SERVICE_UNAVAILABLE', 'Dịch vụ tạm thời không khả dụng')
+    return failBatch(input, link, firstBind, error)
   }
 
   const response: IngestResponse = { ack_seq: payload.seq, commands: [] }

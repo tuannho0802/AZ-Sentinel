@@ -7,6 +7,8 @@ export class AppError extends Error {
     readonly status: ContentfulStatusCode,
     readonly code: ErrorCode,
     message: string,
+    /** Có giá trị thì phản hồi kèm header `Retry-After` (giây), dùng cho 429. */
+    readonly retryAfterSec?: number,
   ) {
     super(message)
     this.name = 'AppError'

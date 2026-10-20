@@ -5,6 +5,11 @@ export function nowUnix(): number {
   return Math.floor(Date.now() / 1000)
 }
 
+/** Đầu nến M5 chứa thời điểm `unix` (giây). */
+export function m5Slot(unix: number): number {
+  return Math.floor(unix / M5_SECONDS) * M5_SECONDS
+}
+
 /**
  * Thời điểm nến M5 cho equity_m5. Dùng ts_utc của EA (để gửi lại hàng đợi vẫn đúng nến)
  * nhưng chỉ khi nằm trong [now - 7 ngày, now + 1 nến]; ngoài khoảng đó coi là không tin
