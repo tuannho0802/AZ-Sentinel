@@ -20,7 +20,7 @@ Mở http://localhost:5173, đăng nhập `admin@az.local` / `admin1234` (tài k
 1. Bấm **Tạo liên kết**. Sao chép **API key** và **URL** trong hộp thoại (khóa chỉ hiện một lần).
 2. MT5: Tools → Options → Expert Advisors → Allow WebRequest, thêm `http://127.0.0.1:8787` (thử thêm `http://127.0.0.1` nếu MT5 từ chối cổng). Bật Algo Trading.
 3. Biên dịch `ea/AZ_Spike.mq5`, gắn lên chart của tài khoản demo, điền `InpUrl`, `InpApiKey`.
-4. Tab Experts phải có `http=200`. Trong web, bấm **Làm mới** (hoặc chờ 30 giây): liên kết hiện tài khoản, Online, equity; bấm **Xem** để đối chiếu với tab Trade của MT5.
+4. Tab Experts phải có `http=200`. Trang web tự làm mới mỗi 2 giây (đổi ở ô **Tự làm mới**: 1/2/5/30 giây hoặc Tắt; bấm **Làm mới** để cập nhật ngay): liên kết hiện tài khoản, Online, equity; bấm **Xem** để đối chiếu với tab Trade của MT5.
 
 ## Kịch bản
 
@@ -39,7 +39,7 @@ Mở http://localhost:5173, đăng nhập `admin@az.local` / `admin1234` (tài k
 ## Lưu ý
 
 - Hệ thống chỉ lưu băm của khóa nên không thể xem lại khóa cũ; mất khóa thì dùng **Cấp lại khóa**.
-- Cột Tài khoản MT5 hiện số tài khoản, tên (`ACCOUNT_NAME`) và server, lấy từ lần gửi đầu tiên của EA.
+- Danh sách có các cột Tài khoản MT5 (số tài khoản + server), Tên tài khoản (`ACCOUNT_NAME`), Balance, Equity. Thông tin tài khoản lấy từ lần gửi đầu tiên của EA; cột Tên hiện "—" nghĩa là MT5 không có tên cho tài khoản đó, hoặc liên kết gắn trước khi EA gửi tên (bấm **Gỡ gắn tài khoản** để gắn lại).
 - Online/Offline do server tính theo ngưỡng 60 giây (EA gửi mỗi 10 giây). Cron đánh dấu offline thật là Part 5.
 - Giới hạn 20 liên kết ở chế độ thử; xóa bớt bằng nút **Xóa liên kết**.
 - Khi có Part 2/3: xóa `BE/src/routes/dev-links.ts` và thay màn hình bằng API có phân quyền (xem BE/FE Workflow).

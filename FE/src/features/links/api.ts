@@ -7,25 +7,29 @@ import type {
 } from '@az-sentinel/shared'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiDelete, apiGet, apiPost } from '../../lib/api-client'
+import { DEFAULT_REFRESH_MS } from './refresh'
 
 const BASE = '/api/dev/links'
 export const LINKS_KEY = ['links'] as const
 const linkKey = (id: number) => ['links', id] as const
 
-/** Danh sách poll 30 giây, dừng khi tab ẩn (Rules FE mục 5). */
-export function useLinks() {
+/**
+ * Chu kỳ tự làm mới do người dùng chọn trên màn hình thử (xem `refresh.ts`); 0 = tắt.
+ * Luôn dừng khi tab ẩn (Rules FE mục 5).
+ */
+export function useLinks(refreshMs: number = DEFAULT_REFRESH_MS) {
   return useQuery({
     queryKey: LINKS_KEY,
     queryFn: () => apiGet<LinkListResponse>(BASE),
-    refetchInterval: 30_000,
+    refetchInterval: refreshMs > 0 ? refreshMs : false,
   })
 }
 
-export function useLink(id: number) {
+export function useLink(id: number, refreshMs: number = DEFAULT_REFRESH_MS) {
   return useQuery({
     queryKey: linkKey(id),
     queryFn: () => apiGet<LinkDetail>(`${BASE}/${id}`),
-    refetchInterval: 30_000,
+    refetchInterval: refreshMs > 0 ? refreshMs : false,
   })
 }
 

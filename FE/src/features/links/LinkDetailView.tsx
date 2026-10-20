@@ -10,6 +10,7 @@ import {
   plClass,
 } from '../../lib/format'
 import { strings } from '../../lib/strings'
+import { useNow } from '../../lib/use-now'
 import { LinkActions } from './LinkActions'
 import { PresenceBadge } from './PresenceBadge'
 
@@ -24,6 +25,7 @@ function Row({ label, children }: { label: string; children: ReactNode }) {
 
 /** Mọi chuỗi do EA gửi (tên, broker, comment...) hiển thị dạng văn bản thuần (Rules FE mục 7). */
 export function LinkDetailView({ link }: { link: LinkDetail }) {
+  const now = useNow()
   const a = link.account
   const s = link.state
   const currency = a?.currency ?? null
@@ -82,7 +84,9 @@ export function LinkDetailView({ link }: { link: LinkDetail }) {
               <Row label={strings.fieldSeq}>{s.last_seq ?? '—'}</Row>
               <Row label={strings.fieldReason}>{s.last_reason ?? '—'}</Row>
               <Row label={strings.fieldLastSeen}>
-                <span title={formatDateTime(s.last_seen_at)}>{formatRelative(s.last_seen_at)}</span>
+                <span title={formatDateTime(s.last_seen_at)}>
+                  {formatRelative(s.last_seen_at, now)}
+                </span>
               </Row>
             </dl>
           ) : (

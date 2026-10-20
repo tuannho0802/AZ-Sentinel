@@ -4,6 +4,10 @@ export function formatDateTime(unix: number): string {
   return new Date(unix * 1000).toLocaleString('vi-VN')
 }
 
+export function formatTime(ms: number): string {
+  return new Date(ms).toLocaleTimeString('vi-VN')
+}
+
 /** "vừa xong", "3 phút trước"... `nowMs` truyền vào để dễ kiểm thử. */
 export function formatRelative(unix: number, nowMs: number = Date.now()): string {
   const diff = Math.max(0, Math.floor(nowMs / 1000) - unix)

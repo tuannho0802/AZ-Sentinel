@@ -4,9 +4,12 @@ import { strings } from '../../lib/strings'
 import { useCreateLink, useLinks } from './api'
 import { KeyDialog } from './KeyDialog'
 import { LinksTable } from './LinksTable'
+import { RefreshControl } from './RefreshControl'
+import { DEFAULT_REFRESH_MS } from './refresh'
 
 export function LinksList() {
-  const links = useLinks()
+  const [refreshMs, setRefreshMs] = useState(DEFAULT_REFRESH_MS)
+  const links = useLinks(refreshMs)
   const create = useCreateLink()
   const [revealedKey, setRevealedKey] = useState<string | null>(null)
 
@@ -26,14 +29,13 @@ export function LinksList() {
     <div>
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-semibold">{strings.linksPageTitle}</h1>
-        <div className="flex gap-2">
-          <button
-            type="button"
-            className="rounded border px-3 py-1"
-            onClick={() => links.refetch()}
-          >
-            {strings.refresh}
-          </button>
+        <div className="flex flex-wrap items-center gap-3">
+          <RefreshControl
+            value={refreshMs}
+            onChange={setRefreshMs}
+            updatedAt={links.dataUpdatedAt}
+            onRefresh={() => links.refetch()}
+          />
           <button
             type="button"
             className="rounded bg-gray-900 px-3 py-1 text-white disabled:opacity-60"

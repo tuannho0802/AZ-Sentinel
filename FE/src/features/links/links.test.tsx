@@ -271,6 +271,71 @@ describe('cấp lại khóa', () => {
   })
 })
 
+describe('cột và tự làm mới', () => {
+  it('danh sách có cột Tên tài khoản và Balance riêng', async () => {
+    renderApp('/links', {
+      ...base,
+      'GET /api/dev/links': () => json(200, { links: [bound, unbound] }),
+    })
+    await screen.findByText('5550001')
+    const headers = screen.getAllByRole('columnheader').map((h) => h.textContent)
+    expect(headers).toContain(strings.colAccountName)
+    expect(headers).toContain(strings.colBalance)
+    const row = screen.getByText('5550001').closest('tr') as HTMLElement
+    const cells = within(row)
+      .getAllByRole('cell')
+      .map((c) => c.textContent)
+    expect(cells).toContain('Tester')
+    expect(cells).toContain('1,000.00 USD')
+  })
+
+  it('liên kết chưa gắn tài khoản: tên và balance hiện "—"', async () => {
+    renderApp('/links', { ...base, 'GET /api/dev/links': () => json(200, { links: [unbound] }) })
+    const row = (await screen.findByText(strings.awaitingEa)).closest('tr') as HTMLElement
+    const cells = within(row)
+      .getAllByRole('cell')
+      .map((c) => c.textContent)
+    expect(cells.filter((c) => c === '—').length).toBeGreaterThanOrEqual(4)
+  })
+
+  it('tự cập nhật số liệu mới mà không cần bấm Làm mới; chọn Tắt thì dừng', async () => {
+    let calls = 0
+    const withBalance = (balance: number): LinkSummary => ({
+      ...bound,
+      state: bound.state ? { ...bound.state, balance } : null,
+    })
+    renderApp('/links', {
+      ...base,
+      'GET /api/dev/links': () => {
+        calls += 1
+        return json(200, { links: [withBalance(calls === 1 ? 1000 : 1500)] })
+      },
+    })
+    expect(await screen.findByText('1,000.00 USD')).toBeTruthy()
+    fireEvent.change(screen.getByLabelText(strings.autoRefresh), { target: { value: '1000' } })
+    expect(await screen.findByText('1,500.00 USD', {}, { timeout: 4000 })).toBeTruthy()
+
+    fireEvent.change(screen.getByLabelText(strings.autoRefresh), { target: { value: '0' } })
+    const before = calls
+    await new Promise((r) => setTimeout(r, 1500))
+    expect(calls).toBe(before)
+  })
+
+  it('có ô chọn chu kỳ và giờ cập nhật; trang chi tiết cũng có', async () => {
+    renderApp('/links/2', { ...base, 'GET /api/dev/links/2': () => json(200, detail) })
+    const select = (await screen.findByLabelText(strings.autoRefresh)) as HTMLSelectElement
+    expect(select.value).toBe('2000')
+    expect(Array.from(select.options).map((o) => o.textContent)).toEqual([
+      '1 giây',
+      '2 giây',
+      '5 giây',
+      '30 giây',
+      strings.refreshOff,
+    ])
+    expect(await screen.findByText(new RegExp(strings.updatedAt))).toBeTruthy()
+  })
+})
+
 describe('điều hướng', () => {
   it('menu có mục Liên kết EA dẫn tới danh sách', async () => {
     renderApp('/', { ...base, 'GET /api/dev/links': () => json(200, { links: [] }) })
