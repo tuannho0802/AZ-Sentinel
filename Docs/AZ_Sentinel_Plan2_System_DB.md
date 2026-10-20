@@ -1,8 +1,8 @@
 # AZ Sentinel — Plan 2: Hệ thống web, DB và codebase
 
-> Bản nháp v0.2 · 20/10/2026 · Stack đã chốt: **Cloudflare Workers + D1**.
-> Phần EA (MQL5) nằm ở file `AZ_Sentinel_Plan1_EA.md`.
-> Thay đổi so với v0.1: xem mục 14.
+> Bản nháp v0.3 · 20/10/2026 · Stack đã chốt: **Cloudflare Workers + D1**, một repo monorepo, deploy tách bằng Root directory.
+> Phần EA (MQL5) nằm ở file `AZ_Sentinel_Plan1_EA.md`. Kế hoạch triển khai: `AZ_Sentinel_Plan3_Implementation.md`. Quy tắc mã: `AZ_Sentinel_Rules_BE.md`, `AZ_Sentinel_Rules_FE.md`.
+> Thay đổi so với v0.2: xem mục 14.
 
 ## 0. Tóm tắt, thuật ngữ và giả định
 
@@ -36,124 +36,91 @@ Quy tắc:
 ## 2. Kiến trúc
 
 ```
-EA (MT5) --HTTPS POST--> Worker (API) --> D1
-Trình duyệt --> Worker: static assets (SPA) + /api/*
+EA (MT5) --HTTPS POST--> Worker API (apps/api) --> D1
+Trình duyệt --> Worker Web (apps/web, static assets)  +  /api/* --> Worker API
 Cron Trigger (2 phút/lần) --> sự kiện online/offline
 Cron Trigger (hằng ngày)  --> gộp equity, dọn dữ liệu
 Sau này: Telegram bot cho cảnh báo
 ```
 
-Một Worker duy nhất phục vụ cả SPA và API trên cùng một origin (không cần CORS). Cron trên gói free chỉ có 10 ms CPU mỗi lần, nên việc nặng làm bằng một câu SQL trong D1 thay vì lặp trong mã.
+Hai Worker riêng (web và API) cùng gắn vào một domain tùy chỉnh bằng route: web ở `example.com/*`, API ở `example.com/api/*` (route cụ thể hơn thắng). Nhờ vậy trình duyệt thấy **cùng một origin**: không cần CORS, cookie phiên hoạt động bình thường. Cron trên gói free chỉ có 10 ms CPU mỗi lần, nên việc nặng làm bằng một câu SQL trong D1 thay vì lặp trong mã.
 
 ## 3. Codebase (đã chọn)
 
 ### 3.1 Quyết định
 
-**Một repo, một package, một Worker.** Không dùng monorepo: dự án một người làm, một đích triển khai, chỉ có một mã dùng chung (schema zod giữa EA-API và web). Monorepo (pnpm workspaces + Turborepo) thêm chi phí cấu hình mà chưa có lợi ích. Khi nào tách: nếu sau này có ứng dụng mobile hoặc nhiều Worker.
+**Một repo, monorepo bằng pnpm workspaces, hai ứng dụng deploy riêng.** Lý do: bạn muốn giữ toàn bộ mã trong một repo nhưng deploy từng phần bằng Root directory của Cloudflare Workers Builds (mỗi Worker kết nối vào cùng repo, đặt Root directory tới thư mục chứa `wrangler.jsonc` của nó, và có watch path riêng). Chưa dùng Turborepo; thêm sau nếu thời gian build trở thành vấn đề.
+
+Thay đổi so với v0.2: trước đây một Worker phục vụ cả SPA và API; nay tách thành `apps/api` và `apps/web` để deploy độc lập. Đổi lại cần một domain riêng (mục 2) và watch path phải gồm `packages/shared`.
 
 | Lớp | Lựa chọn | Lý do |
 |---|---|---|
 | Ngôn ngữ | TypeScript (strict) | Chung kiểu dữ liệu cho API và web |
-| Khởi tạo | Template chính thức `vite-react-template` của Cloudflare | Đã nối sẵn Hono + Vite + React |
-| Build/dev | Vite + `@cloudflare/vite-plugin` | Chạy Worker và web cùng một dev server, môi trường local giống production |
-| Backend | Hono | Nhẹ, chạy tốt trên Workers, middleware sẵn |
-| Kiểm tra dữ liệu | zod + `@hono/zod-validator` | Một schema cho cả validate và kiểu |
-| DB truy cập | Drizzle ORM (D1) cho CRUD; `prepare().batch()` thuần cho đường ingest và cron | Kiểu an toàn cho phần quản trị; kiểm soát từng câu SQL ở đường nóng |
-| Migration | `drizzle-kit generate` tạo file SQL, áp bằng `wrangler d1 migrations apply` | Một thư mục `migrations/` có phiên bản, áp được cho dev/staging/prod |
-| Frontend | React + TanStack Query + Wouter (hoặc React Router) | Poll 30 giây, cache, refetch khi tab hiển thị |
-| UI | Tailwind CSS + shadcn/ui | Bảng, form, dialog có sẵn |
-| Biểu đồ | Lightweight Charts (equity) hoặc Recharts | Chọn một ở Phase 2 |
-| Xác thực | Tự viết (session cookie + bảng `sessions`) | Luồng duyệt User và RBAC là riêng; thư viện auth đầy đủ khó khớp và có thể nặng CPU |
-| Test | Vitest + `@cloudflare/vitest-pool-workers` | Chạy test trong runtime Workers với D1 thật (local) |
+| Monorepo | pnpm workspaces | Nhẹ, một lockfile, hợp với Workers Builds |
+| Backend (`apps/api`) | Hono + zod + `@hono/zod-validator` | Nhẹ, chạy tốt trên Workers |
+| DB truy cập | Drizzle ORM (D1) cho CRUD; `prepare().batch()` thuần cho ingest và cron | Kiểu an toàn cho quản trị; kiểm soát từng câu SQL ở đường nóng |
+| Migration | `drizzle-kit generate` tạo SQL, áp bằng `wrangler d1 migrations apply` | Thư mục `migrations/` có phiên bản, dùng cho dev/staging/prod |
+| Frontend (`apps/web`) | React + Vite + TanStack Query + Wouter | Poll 30 giây, cache, dừng khi tab ẩn |
+| UI | Tailwind CSS + shadcn/ui | Bảng, form, hộp thoại có sẵn |
+| Biểu đồ | Lightweight Charts hoặc Recharts | Chọn một ở Part 5 |
+| Xác thực | Tự viết (session cookie + bảng `sessions`) | Luồng duyệt User và RBAC là riêng; chốt hướng băm mật khẩu sau Part 1 |
+| Test | Vitest; `@cloudflare/vitest-pool-workers` cho API | Chạy test trong runtime Workers |
 | Lint/format | Biome | Một công cụ, cấu hình ít |
-| Package manager | pnpm | Nhanh, lockfile chặt |
 
 Khi khởi tạo, dùng phiên bản ổn định mới nhất của từng gói và ghim bằng lockfile; không ghi số phiên bản vào kế hoạch.
 
-### 3.2 Cấu trúc thư mục
+### 3.2 Cấu trúc thư mục và deploy
 
-```
-az-sentinel/
-├─ ea/                         # MQL5, không thuộc npm
-│  └─ MQL5/
-│     ├─ Experts/AZ_Sentinel_Reporter.mq5
-│     └─ Include/AZ_Reporter.mqh
-├─ src/
-│  ├─ shared/                  # dùng chung worker + web
-│  │  ├─ ingest-schema.ts      # zod: payload EA (nguồn sự thật duy nhất)
-│  │  ├─ types.ts              # vai trò, trạng thái, DTO
-│  │  └─ constants.ts
-│  ├─ worker/
-│  │  ├─ index.ts              # Hono app + export { fetch, scheduled }
-│  │  ├─ routes/
-│  │  │  ├─ ingest.ts          # POST /api/ea/v1/ingest
-│  │  │  ├─ auth.ts            # register, login, logout, me
-│  │  │  ├─ links.ts           # CRUD liên kết EA, rotate-key
-│  │  │  ├─ view.ts            # overview, vps, links/:id, equity, trades, events
-│  │  │  └─ admin.ts           # users, approve, audit
-│  │  ├─ middleware/           # session, rbac, origin-check, rate-limit, body-limit
-│  │  ├─ services/             # password, apikey, ingest-writer, link-limit
-│  │  ├─ db/
-│  │  │  ├─ schema.ts          # Drizzle schema
-│  │  │  └─ sql.ts             # câu SQL thô cho ingest và cron
-│  │  └─ cron/
-│  │     ├─ presence.ts        # phát hiện online/offline
-│  │     └─ maintenance.ts     # gộp equity_h1, dọn dữ liệu
-│  └─ web/
-│     ├─ main.tsx
-│     ├─ pages/                # Login, Register, Pending, Overview, Vps, LinkDetail, MyLinks, Admin
-│     ├─ components/
-│     └─ lib/                  # api client, format, escape
-├─ migrations/                 # SQL có phiên bản
-├─ scripts/
-│  └─ seed-root-admin.ts       # tạo rootAdmin gốc một lần
-├─ tests/
-├─ docs/                       # hai file Plan
-├─ wrangler.jsonc              # bindings, cron, assets
-├─ vite.config.ts
-├─ drizzle.config.ts
-└─ package.json
-```
+Xem sơ đồ đầy đủ và bảng Root directory/build/deploy/watch paths ở `AZ_Sentinel_Plan3_Implementation.md` mục 1. Tóm tắt:
 
-### 3.3 Khung cấu hình Worker (minh họa)
+- `apps/api`: Worker Hono + D1 + cron (Root directory `apps/api`).
+- `apps/web`: SPA React/Vite phục vụ bằng static assets, `wrangler.jsonc` chỉ có `assets` (Root directory `apps/web`).
+- `packages/shared`: schema zod, kiểu, hằng số; nhập thẳng mã TypeScript, không build riêng.
+- `ea/`, `scripts/`, `docs/`: không deploy.
+
+### 3.3 Khung cấu hình (minh họa)
+
+`apps/api/wrangler.jsonc`:
 
 ```jsonc
 {
-  "name": "az-sentinel",
-  "main": "src/worker/index.ts",
+  "name": "az-sentinel-api",
+  "main": "src/index.ts",
   "compatibility_date": "<ngày khởi tạo>",
-  "assets": {
-    "not_found_handling": "single-page-application",
-    "run_worker_first": ["/api/*"]
-  },
   "d1_databases": [
     { "binding": "DB", "database_name": "az-sentinel-db", "database_id": "<id>",
       "migrations_dir": "migrations" }
   ],
   "triggers": { "crons": ["*/2 * * * *", "15 3 * * *"] },
+  "routes": [{ "pattern": "example.com/api/*", "zone_name": "example.com" }],
   "observability": { "enabled": true }
 }
 ```
 
-`run_worker_first: ["/api/*"]` để chỉ request API đi qua Worker; trang tĩnh do assets phục vụ.
+`apps/web/wrangler.jsonc`:
+
+```jsonc
+{
+  "name": "az-sentinel-web",
+  "compatibility_date": "<ngày khởi tạo>",
+  "assets": { "directory": "./dist", "not_found_handling": "single-page-application" },
+  "routes": [{ "pattern": "example.com/*", "zone_name": "example.com" }]
+}
+```
+
+Ở Part 1-3 chưa có domain, chỉ dùng `workers.dev` cho API và bỏ khối `routes`.
+
+Ở local, Vite proxy `/api` sang `http://localhost:8787` nên cũng cùng origin.
 
 ### 3.4 Quy ước mã
 
-- Schema payload EA định nghĩa một lần trong `shared/ingest-schema.ts`; Worker dùng để validate, tài liệu hóa API dựa trên đó.
-- **Đường ingest** (`routes/ingest.ts` + `services/ingest-writer.ts`) dùng SQL thô và đúng **một** `DB.batch([...])` cho mọi lần ghi. Không dùng ORM ở đây.
-- Mọi truy vấn dữ liệu của User đi qua một hàm lọc theo chủ sở hữu hoặc vai trò, không viết `WHERE owner_id` rải rác.
-- Không `console.log` dữ liệu nhạy cảm (API key, cookie).
-- Bí mật dùng `wrangler secret`; file `.dev.vars` cho local, đã đưa vào `.gitignore`.
-- Ba môi trường (dev, staging, prod) với D1 riêng, khai báo bằng `env` trong `wrangler.jsonc`.
+Toàn bộ quy ước nằm ở `AZ_Sentinel_Rules_BE.md` và `AZ_Sentinel_Rules_FE.md`. Các điểm then chốt:
 
-### 3.5 Lệnh khởi tạo (tham khảo)
-
-```
-npm create cloudflare@latest -- --template=cloudflare/templates/vite-react-template
-npx wrangler d1 create az-sentinel-db
-pnpm add drizzle-orm zod @hono/zod-validator
-pnpm add -D drizzle-kit vitest @cloudflare/vitest-pool-workers @biomejs/biome
-```
+- Schema payload EA định nghĩa một lần trong `packages/shared`; API dùng để validate, web dùng cho kiểu.
+- Đường ingest dùng SQL thô và đúng **một** `DB.batch([...])`.
+- Mọi truy vấn dữ liệu của User đi qua hàm lọc theo chủ sở hữu hoặc vai trò.
+- Bí mật dùng `wrangler secret`; local dùng `.dev.vars` (không commit).
+- Ba môi trường (dev, staging, prod) với D1 riêng.
 
 ## 4. Mô hình dữ liệu (D1)
 
@@ -302,7 +269,7 @@ Ghi chú:
 
 ## 12. Lộ trình
 
-- **Phase 0, spike (1-2 ngày):** khởi tạo từ template; Worker nhận POST từ MT5 demo bằng `WebRequest` và `X-API-Key`; đo CPU ingest, thử băm mật khẩu, đo số dòng ghi D1 qua `rows_written`; xác nhận static assets không tốn hạn mức; chốt hướng xác thực.
+- **Phase 0, spike (1-2 ngày), chi tiết ở Plan 3 Part 1:** khởi tạo monorepo; Worker nhận POST từ MT5 demo bằng `WebRequest` và `X-API-Key`; đo CPU ingest, thử băm mật khẩu, đo số dòng ghi D1 qua `rows_written`; xác nhận static assets không tốn hạn mức; chốt hướng xác thực.
 - **Phase 1, MVP:** schema, đăng ký và duyệt, RBAC, script tạo rootAdmin; endpoint ingest; EA v0.1-v0.2; trang tổng quan và chi tiết (trạng thái, lệnh đang mở).
 - **Phase 2:** trigger biến động và rủi ro; biểu đồ equity; lịch sử lệnh; màn hình theo VPS; phát hiện offline và cảnh báo Telegram; gộp và dọn dữ liệu.
 - **Phase 3:** thời gian thực (SSE), giao diện nhật ký quản trị, xoay khóa, tự động sao lưu, kiểm thử tải với 30 EA giả lập, rà soát bảo mật.
@@ -331,8 +298,11 @@ Câu hỏi mở:
 6. Cần cảnh báo qua Telegram, email hay chỉ trên web?
 7. Đăng nhập bằng email và mật khẩu, hay thêm OAuth?
 
-## 14. Thay đổi so với v0.1
+## 14. Thay đổi so với v0.1 và v0.2
 
+**v0.3:** đổi sang monorepo (`apps/api`, `apps/web`, `packages/shared`) với hai Worker deploy riêng bằng Root directory; cùng origin qua route trên domain riêng; thêm tham chiếu Plan 3, Rules BE/FE.
+
+**v0.2:**
 - Tách thành hai file; thêm mục 3 (codebase) và mục 6 (luồng ingest).
 - Chuyển `last_seen_at`, `last_seq`, `ea_ver`, `last_ip`, `vps_label` sang `link_state` để mỗi request chỉ ghi một dòng; thêm `last_sid` và `presence`.
 - Dùng `WITHOUT ROWID` cho `equity_m5` và `trades`.
