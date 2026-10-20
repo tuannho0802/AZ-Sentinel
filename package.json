@@ -1,0 +1,26 @@
+{
+  "name": "az-sentinel",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "pnpm --parallel --filter @az-sentinel/api --filter @az-sentinel/web dev",
+    "lint": "biome check .",
+    "lint:fix": "biome check --write .",
+    "typecheck": "pnpm -r typecheck && tsc -p Scripts/tsconfig.json",
+    "test": "pnpm -r test",
+    "check": "pnpm lint && pnpm typecheck && pnpm test",
+    "db:seed:local": "tsx Scripts/seed-link.ts",
+    "fake-ea": "tsx Scripts/fake-ea.ts",
+    "db:migrate:local": "pnpm --filter @az-sentinel/api db:migrate:local"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "latest",
+    "@types/node": "latest",
+    "tsx": "latest",
+    "typescript": "latest"
+  }
+}

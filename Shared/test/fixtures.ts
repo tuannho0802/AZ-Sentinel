@@ -1,0 +1,36 @@
+/** Payload mẫu theo Plan 1. */
+export const validPayload = {
+  v: 1,
+  sid: 'a91f3c',
+  seq: 10482,
+  reason: ['m5_bar'],
+  ts_utc: 1792500000,
+  vps: 'VPS-A12',
+  ea_ver: '0.1.0',
+  account: {
+    login: 12345678,
+    name: 'Nguyen Van A',
+    broker: 'Broker Ltd',
+    server: 'Broker-Live01',
+    balance: 10250.4,
+    equity: 10311.15,
+    floating_pl: 60.75,
+    margin_level: 2455.0,
+  },
+  positions: [
+    {
+      ticket: 998877,
+      symbol: 'XAUUSD',
+      type: 'buy',
+      volume: 0.1,
+      time: 1792499000,
+      price: 4010.12,
+      sl: 4000.0,
+      tp: 4030.0,
+      profit: 22.4,
+      comment: 'az-bot',
+      magic: 20260101,
+    },
+  ],
+  events: [],
+}

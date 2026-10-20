@@ -1,0 +1,28 @@
+{
+  "name": "@az-sentinel/api",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev --port 8787",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "types": "wrangler types",
+    "db:migrate:local": "wrangler d1 migrations apply DB --local",
+    "deploy": "wrangler deploy"
+  },
+  "dependencies": {
+    "@az-sentinel/shared": "workspace:*",
+    "@hono/zod-validator": "latest",
+    "hono": "latest",
+    "zod": "latest"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-plugin": "latest",
+    "@cloudflare/workers-types": "latest",
+    "typescript": "latest",
+    "vitest": "^4.1.0",
+    "wrangler": "latest"
+  }
+}

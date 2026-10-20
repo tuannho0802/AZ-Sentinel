@@ -1,0 +1,2 @@
+# Sao chép thành .dev.vars (đã nằm trong .gitignore). Chưa có bí mật nào ở Part 1.
+INGEST_DEBUG_META=1
