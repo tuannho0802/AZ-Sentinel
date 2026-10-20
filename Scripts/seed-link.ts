@@ -51,7 +51,7 @@ writeFileSync(sqlFile, sql)
 
 const result = spawnSync(
   'pnpm',
-  ['exec', 'wrangler', 'd1', 'execute', 'DB', '--local', `--file=${sqlFile}`],
+  ['exec', 'wrangler', 'd1', 'execute', 'DB', '--local', '--file=.wrangler/seed-link.sql'],
   { cwd: beDir, stdio: 'inherit', shell: true },
 )
 if (result.status !== 0) {

@@ -7,3 +7,4 @@ dist/
 coverage/
 *.ex5
 .vite/
+*.patch
