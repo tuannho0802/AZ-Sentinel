@@ -71,6 +71,7 @@
 | X-BE-03 | IDE (VS Code + MQL Clangd) báo lỗi giả và biên dịch EA từ repo | [~] | 2026-10-20 | Nguyên nhân lỗi giả: `C_Cpp.intelliSenseEngine` bị đặt `"Disabled"` (sai hoa/thường, phải là `"disabled"`) nên C/C++ IntelliSense vẫn chạy. Đã sửa; thêm `ea/compile.ps1` + `.vscode/tasks.json` (Ctrl+Shift+B), Biome bỏ qua `.vscode`/tệp tự sinh, `.gitignore` các tệp MQL Clangd tự sinh. **CHƯA CHẠY** trên Windows (không có MetaEditor ở môi trường viết). |
 | X-BE-04 | Sửa lỗi script `deploy:api`: dùng `pnpm --filter ... run deploy` | [x] | 2026-10-20 | Lỗi do X-BE-02: `pnpm ... deploy` gọi lệnh `deploy` có sẵn của pnpm (`ERR_PNPM_INVALID_DEPLOY_TARGET`) thay vì script `wrangler deploy`. ĐÃ CHẠY: `pnpm deploy:api --dry-run` và `pnpm deploy:web --dry-run` đều đúng. |
 | X-BE-05 | Sửa test chập chờn `equity_m5 chỉ có một dòng cho mỗi nến M5` | [x] | 2026-10-20 | Test gửi `ts` và `ts + 10`, sai khi chạy trong 10 giây cuối của nến M5 (~3% số lần). Đã căn `ts` về đầu nến. Lỗi này nằm trong 62 test BE ban đầu, không phải lỗi logic của BE. |
+| X-BE-06 | `Shared/src/auth-schema.ts`: `loginRequestSchema`, `MeResponse`, `USER_ROLES`, `USER_STATUSES` + 7 test | [x] | 2026-10-20 | ĐÃ CHẠY: Shared 26 test xanh. Chuẩn bị cho Part 2; mật khẩu khi đăng nhập không áp độ dài tối thiểu (quy tắc mật khẩu thuộc đăng ký). |
 
 ## 4. Quyết định và lệch so với Plan (chỉ append)
 
@@ -96,6 +97,7 @@
 - [ ] Khi thử MT5 (P1-27) dùng một khóa remote **tạo riêng, không truyền `--login/--server`** để khóa tự gắn vào tài khoản MT5 ở lần gửi đầu; khóa dùng cho `fake-ea` là khóa khác.
 - [ ] Chưa biết MT5 có chấp nhận URL có cổng (vd `127.0.0.1:8787`) trong danh sách Allow WebRequest hay không; P1-29 sẽ xác nhận.
 - [ ] Chạy một lần `git rm --cached --ignore-unmatch .clangd .clang-format compile_commands.json -r .mql-auto-forwards` để Git ngừng theo dõi tệp tự sinh (giữ nguyên tệp trên máy). `.vscode/settings.json` vẫn được theo dõi nhưng chứa đường dẫn riêng của máy (`c:/Users/Admin/...`); cân nhắc bỏ theo dõi sau.
+- [ ] Part 2: BE cần cung cấp `POST /api/auth/login`, `POST /api/auth/logout`, `GET /api/me` đúng hợp đồng ghi ở `AZ_Sentinel_FE_Workflow.md` phần 4 (FE đã viết sẵn). Chốt hướng băm mật khẩu sau khi có số đo P1-23 (Plan 2 mục "Mật khẩu"); không viết băm mật khẩu trước đó.
 
 ## 6. Nhật ký (chỉ append, mới nhất ở cuối)
 
@@ -109,3 +111,4 @@
 | 2026-10-20 | Claude | P1-26, X-BE-02 | Viết `ea/AZ_Spike.mq5`; thêm script migrate/seed/deploy remote và `--remote` cho `seed-link.ts` | `pnpm check` xanh (19 + 67 + 2); seed local chạy lại ổn; JSON mô phỏng qua zod | Không có MetaEditor/MT5 để biên dịch EA |
 | 2026-10-20 | Claude | X-BE-03 | Sửa cấu hình IDE: `intelliSenseEngine` -> `disabled`, tắt `errorSquiggles`; thêm `ea/compile.ps1`, `.vscode/tasks.json`; Biome bỏ qua `.vscode` và tệp tự sinh; cập nhật `.gitignore` | `pnpm check` xanh; JSON hợp lệ | Chưa chạy `compile.ps1` trên Windows/MetaEditor thật |
 | 2026-10-20 | Claude | X-BE-04, X-BE-05, P1-30 | Sửa `deploy:api`; thêm `deploy:web`; sửa test chập chờn; tạo mẫu `Docs/spike-results.md` | `--dry-run` hai script OK; `pnpm check` xanh | Đính chính X-BE-02: script `deploy:api` ghi ở đó chạy sai (xem X-BE-04) |
+| 2026-10-20 | Claude | X-BE-06 | Thêm schema đăng nhập vào `Shared` | Shared 26 test xanh | BE chưa có endpoint xác thực (Part 2) |

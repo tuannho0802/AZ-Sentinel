@@ -44,6 +44,9 @@
 | Mã | Việc | Trạng thái | Ngày | Ghi chú |
 |---|---|---|---|---|
 | X-FE-01 | Kiểm trạng thái lỗi/"Thử lại" của `HealthPage` trên trình duyệt thật (tắt BE rồi bật lại) | [ ] | | Hướng dẫn đã đưa cho người dùng; test tự động đã phủ trạng thái lỗi. |
+| X-FE-02 | Router + khung ứng dụng + trang Tổng quan (thẻ Trạng thái API, Phiên đăng nhập, Liên kết EA rỗng) + trang 404, thay `HealthPage` | [x] | 2026-10-20 | ĐÃ CHẠY: 10 test FE xanh; `vite build` OK. Giúp kiểm UI đủ ba trạng thái (tải/lỗi/rỗng). |
+| X-FE-03 | Giao diện đăng nhập (`/login`), `RequireAuth`, đăng xuất, tự về đăng nhập khi API trả 401 | [~] | 2026-10-20 | UI + test xong (9 kịch bản gồm sai mật khẩu 401, chờ duyệt 403, 500). **BE chưa có `/api/auth/login`, `/api/auth/logout`, `/api/me`** (Part 2) nên đăng nhập thật chưa dùng được. |
+| X-FE-04 | Giả lập đăng nhập chỉ ở dev server (`FE/dev-mock-auth.ts`, plugin `apply: 'serve'`) | [x] | 2026-10-20 | ĐÃ CHẠY: login 200/401/403/429, `/api/me`, logout qua dev server; `grep` bản build không có tài khoản giả lập. **Không phải đăng nhập thật; phải bỏ khi BE có xác thực.** Tắt bằng `AZ_MOCK_AUTH=0`. |
 
 ## 4. Quyết định và lệch so với Plan (chỉ append)
 
@@ -53,9 +56,14 @@
 - Mọi gọi API qua `lib/api-client.ts` (`apiGet`), dữ liệu server qua TanStack Query (Rules FE mục 4). Chuỗi giao diện tập trung ở `lib/strings.ts` (Rules FE mục 6).
 - Kiểu `HealthResponse`, `ApiErrorBody` lấy từ `@az-sentinel/shared`.
 
+- (2026-10-20) Router: **Wouter 3** (Rules FE mục 2 yêu cầu chốt ở Part 1). Lý do: nhỏ, đủ cho `/login`, `/`, 404; không cần tính năng của React Router.
+- (2026-10-20) Hợp đồng xác thực FE giả định, theo Plan 2 mục 5 (BE làm ở Part 2): `POST /api/auth/login` body `{email, password}` (schema `loginRequestSchema` trong `Shared`) trả `MeResponse` `{id, email, display_name, role}`; `POST /api/auth/logout`; `GET /api/me` trả `MeResponse` hoặc 401. Lỗi theo dạng chuẩn `{error:{code,message}}`: 401 sai thông tin, 403 tài khoản chờ duyệt/bị khóa, 429 quá số lần thử; FE hiển thị nguyên `message` của server cho 401/403/429. Hình dạng này **chưa được chốt với BE**, đổi được ở Part 2.
+- (2026-10-20) Phiên dùng cookie `HttpOnly` do server cấp; FE không lưu token ở `localStorage` (Rules FE mục 7).
+- (2026-10-20) Cấu trúc theo Rules FE mục 3: `features/auth`, `features/overview`, `components`, `pages`. `HealthPage` được thay bằng thẻ `ApiStatusCard` (poll 30 giây theo Rules FE mục 5). Chưa dùng shadcn/ui; component viết bằng Tailwind thuần.
+
 ## 5. Việc còn nợ và rủi ro đã biết (chỉ append)
 
-- [ ] **Chọn router (Wouter hoặc React Router) và ghi quyết định ở đây** — Rules FE mục 2 yêu cầu chốt ở Part 1; hiện chưa có router vì mới có một trang.
+- [x] (2026-10-20: đã chọn Wouter 3, xem phần 4) **Chọn router (Wouter hoặc React Router) và ghi quyết định ở đây** — Rules FE mục 2 yêu cầu chốt ở Part 1; hiện chưa có router vì mới có một trang.
 - [ ] Chưa cài shadcn/ui (Rules FE mục 2, 8); cài khi cần thành phần đầu tiên.
 - [ ] Chưa có `lib/format.ts` (định dạng thời gian/tiền tệ — Rules FE mục 6), `lib/auth.ts`.
 - [ ] Chưa xử lý 401 tự điều hướng về đăng nhập trong `api-client.ts` (cần khi có đăng nhập, Part 2/4).
@@ -63,6 +71,9 @@
 - [ ] Chưa có cấu hình deploy `FE` (assets-only Worker) cho P1-24.
 - [ ] Chưa có test e2e/trình duyệt; hiện chỉ test component bằng jsdom.
 - [ ] Poll 30 giây và dừng khi tab ẩn (Rules FE mục 5) chưa áp dụng; `HealthPage` chỉ gọi một lần.
+- [ ] Part 2: thay `FE/dev-mock-auth.ts` bằng xác thực thật của BE rồi xóa tệp này và dòng dùng nó trong `FE/vite.config.ts`; xóa `DevAuthHint`.
+- [ ] Trang đăng ký và màn hình "chờ duyệt" (Plan 2 mục 6); hiện chỉ có đăng nhập.
+- [ ] Chưa có kiểm tra Origin/CSRF phía FE cần thiết (thuộc BE, Part 2).
 
 ## 6. Nhật ký (chỉ append, mới nhất ở cuối)
 
@@ -72,3 +83,4 @@
 | 2026-10-20 | Người dùng | P1-09 | Chạy `pnpm dev`, mở `localhost:5173` | Ảnh chụp: "API OK" | |
 | 2026-10-20 | Claude | (tài liệu) | Tạo tệp workflow này | | |
 | 2026-10-20 | Claude | P1-24 | Thêm `FE/wrangler.jsonc`, devDependency `wrangler`, script `deploy` (FE) và `deploy:web` (gốc) | `vite build` OK; `wrangler deploy --dry-run` đọc tệp assets | Chưa deploy thật (cần đăng nhập Cloudflare) |
+| 2026-10-20 | Claude | X-FE-02..04 | Thêm Wouter, đăng nhập, `RequireAuth`, tổng quan, 404, giả lập đăng nhập dev | `pnpm check` xanh (Shared 26, BE 67, FE 10); dev server: login 200/401/403/429; `dist` không chứa tài khoản giả lập | Đăng nhập thật chờ Part 2; hình dạng API xem phần 4 |
