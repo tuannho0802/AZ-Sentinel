@@ -144,7 +144,9 @@ describe('mở/đóng kết nối (F-01..F-08, F-16, F-19)', () => {
     await screen.findByText('XAUUSD')
     const s = await open()
     act(() => s.serverSend({ ...samplesMsg(), pl: { '77': 4.92 } }))
-    expect(await screen.findByText('+4.92 USD')).toBeTruthy()
+    // Bảng lệnh và ô "Lãi/lỗ đang mở" khớp nhau: cả hai là +4.92 (không còn lệch với fl của mẫu).
+    await waitFor(() => expect(screen.getAllByText('+4.92 USD')).toHaveLength(2))
+    expect(screen.queryByText('+55.50 USD')).toBeNull()
     expect(screen.getByText(strings.badgeLive)).toBeTruthy()
     expect(screen.queryByText(new RegExp(strings.updatedAt))).toBeNull() // đang live: ẩn giờ tải D1
     expect(detailCalls).toBe(1)

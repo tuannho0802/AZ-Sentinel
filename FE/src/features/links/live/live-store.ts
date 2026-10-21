@@ -187,8 +187,27 @@ export function livePositions(base: Position[], entry: LiveEntry | undefined): P
   })
 }
 
-/** Như `mergeLive` nhưng cho trang chi tiết: thêm danh sách lệnh với lãi/lỗ theo tick. */
+/**
+ * Như `mergeLive` nhưng cho trang chi tiết: thêm danh sách lệnh với lãi/lỗ theo tick.
+ *
+ * Đồng bộ ô "Lãi/lỗ đang mở" với bảng lệnh: `ACCOUNT_PROFIT` và `POSITION_PROFIT` do EA đọc ở hai
+ * thời điểm nên có thể lệch nhau vài tick. Khi đã có `pl` theo tick cho MỌI lệnh trong bảng thì ô
+ * tổng được tính lại từ chính các lệnh đó (lãi/lỗ + swap), nên hai chỗ luôn khớp nhau.
+ */
 export function mergeLiveDetail(link: LinkDetail, entry: LiveEntry | undefined): LinkDetail {
   const merged = mergeLive(link, entry)
-  return { ...link, state: merged.state, positions: livePositions(link.positions, entry) }
+  const positions = livePositions(link.positions, entry)
+  const pl = entry?.pl
+  const covered =
+    pl !== null &&
+    pl !== undefined &&
+    positions.length > 0 &&
+    positions.every((p) => pl[String(p.ticket)] !== undefined)
+  if (!covered || !merged.state) return { ...link, state: merged.state, positions }
+  const total = positions.reduce((sum, p) => sum + (p.profit ?? 0) + (p.swap ?? 0), 0)
+  return {
+    ...link,
+    state: { ...merged.state, floating_pl: Math.round(total * 100) / 100 },
+    positions,
+  }
 }
