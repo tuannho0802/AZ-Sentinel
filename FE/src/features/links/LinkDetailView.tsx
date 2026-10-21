@@ -2,12 +2,7 @@ import type { LinkDetail, LiveState } from '@az-sentinel/shared'
 import type { ReactNode } from 'react'
 import { Card } from '../../components/Card'
 import { Delta, Money } from '../../components/Money'
-import {
-  formatDateShort,
-  formatDateTime,
-  formatPercent,
-  formatRelative,
-} from '../../lib/format'
+import { formatDateShort, formatDateTime, formatPercent, formatRelative } from '../../lib/format'
 import { strings } from '../../lib/strings'
 import { useNow } from '../../lib/use-now'
 import { LinkActions } from './LinkActions'
@@ -54,7 +49,7 @@ export function LinkDetailView({
 }: {
   /** Đã phủ số liệu live (`mergeLiveDetail`) nếu đang nối. */
   link: LinkDetail
-    /** Trạng thái live hiệu dụng. */
+  /** Trạng thái live hiệu dụng. */
   liveState?: LiveState | null
 }) {
   const now = useNow()
@@ -72,7 +67,9 @@ export function LinkDetailView({
       </div>
 
       {!s && (
-        <p className="rounded-md bg-live-bg px-3 py-2.5 text-sm text-live">{strings.waitingFirst}</p>
+        <p className="rounded-md bg-live-bg px-3 py-2.5 text-sm text-live">
+          {strings.waitingFirst}
+        </p>
       )}
 
       {s && (
@@ -153,7 +150,7 @@ export function LinkDetailView({
               </Row>
             </dl>
           ) : (
-              <p className="text-sm text-muted">{strings.noData}</p>
+            <p className="text-sm text-muted">{strings.noData}</p>
           )}
         </Card>
       </div>
@@ -162,20 +159,20 @@ export function LinkDetailView({
         {link.positions.length === 0 ? (
           <p className="text-sm text-muted">{strings.positionsEmpty}</p>
         ) : (
-            <div className="-mx-4 overflow-x-auto px-4">
-              <table className="w-full min-w-[40rem] text-sm">
-                <thead className="border-b border-line text-xs text-muted">
+          <div className="-mx-4 overflow-x-auto px-4">
+            <table className="w-full min-w-[40rem] text-sm">
+              <thead className="border-b border-line text-xs text-muted">
                 <tr>
-                    <th className={th}>{strings.colTicket}</th>
-                    <th className={th}>{strings.colSymbol}</th>
-                    <th className={th}>{strings.colType}</th>
-                    <th className={thNum}>{strings.colVolume}</th>
-                    <th className={thNum}>{strings.colOpenPrice}</th>
-                    <th className={th}>{strings.colOpenTime}</th>
-                    <th className={`${thNum} !pr-0`}>{strings.colProfit}</th>
+                  <th className={th}>{strings.colTicket}</th>
+                  <th className={th}>{strings.colSymbol}</th>
+                  <th className={th}>{strings.colType}</th>
+                  <th className={thNum}>{strings.colVolume}</th>
+                  <th className={thNum}>{strings.colOpenPrice}</th>
+                  <th className={th}>{strings.colOpenTime}</th>
+                  <th className={`${thNum} !pr-0`}>{strings.colProfit}</th>
                 </tr>
               </thead>
-                <tbody className="divide-y divide-line">
+              <tbody className="divide-y divide-line">
                 {link.positions.map((p) => (
                   <tr key={p.ticket}>
                     <td className="num py-2 pr-3 text-muted">{p.ticket}</td>
@@ -201,7 +198,7 @@ export function LinkDetailView({
         {link.events.length === 0 ? (
           <p className="text-sm text-muted">{strings.eventsEmpty}</p>
         ) : (
-            <ul className="divide-y divide-line text-sm">
+          <ul className="divide-y divide-line text-sm">
             {link.events.map((e) => (
               <li key={e.id} className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 py-2">
                 <span className="num text-muted">{formatDateTime(e.ts)}</span>

@@ -15,7 +15,7 @@ export function RotateKeyButton({
 }: {
   linkId: number
   disabled?: boolean
-    variant?: 'secondary' | 'ghost'
+  variant?: 'secondary' | 'ghost'
 }) {
   const rotate = useRotateKey(linkId)
   const [revealedKey, setRevealedKey] = useState<string | null>(null)

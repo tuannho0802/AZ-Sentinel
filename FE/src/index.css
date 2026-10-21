@@ -1,1 +1,223 @@
 @import "tailwindcss";
+@import "@fontsource/ibm-plex-sans/latin-400.css";
+@import "@fontsource/ibm-plex-sans/latin-500.css";
+@import "@fontsource/ibm-plex-sans/latin-600.css";
+@import "@fontsource/ibm-plex-sans/latin-ext-400.css";
+@import "@fontsource/ibm-plex-sans/latin-ext-500.css";
+@import "@fontsource/ibm-plex-sans/latin-ext-600.css";
+@import "@fontsource/ibm-plex-sans/vietnamese-400.css";
+@import "@fontsource/ibm-plex-sans/vietnamese-500.css";
+@import "@fontsource/ibm-plex-sans/vietnamese-600.css";
+
+/*
+ * Biến thiết kế (Rules FE mục 8): mọi màu đi qua token ngữ nghĩa, không dùng màu thô trong component.
+ * Sáng/tối: theo hệ điều hành, hoặc ép bằng data-theme trên <html> (lib/theme.ts).
+ * Màu chữ đều đạt WCAG AA trên nền tương ứng (đã kiểm bằng tính độ tương phản).
+ */
+:root {
+  color-scheme: light;
+  --c-bg: #edf1f5;
+  --c-surface: #ffffff;
+  --c-raised: #f5f7fa;
+  --c-line: #d3dce5;
+  --c-line-strong: #b9c6d3;
+  --c-ink: #0e1a26;
+  --c-muted: #4f6275;
+  --c-subtle: #5a6c80;
+  --c-accent: #d9a441;
+  --c-accent-ink: #1b1303;
+  --c-accent-text: #805400;
+  --c-gain: #077a57;
+  --c-loss: #c23b26;
+  --c-live: #1f62d1;
+  --c-gain-bg: #e3f5ee;
+  --c-loss-bg: #fce9e5;
+  --c-live-bg: #e6effd;
+  --c-notice-bg: #fff1cc;
+  --c-notice-ink: #5e4100;
+  --c-scrim: rgb(14 26 38 / 0.5);
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --c-bg: #0c131b;
+  --c-surface: #121c27;
+  --c-raised: #182534;
+  --c-line: #243445;
+  --c-line-strong: #34495e;
+  --c-ink: #e8eef4;
+  --c-muted: #9aacbe;
+  --c-subtle: #7d90a3;
+  --c-accent: #e2b04a;
+  --c-accent-ink: #1a1203;
+  --c-accent-text: #e8be62;
+  --c-gain: #3fd0a0;
+  --c-loss: #ff7a66;
+  --c-live: #64afff;
+  --c-gain-bg: #0f2a24;
+  --c-loss-bg: #33191a;
+  --c-live-bg: #112a44;
+  --c-notice-bg: #2c2412;
+  --c-notice-ink: #f0cf86;
+  --c-scrim: rgb(0 0 0 / 0.62);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --c-bg: #0c131b;
+    --c-surface: #121c27;
+    --c-raised: #182534;
+    --c-line: #243445;
+    --c-line-strong: #34495e;
+    --c-ink: #e8eef4;
+    --c-muted: #9aacbe;
+    --c-subtle: #7d90a3;
+    --c-accent: #e2b04a;
+    --c-accent-ink: #1a1203;
+    --c-accent-text: #e8be62;
+    --c-gain: #3fd0a0;
+    --c-loss: #ff7a66;
+    --c-live: #64afff;
+    --c-gain-bg: #0f2a24;
+    --c-loss-bg: #33191a;
+    --c-live-bg: #112a44;
+    --c-notice-bg: #2c2412;
+    --c-notice-ink: #f0cf86;
+    --c-scrim: rgb(0 0 0 / 0.62);
+  }
+}
+
+@theme inline {
+  --font-sans: "IBM Plex Sans", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  --color-bg: var(--c-bg);
+  --color-surface: var(--c-surface);
+  --color-raised: var(--c-raised);
+  --color-line: var(--c-line);
+  --color-line-strong: var(--c-line-strong);
+  --color-ink: var(--c-ink);
+  --color-muted: var(--c-muted);
+  --color-subtle: var(--c-subtle);
+  --color-accent: var(--c-accent);
+  --color-accent-ink: var(--c-accent-ink);
+  --color-accent-text: var(--c-accent-text);
+  --color-gain: var(--c-gain);
+  --color-loss: var(--c-loss);
+  --color-live: var(--c-live);
+  --color-gain-bg: var(--c-gain-bg);
+  --color-loss-bg: var(--c-loss-bg);
+  --color-live-bg: var(--c-live-bg);
+  --color-notice-bg: var(--c-notice-bg);
+  --color-notice-ink: var(--c-notice-ink);
+  --color-scrim: var(--c-scrim);
+}
+
+html {
+  background: var(--c-bg);
+}
+
+body {
+  background: var(--c-bg);
+  color: var(--c-ink);
+  font-family: var(--font-sans);
+  font-size: 0.9375rem;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* Số luôn cùng độ rộng chữ số: không nhảy ngang mỗi tick live. */
+.num {
+  font-variant-numeric: tabular-nums lining-nums;
+  font-feature-settings:
+    "tnum" 1,
+    "lnum" 1;
+}
+
+:where(a, button, input, select, textarea, [tabindex]):focus-visible {
+  outline: 2px solid var(--c-accent-text);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+::selection {
+  background: var(--c-accent);
+  color: var(--c-accent-ink);
+}
+
+/* Chấm Live nhấp nháy: chỉ ở trạng thái đang truyền; tắt khi người dùng giảm chuyển động. */
+@keyframes az-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.45;
+    transform: scale(0.8);
+  }
+}
+.az-pulse {
+  animation: az-pulse 1.6s ease-in-out infinite;
+}
+
+/* Vòng "đang chờ EA": viền rỗng thở nhẹ, khác hình với chấm đặc để không chỉ dựa vào màu. */
+@keyframes az-ring {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.4;
+  }
+}
+.az-ring {
+  animation: az-ring 1.4s ease-in-out infinite;
+}
+
+/* Nháy nền ngắn khi số đổi (chỉ khi có tick live). Hướng nháy theo dấu thay đổi. */
+@keyframes az-flash-up {
+  from {
+    background-color: color-mix(in srgb, var(--c-gain) 30%, transparent);
+  }
+  to {
+    background-color: transparent;
+  }
+}
+@keyframes az-flash-down {
+  from {
+    background-color: color-mix(in srgb, var(--c-loss) 30%, transparent);
+  }
+  to {
+    background-color: transparent;
+  }
+}
+.az-flash-up {
+  animation: az-flash-up 0.9s ease-out;
+}
+.az-flash-down {
+  animation: az-flash-down 0.9s ease-out;
+}
+
+@keyframes az-skeleton {
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+.az-skeleton {
+  animation: az-skeleton 1.4s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .az-pulse,
+  .az-ring,
+  .az-skeleton,
+  .az-flash-up,
+  .az-flash-down {
+    animation: none;
+  }
+}

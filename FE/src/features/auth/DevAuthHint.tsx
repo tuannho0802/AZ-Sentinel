@@ -1,7 +1,7 @@
 /** Chỉ hiện khi chạy `pnpm dev`; bị loại khỏi bản build (import.meta.env.DEV = false). */
 export function DevAuthHint() {
   return (
-    <div className="mt-6 rounded border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+    <div className="mt-4 rounded-md bg-notice-bg p-3 text-sm text-notice-ink">
       <p className="font-medium">Chế độ giả lập đăng nhập (chỉ dev, chưa phải đăng nhập thật)</p>
       <ul className="mt-1 list-disc pl-5">
         <li>admin@az.local / admin1234 (rootAdmin)</li>

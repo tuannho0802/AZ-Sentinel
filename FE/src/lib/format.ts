@@ -44,11 +44,6 @@ export function formatSigned(value: number | null | undefined, currency: string 
   return currency ? `${sign}${text} ${currency}` : `${sign}${text}`
 }
 
-export function plClass(value: number | null | undefined): string {
-  if (value === null || value === undefined || value === 0) return 'text-gray-700'
-  return value > 0 ? 'text-green-600' : 'text-red-600'
-}
-
 export function formatPercent(value: number | null | undefined): string {
   if (value === null || value === undefined) return '—'
   return `${numberFormat.format(value)}%`

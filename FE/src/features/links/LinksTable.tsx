@@ -59,7 +59,7 @@ export function LinksTable({ rows }: { rows: LinkRow[] }) {
                       <div className="text-xs text-muted">{l.account.server}</div>
                     </>
                   ) : (
-                      <span className="text-muted">{strings.unbound}</span>
+                    <span className="text-muted">{strings.unbound}</span>
                   )}
                 </td>
                 <td className={`${td} hidden xl:table-cell`}>{l.account?.name || '—'}</td>
@@ -79,7 +79,7 @@ export function LinksTable({ rows }: { rows: LinkRow[] }) {
                   {liveState === 'live' ? (
                     <span className="text-live">{strings.lastSeenLive}</span>
                   ) : l.state ? (
-                      <span className="text-muted">{formatRelative(l.state.last_seen_at, now)}</span>
+                    <span className="text-muted">{formatRelative(l.state.last_seen_at, now)}</span>
                   ) : (
                     '—'
                   )}

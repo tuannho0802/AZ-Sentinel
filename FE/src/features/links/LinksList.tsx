@@ -82,11 +82,7 @@ export function LinksList() {
       {hasLinks && <LinksSummary summary={summary} />}
 
       <div className="flex flex-wrap items-center justify-between gap-3">
-        {hasLinks ? (
-          <LinksToolbar view={view} onChange={setView} summary={summary} />
-        ) : (
-          <span />
-        )}
+        {hasLinks ? <LinksToolbar view={view} onChange={setView} summary={summary} /> : <span />}
         <div className="flex items-center gap-2">
           <input
             aria-label={strings.vpsNamePlaceholder}

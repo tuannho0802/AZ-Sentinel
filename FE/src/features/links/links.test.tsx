@@ -91,7 +91,7 @@ describe('danh sách liên kết', () => {
     expect(await screen.findByText('5550001')).toBeTruthy()
     expect(screen.getByText(strings.unbound)).toBeTruthy()
     expect(screen.getByText(strings.awaitingEa)).toBeTruthy()
-    expect(screen.getByText(`● ${strings.online}`)).toBeTruthy()
+    expect(screen.getByText(strings.online)).toBeTruthy()
     expect(screen.getByText('1,012.50 USD')).toBeTruthy()
     expect(screen.getByText('+12.50 USD')).toBeTruthy()
     expect(screen.getByText('Tester')).toBeTruthy()

@@ -162,5 +162,44 @@ export const strings = {
   notFoundTitle: 'Không tìm thấy trang',
   backHome: 'Về trang chủ',
 
+  // --- Giao diện chung ---
+  skipToContent: 'Bỏ qua điều hướng',
+  mainNav: 'Điều hướng chính',
+  themeLabel: 'Giao diện',
+  themeNames: { system: 'Theo máy', light: 'Sáng', dark: 'Tối' },
+
+  // --- Đăng nhập ---
+  loginIntro: 'Theo dõi mọi tài khoản MT5 trên các VPS tại một nơi.',
+
+  // --- Danh sách: tóm tắt, lọc, sắp xếp ---
+  summaryLabel: 'Tóm tắt tình trạng tài khoản',
+  sumAccounts: 'tài khoản',
+  sumOnline: 'đang online',
+  sumLive: 'đang truyền trực tiếp',
+  sumAttention: 'cần chú ý',
+  sumAwaiting: 'chờ EA',
+  sumDisabled: 'đã khóa',
+  sumAllGood: 'Không có tài khoản nào cần chú ý.',
+  sumTotalsTitle: 'Tổng theo loại tiền',
+  sumEquity: 'Equity',
+  sumFloating: 'Lãi/lỗ đang mở',
+  filterGroup: 'Lọc danh sách',
+  filterAll: 'Tất cả',
+  filterAttention: 'Cần chú ý',
+  filterLive: 'Đang live',
+  searchLabel: 'Tìm tài khoản',
+  searchPlaceholder: 'Tìm theo số tài khoản, tên, VPS',
+  sortLabel: 'Sắp xếp',
+  sortVps: 'Theo VPS',
+  sortAttention: 'Cần chú ý trước',
+  sortEquity: 'Equity cao nhất',
+  sortPl: 'Lỗ nhiều nhất trước',
+  noMatch: 'Không có tài khoản nào khớp bộ lọc.',
+  clearFilters: 'Xóa bộ lọc',
+  lastSeenLive: 'Liên tục',
+
+  // --- Chi tiết ---
+  detailMetrics: 'Số liệu chính',
+
   roles: { root_admin: 'rootAdmin', admin: 'Admin', user: 'User' },
 } as const

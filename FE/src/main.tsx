@@ -5,10 +5,12 @@ import './index.css'
 import { App } from './App'
 import { wireAuth } from './features/auth/api'
 import { queryClient } from './lib/query-client'
+import { initTheme } from './lib/theme'
 
 const root = document.getElementById('root')
 if (!root) throw new Error('Thiếu phần tử #root')
 
+initTheme()
 wireAuth(queryClient)
 
 createRoot(root).render(

@@ -12,10 +12,11 @@ function NavLink({ href, children }: { href: string; children: ReactNode }) {
     <Link
       href={href}
       aria-current={active ? 'page' : undefined}
-      className={`relative inline-flex h-14 items-center px-0.5 text-sm font-medium transition-colors ${active
+      className={`relative inline-flex h-14 items-center px-0.5 text-sm font-medium transition-colors ${
+        active
           ? 'text-ink after:absolute after:inset-x-0 after:bottom-0 after:h-0.5 after:bg-accent'
           : 'text-muted hover:text-ink'
-        }`}
+      }`}
     >
       {children}
     </Link>

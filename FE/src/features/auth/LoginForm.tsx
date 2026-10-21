@@ -1,5 +1,8 @@
 import { loginRequestSchema } from '@az-sentinel/shared'
 import { type FormEvent, useState } from 'react'
+import { Button } from '../../components/Button'
+import { Icon } from '../../components/Icon'
+import { inputClass } from '../../components/styles'
 import { ApiError } from '../../lib/api-client'
 import { strings } from '../../lib/strings'
 import { useLogin } from './api'
@@ -35,7 +38,7 @@ export function LoginForm() {
   }
 
   return (
-    <form onSubmit={onSubmit} noValidate className="mt-6 space-y-4">
+    <form onSubmit={onSubmit} noValidate className="mt-4 space-y-4">
       <div>
         <label htmlFor="email" className="block text-sm font-medium">
           {strings.email}
@@ -47,9 +50,9 @@ export function LoginForm() {
           value={email}
           onChange={(e) => setEmail(e.target.value)}
           aria-invalid={errors.email ? true : undefined}
-          className="mt-1 w-full rounded border px-3 py-2"
+          className={`mt-1 ${inputClass} h-10`}
         />
-        {errors.email && <p className="mt-1 text-sm text-red-600">{errors.email}</p>}
+        {errors.email && <p className="mt-1 text-sm text-loss">{errors.email}</p>}
       </div>
       <div>
         <label htmlFor="password" className="block text-sm font-medium">
@@ -62,22 +65,22 @@ export function LoginForm() {
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           aria-invalid={errors.password ? true : undefined}
-          className="mt-1 w-full rounded border px-3 py-2"
+          className={`mt-1 ${inputClass} h-10`}
         />
-        {errors.password && <p className="mt-1 text-sm text-red-600">{errors.password}</p>}
+        {errors.password && <p className="mt-1 text-sm text-loss">{errors.password}</p>}
       </div>
       {login.isError && (
-        <p role="alert" className="text-sm text-red-600">
+        <p
+          role="alert"
+          className="flex items-start gap-2 rounded-md bg-loss-bg px-3 py-2 text-sm text-loss"
+        >
+          <Icon name="alert" size={15} className="mt-0.5 shrink-0" />
           {serverMessage(login.error)}
         </p>
       )}
-      <button
-        type="submit"
-        disabled={login.isPending}
-        className="w-full rounded bg-gray-900 px-3 py-2 text-white disabled:opacity-60"
-      >
+      <Button type="submit" variant="primary" className="h-10 w-full" disabled={login.isPending}>
         {login.isPending ? strings.loginSubmitting : strings.loginSubmit}
-      </button>
+      </Button>
     </form>
   )
 }
