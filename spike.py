@@ -181,6 +181,7 @@ def main():
     ap = argparse.ArgumentParser()
     sub = ap.add_subparsers(dest="cmd", required=True)
     sub.add_parser("discover")
+    sub.add_parser("selftest")
     for name in ("all", "worker"):
         sp = sub.add_parser(name)
         sp.add_argument("--seconds", type=int, default=60)
@@ -189,6 +190,18 @@ def main():
             sp.add_argument("--exe", required=True)
     a = ap.parse_args()
 
+    if a.cmd == "selftest":
+        # Kiem tra goi da dong goi du chua. Khong can terminal MT5.
+        import numpy
+        import psutil
+        import MetaTrader5 as mt5
+
+        print("python     :", sys.version.split()[0], "frozen=", getattr(sys, "frozen", False))
+        print("numpy      :", numpy.__version__)
+        print("psutil     :", psutil.__version__)
+        print("MetaTrader5:", mt5.__version__)
+        print("SELFTEST OK")
+        return 0
     if a.cmd == "discover":
         found, orphans = discover()
         print(json.dumps({"terminals": found, "orphans": orphans}, indent=2, ensure_ascii=False))

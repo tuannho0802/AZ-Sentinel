@@ -15,7 +15,9 @@ REM onedir (khong phai onefile): khong giai nen vao %TEMP% moi lan chay,
 REM quan trong vi chuong trinh sinh nhieu worker.
 pyinstaller --noconfirm --clean --onedir --console ^
     --name az-spike ^
+    --hidden-import MetaTrader5 ^
     --collect-all MetaTrader5 ^
+    --collect-all numpy ^
     spike.py || goto :err
 
 if exist az-spike.zip del az-spike.zip
