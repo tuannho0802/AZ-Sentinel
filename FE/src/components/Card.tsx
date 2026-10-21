@@ -1,10 +1,22 @@
 import type { ReactNode } from 'react'
 
-export function Card({ title, children }: { title: string; children: ReactNode }) {
+/** Khung nội dung phẳng: viền mảnh, không đổ bóng. Tiêu đề viết thường, không in hoa. */
+export function Card({
+  title,
+  children,
+  action,
+}: {
+  title: string
+  children: ReactNode
+  action?: ReactNode
+}) {
   return (
-    <section className="rounded-lg border bg-white p-4 shadow-sm">
-      <h2 className="text-sm font-medium text-gray-500">{title}</h2>
-      <div className="mt-2">{children}</div>
+    <section className="rounded-lg border border-line bg-surface">
+      <header className="flex items-center justify-between gap-3 border-b border-line px-4 py-2.5">
+        <h2 className="text-sm font-semibold text-ink">{title}</h2>
+        {action}
+      </header>
+      <div className="p-4">{children}</div>
     </section>
   )
 }

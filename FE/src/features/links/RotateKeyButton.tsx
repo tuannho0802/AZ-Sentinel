@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Button } from '../../components/Button'
 import { strings } from '../../lib/strings'
 import { useRotateKey } from './api'
 import { KeyDialog } from './KeyDialog'
@@ -10,9 +11,11 @@ import { KeyDialog } from './KeyDialog'
 export function RotateKeyButton({
   linkId,
   disabled = false,
+  variant = 'secondary',
 }: {
   linkId: number
   disabled?: boolean
+    variant?: 'secondary' | 'ghost'
 }) {
   const rotate = useRotateKey(linkId)
   const [revealedKey, setRevealedKey] = useState<string | null>(null)
@@ -29,16 +32,16 @@ export function RotateKeyButton({
 
   return (
     <>
-      <button
-        type="button"
-        className="rounded border px-3 py-1 disabled:opacity-60"
+      <Button
+        size={variant === 'ghost' ? 'sm' : 'md'}
+        variant={variant}
         disabled={disabled || rotate.isPending}
         onClick={onClick}
       >
         {rotate.isPending ? strings.rotating : strings.rotateKey}
-      </button>
+      </Button>
       {rotate.isError && (
-        <span role="alert" className="ml-2 text-xs text-red-600">
+        <span role="alert" className="text-xs text-loss">
           {strings.rotateFailed}
         </span>
       )}

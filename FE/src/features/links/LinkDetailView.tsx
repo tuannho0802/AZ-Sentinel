@@ -1,30 +1,51 @@
 import type { LinkDetail, LiveState } from '@az-sentinel/shared'
 import type { ReactNode } from 'react'
 import { Card } from '../../components/Card'
+import { Delta, Money } from '../../components/Money'
 import {
   formatDateShort,
   formatDateTime,
-  formatMoney,
   formatPercent,
   formatRelative,
-  formatSigned,
-  plClass,
 } from '../../lib/format'
 import { strings } from '../../lib/strings'
 import { useNow } from '../../lib/use-now'
 import { LinkActions } from './LinkActions'
-import { LiveBadge } from './live/LiveBadge'
-import { PresenceBadge } from './PresenceBadge'
+import { classify } from './links-view'
+import { StatusBadge } from './StatusBadge'
 import { VpsNameCell } from './VpsNameCell'
 
 function Row({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <div className="flex justify-between gap-4 py-0.5">
-      <dt className="text-gray-500">{label}</dt>
+    <div className="flex justify-between gap-4 border-b border-line py-2 last:border-0">
+      <dt className="text-muted">{label}</dt>
       <dd className="text-right">{children}</dd>
     </div>
   )
 }
+
+function Metric({
+  label,
+  children,
+  big = false,
+}: {
+  label: string
+  children: ReactNode
+  big?: boolean
+}) {
+  return (
+    <div className="min-w-0 px-4 py-3.5">
+      <dt className="text-sm text-muted">{label}</dt>
+      <dd className={`num mt-1 truncate font-semibold ${big ? 'text-3xl' : 'text-xl'}`}>
+        {children}
+      </dd>
+    </div>
+  )
+}
+
+const typeClass = (t: string) => (t.startsWith('buy') ? 'text-live' : 'text-accent-text')
+const thNum = 'py-2 pr-3 text-right font-medium'
+const th = 'py-2 pr-3 text-left font-medium'
 
 /** Mọi chuỗi do EA gửi (tên, broker, comment...) hiển thị dạng văn bản thuần (Rules FE mục 7). */
 export function LinkDetailView({
@@ -33,26 +54,48 @@ export function LinkDetailView({
 }: {
   /** Đã phủ số liệu live (`mergeLiveDetail`) nếu đang nối. */
   link: LinkDetail
-  /** Trạng thái live hiệu dụng; `live` thì huy hiệu Live thay cho "X giây trước" nhấp nháy. */
+    /** Trạng thái live hiệu dụng. */
   liveState?: LiveState | null
 }) {
   const now = useNow()
   const a = link.account
   const s = link.state
   const currency = a?.currency ?? null
+  const health = classify(link, liveState)
   return (
     <div className="space-y-4">
-      <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center gap-3">
         <h1 className="text-xl font-semibold">
           {strings.linksPageTitle} #{link.id}
         </h1>
-        <PresenceBadge link={link} />
-        {/* Live nằm ở dòng "Nhận gần nhất"; ở đây chỉ còn đánh thức / không phản hồi. */}
-        <LiveBadge state={liveState === 'live' ? null : liveState} />
+        <StatusBadge health={health} hasAccount={a !== null} />
       </div>
-      {!s && <p className="rounded bg-blue-50 p-3 text-sm text-blue-800">{strings.waitingFirst}</p>}
 
-      <div className="grid gap-4 sm:grid-cols-2">
+      {!s && (
+        <p className="rounded-md bg-live-bg px-3 py-2.5 text-sm text-live">{strings.waitingFirst}</p>
+      )}
+
+      {s && (
+        <section
+          aria-label={strings.detailMetrics}
+          className="rounded-lg border border-line bg-surface"
+        >
+          <dl className="grid grid-cols-2 divide-line sm:grid-cols-4 sm:divide-x [&>div:nth-child(n+3)]:border-t [&>div:nth-child(n+3)]:border-line sm:[&>div:nth-child(n+3)]:border-t-0 [&>div:nth-child(even)]:border-l [&>div:nth-child(even)]:border-line sm:[&>div:nth-child(even)]:border-l-0">
+            <Metric label={strings.fieldEquity} big>
+              <Money value={s.equity} currency={currency} />
+            </Metric>
+            <Metric label={strings.fieldFloating} big>
+              <Delta value={s.floating_pl} currency={currency} />
+            </Metric>
+            <Metric label={strings.fieldBalance}>
+              <Money value={s.balance} currency={currency} />
+            </Metric>
+            <Metric label={strings.fieldMarginLevel}>{formatPercent(s.margin_level)}</Metric>
+          </dl>
+        </section>
+      )}
+
+      <div className="grid gap-4 lg:grid-cols-2">
         <Card title={strings.accountTitle}>
           <dl className="text-sm">
             <Row label={strings.fieldKeyPrefix}>
@@ -66,7 +109,9 @@ export function LinkDetailView({
             </Row>
             {a ? (
               <>
-                <Row label={strings.fieldLogin}>{a.login}</Row>
+                <Row label={strings.fieldLogin}>
+                  <span className="num">{a.login}</span>
+                </Row>
                 <Row label={strings.fieldServer}>{a.server}</Row>
                 <Row label={strings.fieldBroker}>{a.broker ?? '—'}</Row>
                 <Row label={strings.fieldName}>{a.name ?? '—'}</Row>
@@ -85,23 +130,21 @@ export function LinkDetailView({
         <Card title={strings.stateTitle}>
           {s ? (
             <dl className="text-sm">
-              <Row label={strings.fieldBalance}>{formatMoney(s.balance, currency)}</Row>
-              <Row label={strings.fieldEquity}>{formatMoney(s.equity, currency)}</Row>
-              <Row label={strings.fieldMargin}>{formatMoney(s.margin, currency)}</Row>
-              <Row label={strings.fieldMarginFree}>{formatMoney(s.margin_free, currency)}</Row>
-              <Row label={strings.fieldMarginLevel}>{formatPercent(s.margin_level)}</Row>
-              <Row label={strings.fieldFloating}>
-                <span className={plClass(s.floating_pl)}>
-                  {formatSigned(s.floating_pl, currency)}
-                </span>
+              <Row label={strings.fieldMargin}>
+                <Money value={s.margin} currency={currency} />
+              </Row>
+              <Row label={strings.fieldMarginFree}>
+                <Money value={s.margin_free} currency={currency} />
               </Row>
               <Row label={strings.fieldVps}>{s.vps_label ?? '—'}</Row>
               <Row label={strings.fieldEaVer}>{s.ea_ver ?? '—'}</Row>
-              <Row label={strings.fieldSeq}>{s.last_seq ?? '—'}</Row>
+              <Row label={strings.fieldSeq}>
+                <span className="num">{s.last_seq ?? '—'}</span>
+              </Row>
               <Row label={strings.fieldReason}>{s.last_reason ?? '—'}</Row>
               <Row label={strings.fieldLastSeen}>
                 {liveState === 'live' ? (
-                  <LiveBadge state="live" />
+                  <span className="text-live">{strings.lastSeenLive}</span>
                 ) : (
                   <span title={formatDateTime(s.last_seen_at)}>
                     {formatRelative(s.last_seen_at, now)}
@@ -110,41 +153,41 @@ export function LinkDetailView({
               </Row>
             </dl>
           ) : (
-            <p className="text-sm text-gray-500">{strings.noData}</p>
+              <p className="text-sm text-muted">{strings.noData}</p>
           )}
         </Card>
       </div>
 
       <Card title={`${strings.positionsTitle} (${link.positions.length})`}>
         {link.positions.length === 0 ? (
-          <p className="text-sm text-gray-500">{strings.positionsEmpty}</p>
+          <p className="text-sm text-muted">{strings.positionsEmpty}</p>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
-              <thead className="text-gray-500">
+            <div className="-mx-4 overflow-x-auto px-4">
+              <table className="w-full min-w-[40rem] text-sm">
+                <thead className="border-b border-line text-xs text-muted">
                 <tr>
-                  <th className="py-1 pr-3">{strings.colTicket}</th>
-                  <th className="py-1 pr-3">{strings.colSymbol}</th>
-                  <th className="py-1 pr-3">{strings.colType}</th>
-                  <th className="py-1 pr-3">{strings.colVolume}</th>
-                  <th className="py-1 pr-3">{strings.colOpenPrice}</th>
-                  <th className="py-1 pr-3">{strings.colOpenTime}</th>
-                  <th className="py-1">{strings.colProfit}</th>
+                    <th className={th}>{strings.colTicket}</th>
+                    <th className={th}>{strings.colSymbol}</th>
+                    <th className={th}>{strings.colType}</th>
+                    <th className={thNum}>{strings.colVolume}</th>
+                    <th className={thNum}>{strings.colOpenPrice}</th>
+                    <th className={th}>{strings.colOpenTime}</th>
+                    <th className={`${thNum} !pr-0`}>{strings.colProfit}</th>
                 </tr>
               </thead>
-              <tbody>
+                <tbody className="divide-y divide-line">
                 {link.positions.map((p) => (
-                  <tr key={p.ticket} className="border-t">
-                    <td className="py-1 pr-3">{p.ticket}</td>
-                    <td className="py-1 pr-3">{p.symbol}</td>
-                    <td className="py-1 pr-3">{p.type}</td>
-                    <td className="py-1 pr-3">{p.volume}</td>
-                    <td className="py-1 pr-3">{p.price}</td>
-                    <td className="py-1 pr-3 whitespace-nowrap" title={formatDateTime(p.time)}>
+                  <tr key={p.ticket}>
+                    <td className="num py-2 pr-3 text-muted">{p.ticket}</td>
+                    <td className="py-2 pr-3 font-medium">{p.symbol}</td>
+                    <td className={`py-2 pr-3 font-medium ${typeClass(p.type)}`}>{p.type}</td>
+                    <td className="num py-2 pr-3 text-right">{p.volume}</td>
+                    <td className="num py-2 pr-3 text-right">{p.price}</td>
+                    <td className="py-2 pr-3 whitespace-nowrap" title={formatDateTime(p.time)}>
                       {formatDateShort(p.time)}
                     </td>
-                    <td className={`py-1 ${plClass(p.profit)}`}>
-                      {formatSigned(p.profit, currency)}
+                    <td className="py-2 text-right">
+                      <Delta value={p.profit} currency={currency} />
                     </td>
                   </tr>
                 ))}
@@ -156,17 +199,15 @@ export function LinkDetailView({
 
       <Card title={strings.eventsTitle}>
         {link.events.length === 0 ? (
-          <p className="text-sm text-gray-500">{strings.eventsEmpty}</p>
+          <p className="text-sm text-muted">{strings.eventsEmpty}</p>
         ) : (
-          <ul className="space-y-1 text-sm">
+            <ul className="divide-y divide-line text-sm">
             {link.events.map((e) => (
-              <li key={e.id} className="flex flex-wrap gap-x-3 border-t py-1 first:border-0">
-                <span className="text-gray-500">{formatDateTime(e.ts)}</span>
+              <li key={e.id} className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 py-2">
+                <span className="num text-muted">{formatDateTime(e.ts)}</span>
                 <span className="font-medium">{e.type}</span>
                 {e.detail !== null && (
-                  <code className="break-all text-xs text-gray-600">
-                    {JSON.stringify(e.detail)}
-                  </code>
+                  <code className="text-xs break-all text-muted">{JSON.stringify(e.detail)}</code>
                 )}
               </li>
             ))}

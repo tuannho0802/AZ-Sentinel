@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
 import { Redirect } from 'wouter'
+import { Button } from '../../components/Button'
 import { strings } from '../../lib/strings'
 import { useMe } from './api'
 
@@ -8,7 +9,7 @@ export function RequireAuth({ children }: { children: ReactNode }) {
   const me = useMe()
   if (me.isPending) {
     return (
-      <p role="status" className="p-8 text-gray-500">
+      <p role="status" className="p-8 text-muted">
         {strings.checkingSession}
       </p>
     )
@@ -16,14 +17,10 @@ export function RequireAuth({ children }: { children: ReactNode }) {
   if (me.isError) {
     return (
       <div role="alert" className="p-8">
-        <p className="text-red-600">{strings.sessionError}</p>
-        <button
-          type="button"
-          className="mt-2 rounded border px-3 py-1"
-          onClick={() => me.refetch()}
-        >
+        <p className="text-loss">{strings.sessionError}</p>
+        <Button className="mt-3" onClick={() => me.refetch()}>
           {strings.retry}
-        </button>
+        </Button>
       </div>
     )
   }

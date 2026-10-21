@@ -5,9 +5,12 @@ import { strings } from '../../lib/strings'
 export function LinksCard() {
   return (
     <Card title={strings.linksTitle}>
-      <p className="text-sm text-gray-600">{strings.linksOverviewHint}</p>
+      <p className="text-sm text-muted">{strings.linksOverviewHint}</p>
       {import.meta.env.DEV && (
-        <Link href="/links" className="mt-2 inline-block underline">
+        <Link
+          href="/links"
+          className="mt-3 inline-flex h-9 items-center rounded-md border border-line-strong bg-surface px-3.5 text-sm font-medium transition-colors hover:bg-raised"
+        >
           {strings.linksManage}
         </Link>
       )}

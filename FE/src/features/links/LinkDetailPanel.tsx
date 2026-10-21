@@ -1,12 +1,15 @@
 import { useQueryClient } from '@tanstack/react-query'
 import { useEffect, useRef } from 'react'
 import { Link } from 'wouter'
+import { Button } from '../../components/Button'
+import { Icon } from '../../components/Icon'
+import { Skeleton } from '../../components/Skeleton'
 import { ApiError } from '../../lib/api-client'
 import { formatTime } from '../../lib/format'
 import { strings } from '../../lib/strings'
 import { linkKey, useLink } from './api'
 import { LinkDetailView } from './LinkDetailView'
-import { LiveControl } from './live/LiveControl'
+import { LiveBanners, LiveControl } from './live/LiveControl'
 import { effectiveLiveState, getLiveEntry, mergeLiveDetail } from './live/live-store'
 import { useLiveLease } from './live/useLiveLease'
 
@@ -56,11 +59,15 @@ export function LinkDetailPanel({ id }: { id: number }) {
 
   return (
     <div>
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <Link href="/links" className="text-sm underline">
-          ← {strings.detailBack}
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+        <Link
+          href="/links"
+          className="inline-flex items-center gap-1 text-sm font-medium text-muted transition-colors hover:text-ink"
+        >
+          <Icon name="back" size={14} />
+          {strings.detailBack}
         </Link>
-        <div className="flex flex-wrap items-center gap-3 text-sm">
+        <div className="flex flex-wrap items-center gap-3">
           {q.isSuccess && (
             <LiveControl
               status={live.status}
@@ -73,30 +80,26 @@ export function LinkDetailPanel({ id }: { id: number }) {
           )}
           {/* Giờ tải D1 chỉ có nghĩa khi không live; đang live thì số liệu đổi theo tick. */}
           {q.dataUpdatedAt > 0 && liveState !== 'live' && (
-            <span className="text-gray-500">
+            <span className="num text-sm text-muted">
               {strings.updatedAt} {formatTime(q.dataUpdatedAt)}
             </span>
           )}
-          <button type="button" className="rounded border px-3 py-1" onClick={() => q.refetch()}>
+          <Button size="sm" className="h-8" onClick={() => q.refetch()}>
+            <Icon name="refresh" size={13} />
             {strings.refresh}
-          </button>
+          </Button>
         </div>
       </div>
-      <div className="mt-3">
-        {q.isPending && <p className="text-gray-500">{strings.detailLoading}</p>}
+      {q.isSuccess && <LiveBanners status={live.status} kick={live.kick} onRetry={live.retry} />}
+      <div className="mt-4">
+        {q.isPending && <Skeleton label={strings.detailLoading} rows={5} />}
         {q.isError && (
-          <div role="alert">
-            <p className="text-red-600">
-              {notFound ? strings.detailNotFound : strings.detailError}
-            </p>
+          <div role="alert" className="rounded-lg border border-line bg-surface p-5">
+            <p className="text-loss">{notFound ? strings.detailNotFound : strings.detailError}</p>
             {!notFound && (
-              <button
-                type="button"
-                className="mt-2 rounded border px-3 py-1"
-                onClick={() => q.refetch()}
-              >
+              <Button className="mt-3" onClick={() => q.refetch()}>
                 {strings.retry}
-              </button>
+              </Button>
             )}
           </div>
         )}

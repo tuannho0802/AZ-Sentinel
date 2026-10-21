@@ -1,5 +1,7 @@
 import { normalizeVpsName, VPS_NAME_MAX } from '@az-sentinel/shared'
 import { useState } from 'react'
+import { Button } from '../../components/Button'
+import { inputSmClass } from '../../components/styles'
 import { strings } from '../../lib/strings'
 import { useSetVpsName } from './api'
 
@@ -31,10 +33,14 @@ export function VpsNameCell({ linkId, value }: { linkId: number; value: string |
   if (!editing) {
     return (
       <span className="inline-flex items-center gap-2">
-        {value ? <span>{value}</span> : <span className="text-gray-400">—</span>}
+        {value ? (
+          <span className="font-medium">{value}</span>
+        ) : (
+          <span className="text-subtle">—</span>
+        )}
         <button
           type="button"
-          className="text-xs text-gray-500 underline"
+          className="rounded px-1 text-xs text-muted underline decoration-line-strong underline-offset-2 hover:text-ink"
           aria-label={`${strings.vpsNameEdit} ${strings.fieldVpsName} #${linkId}`}
           onClick={start}
         >
@@ -45,12 +51,12 @@ export function VpsNameCell({ linkId, value }: { linkId: number; value: string |
   }
 
   return (
-    <span className="inline-flex flex-wrap items-center gap-1">
+    <span className="inline-flex flex-wrap items-center gap-1.5">
       <input
         // biome-ignore lint/a11y/noAutofocus: người dùng vừa bấm "Sửa", đưa con trỏ vào ô nhập
         autoFocus
         aria-label={`${strings.fieldVpsName} #${linkId}`}
-        className="w-36 rounded border px-2 py-0.5 text-sm"
+        className={`${inputSmClass} w-36`}
         maxLength={VPS_NAME_MAX}
         value={draft}
         disabled={save.isPending}
@@ -60,24 +66,14 @@ export function VpsNameCell({ linkId, value }: { linkId: number; value: string |
           if (e.key === 'Escape') setEditing(false)
         }}
       />
-      <button
-        type="button"
-        className="rounded border px-2 py-0.5 text-xs disabled:opacity-60"
-        disabled={save.isPending}
-        onClick={submit}
-      >
+      <Button size="sm" variant="primary" disabled={save.isPending} onClick={submit}>
         {strings.vpsNameSave}
-      </button>
-      <button
-        type="button"
-        className="rounded border px-2 py-0.5 text-xs"
-        disabled={save.isPending}
-        onClick={() => setEditing(false)}
-      >
+      </Button>
+      <Button size="sm" disabled={save.isPending} onClick={() => setEditing(false)}>
         {strings.vpsNameCancel}
-      </button>
+      </Button>
       {save.isError && (
-        <span role="alert" className="text-xs text-red-600">
+        <span role="alert" className="text-xs text-loss">
           {strings.vpsNameFailed}
         </span>
       )}

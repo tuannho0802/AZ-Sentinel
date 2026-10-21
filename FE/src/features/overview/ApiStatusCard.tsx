@@ -1,32 +1,19 @@
-import type { HealthResponse } from '@az-sentinel/shared'
-import { useQuery } from '@tanstack/react-query'
+import { Link } from 'wouter'
 import { Card } from '../../components/Card'
-import { apiGet } from '../../lib/api-client'
 import { strings } from '../../lib/strings'
 
-export function ApiStatusCard() {
-  // Dashboard poll 30 giây, dừng khi tab ẩn (Rules FE mục 5).
-  const q = useQuery({
-    queryKey: ['health'],
-    queryFn: () => apiGet<HealthResponse>('/api/health'),
-    refetchInterval: 30_000,
-  })
+export function LinksCard() {
   return (
-    <Card title={strings.apiStatusTitle}>
-      {q.isPending && <p className="text-gray-500">{strings.apiLoading}</p>}
-      {q.isError && (
-        <div role="alert">
-          <p className="text-red-600">{strings.apiError}</p>
-          <button
-            type="button"
-            className="mt-2 rounded border px-3 py-1"
-            onClick={() => q.refetch()}
-          >
-            {strings.retry}
-          </button>
-        </div>
+    <Card title={strings.linksTitle}>
+      <p className="text-sm text-muted">{strings.linksOverviewHint}</p>
+      {import.meta.env.DEV && (
+        <Link
+          href="/links"
+          className="mt-3 inline-flex h-9 items-center rounded-md border border-line-strong bg-surface px-3.5 text-sm font-medium transition-colors hover:bg-raised"
+        >
+          {strings.linksManage}
+        </Link>
       )}
-      {q.isSuccess && <p className="text-green-600">{strings.apiOk}</p>}
     </Card>
   )
 }

@@ -1,5 +1,6 @@
 import type { LinkSummary } from '@az-sentinel/shared'
 import { useLocation } from 'wouter'
+import { Button } from '../../components/Button'
 import { strings } from '../../lib/strings'
 import { useDeleteLink, useSetLinkStatus, useUnbindLink } from './api'
 import { RotateKeyButton } from './RotateKeyButton'
@@ -24,27 +25,19 @@ export function LinkActions({ link }: { link: LinkSummary }) {
 
   return (
     <div>
-      <div className="flex flex-wrap gap-2">
-        <button
-          type="button"
-          className="rounded border px-3 py-1 disabled:opacity-60"
-          disabled={busy}
-          onClick={toggle}
-        >
+      <div className="flex flex-wrap items-center gap-2">
+        <Button disabled={busy} onClick={toggle}>
           {link.status === 'active' ? strings.actDisable : strings.actEnable}
-        </button>
+        </Button>
         <RotateKeyButton linkId={link.id} disabled={busy} />
-        <button
-          type="button"
-          className="rounded border px-3 py-1 disabled:opacity-60"
+        <Button
           disabled={busy || !link.account}
           onClick={() => window.confirm(strings.confirmUnbind) && unbind.mutate()}
         >
           {strings.actUnbind}
-        </button>
-        <button
-          type="button"
-          className="rounded border border-red-300 px-3 py-1 text-red-700 disabled:opacity-60"
+        </Button>
+        <Button
+          variant="danger"
           disabled={busy}
           onClick={() => {
             if (window.confirm(strings.confirmDelete))
@@ -52,10 +45,10 @@ export function LinkActions({ link }: { link: LinkSummary }) {
           }}
         >
           {strings.actDelete}
-        </button>
+        </Button>
       </div>
       {failed && (
-        <p role="alert" className="mt-2 text-sm text-red-600">
+        <p role="alert" className="mt-2 text-sm text-loss">
           {strings.actionFailed}
         </p>
       )}

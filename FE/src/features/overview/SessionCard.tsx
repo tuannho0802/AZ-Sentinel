@@ -9,8 +9,12 @@ export function SessionCard() {
       {me.data && (
         <dl className="text-sm">
           <dt className="font-medium">{me.data.display_name}</dt>
-          <dd className="text-gray-600">{me.data.email}</dd>
-          <dd className="text-gray-600">{strings.roles[me.data.role]}</dd>
+          <dd className="text-muted">{me.data.email}</dd>
+          <dd className="mt-1.5">
+            <span className="rounded-full bg-raised px-2 py-0.5 text-xs font-medium text-muted">
+              {strings.roles[me.data.role]}
+            </span>
+          </dd>
         </dl>
       )}
     </Card>
