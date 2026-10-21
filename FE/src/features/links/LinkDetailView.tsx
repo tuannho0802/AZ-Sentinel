@@ -2,6 +2,7 @@ import type { LinkDetail, LiveState } from '@az-sentinel/shared'
 import type { ReactNode } from 'react'
 import { Card } from '../../components/Card'
 import {
+  formatDateShort,
   formatDateTime,
   formatMoney,
   formatPercent,
@@ -123,6 +124,7 @@ export function LinkDetailView({
                   <th className="py-1 pr-3">{strings.colType}</th>
                   <th className="py-1 pr-3">{strings.colVolume}</th>
                   <th className="py-1 pr-3">{strings.colOpenPrice}</th>
+                  <th className="py-1 pr-3">{strings.colOpenTime}</th>
                   <th className="py-1">{strings.colProfit}</th>
                 </tr>
               </thead>
@@ -134,6 +136,9 @@ export function LinkDetailView({
                     <td className="py-1 pr-3">{p.type}</td>
                     <td className="py-1 pr-3">{p.volume}</td>
                     <td className="py-1 pr-3">{p.price}</td>
+                    <td className="py-1 pr-3 whitespace-nowrap" title={formatDateTime(p.time)}>
+                      {formatDateShort(p.time)}
+                    </td>
                     <td className={`py-1 ${plClass(p.profit)}`}>
                       {formatSigned(p.profit, currency)}
                     </td>

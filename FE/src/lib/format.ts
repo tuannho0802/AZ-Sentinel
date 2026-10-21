@@ -4,6 +4,13 @@ export function formatDateTime(unix: number): string {
   return new Date(unix * 1000).toLocaleString('vi-VN')
 }
 
+/** Ngày rút gọn DD/MM/YY theo giờ máy người xem, ví dụ 21/10/26. */
+export function formatDateShort(unix: number): string {
+  const d = new Date(unix * 1000)
+  const two = (n: number) => String(n).padStart(2, '0')
+  return `${two(d.getDate())}/${two(d.getMonth() + 1)}/${two(d.getFullYear() % 100)}`
+}
+
 export function formatTime(ms: number): string {
   return new Date(ms).toLocaleTimeString('vi-VN')
 }

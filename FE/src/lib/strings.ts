@@ -133,6 +133,7 @@ export const strings = {
   colType: 'Lệnh',
   colVolume: 'Khối lượng',
   colOpenPrice: 'Giá mở',
+  colOpenTime: 'Ngày mở',
   colProfit: 'Lãi/lỗ',
   colTicket: 'Ticket',
   colTime: 'Thời gian',

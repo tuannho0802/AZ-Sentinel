@@ -168,6 +168,13 @@ describe('chi tiết liên kết', () => {
     expect(await screen.findByText('Broker <b>X</b>')).toBeTruthy()
     expect(screen.getByText('XAUUSD')).toBeTruthy()
     expect(screen.getByText('−3.20 USD')).toBeTruthy()
+    // Cột "Ngày mở": DD/MM/YY rút gọn (ví dụ 21/10/26), giờ đầy đủ nằm ở tooltip.
+    const openedAt = new Date(NOW * 1000)
+    const dd = String(openedAt.getDate()).padStart(2, '0')
+    const mm = String(openedAt.getMonth() + 1).padStart(2, '0')
+    const yy = String(openedAt.getFullYear() % 100).padStart(2, '0')
+    expect(screen.getByText(strings.colOpenTime)).toBeTruthy()
+    expect(screen.getByText(`${dd}/${mm}/${yy}`)).toBeTruthy()
     expect(screen.getByText('auth_fail')).toBeTruthy()
     expect(document.querySelector('b')).toBeNull()
   })
