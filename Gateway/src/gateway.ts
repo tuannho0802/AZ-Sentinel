@@ -1,0 +1,529 @@
+import {
+  type BindState,
+  clampIntervalMs,
+  clampPushSec,
+  type EventRequest,
+  GW,
+  type GwClientMessage,
+  type GwServerMessage,
+  type LocalEventResponse,
+  type LocalPingResponse,
+  type PingRequest,
+  type Position,
+  type Sample,
+  type SamplesRequest,
+  type Snap,
+  terminalId,
+} from '@az-sentinel/shared'
+import { type Logger, silentLogger } from './log'
+import { EventQueue } from './queue'
+
+export const GATEWAY_VERSION = '0.1.0'
+
+/** Trần số mẫu giữ cho mỗi terminal giữa hai lần gom (push tối đa 5 giây, 1 mẫu/giây). */
+const MAX_BUFFER = 60
+
+/** Gửi một tin lên cloud. Trả về false khi chưa có kết nối (tin bị bỏ, không xếp hàng ở đây). */
+export type CloudSend = (msg: GwClientMessage) => boolean
+
+type Terminal = {
+  tid: string
+  sid: string
+  key: string
+  login: number
+  server: string
+  mode: PingRequest['mode']
+  broker?: string
+  name?: string
+  eaVer: string
+  snap: Snap
+  /** EA còn ping trong `offlineAfterSec`. */
+  online: boolean
+  /** Terminal đang nối được broker. */
+  conn: boolean
+  lastSeenMs: number
+  bind: BindState
+  code: number
+  /** Đã gửi `bind` cho kết nối cloud hiện tại. */
+  bindSent: boolean
+  /** Trạng thái online cuối đã báo cloud, để không báo lặp. */
+  pushedOnline: boolean | null
+  /** `seq` EA cuối đã nhận, theo phiên `sid` (loại trùng cục bộ). */
+  lastEaSeq: { samples: number; event: number }
+  buffer: Sample[]
+  positions?: Position[]
+  posHash?: string
+  posDirty: boolean
+  /** Lần gửi hàng đợi cuối `seq` -> đã gửi lên cloud kết nối hiện tại. */
+  inflight: Set<number>
+}
+
+export type TerminalStatus = {
+  tid: string
+  login: number
+  server: string
+  mode: string
+  eaVer: string
+  online: boolean
+  conn: boolean
+  bind: BindState
+  code: number
+  watching: boolean
+  lastSeenSec: number
+  queued: number
+}
+
+export type GatewayStatus = {
+  version: string
+  cloud: { configured: boolean; connected: boolean }
+  uptimeSec: number
+  pushSec: number
+  watched: number
+  queued: number
+  droppedEvents: number
+  terminals: TerminalStatus[]
+}
+
+export type GatewayOptions = {
+  vps?: string
+  queue?: EventQueue
+  log?: Logger
+  now?: () => number
+  cloudConfigured?: boolean
+}
+
+/**
+ * Lõi Gateway (Plan 3C mục 3, 4, 7). Không biết gì về HTTP hay WebSocket: `LocalServer` gọi
+ * `handle*`, `CloudClient` gọi `onCloud*`. Nhờ vậy kiểm thử logic không cần mở socket.
+ *
+ * Nguyên tắc an toàn: lỗi luôn làm dữ liệu ngừng chảy. Mất cloud thì `watch` về rỗng, EA tự
+ * về TRACK ở lần ping kế tiếp; sự kiện giao dịch được giữ lại để gửi bù.
+ */
+export class Gateway {
+  private readonly terminals = new Map<string, Terminal>()
+  private readonly queue: EventQueue
+  private readonly log: Logger
+  private readonly now: () => number
+  private readonly startedMs: number
+  private send: CloudSend | null = null
+  private watch = new Set<string>()
+  private pushSec: number = GW.defaultPushSec
+  private lastGseq = 0
+  private flushTimer: NodeJS.Timeout | null = null
+  private sweepTimer: NodeJS.Timeout | null = null
+
+  constructor(private readonly opts: GatewayOptions = {}) {
+    this.queue = opts.queue ?? new EventQueue()
+    this.log = opts.log ?? silentLogger
+    this.now = opts.now ?? Date.now
+    this.startedMs = this.now()
+  }
+
+  // -------------------------------------------------------------------------
+  // Vòng đời
+  // -------------------------------------------------------------------------
+
+  /** Bật hai bộ hẹn giờ: quét offline (1 giây) và gom `batch` (theo `push_sec`). */
+  start(): void {
+    this.sweepTimer = setInterval(() => this.sweep(), 1000)
+    this.sweepTimer.unref()
+    this.rescheduleFlush()
+  }
+
+  stop(): void {
+    if (this.sweepTimer) clearInterval(this.sweepTimer)
+    if (this.flushTimer) clearInterval(this.flushTimer)
+    this.sweepTimer = null
+    this.flushTimer = null
+    this.queue.flush()
+  }
+
+  private rescheduleFlush(): void {
+    if (this.flushTimer) clearInterval(this.flushTimer)
+    this.flushTimer = setInterval(() => this.flush(), this.pushSec * 1000)
+    this.flushTimer.unref()
+  }
+
+  // -------------------------------------------------------------------------
+  // EA -> Gateway
+  // -------------------------------------------------------------------------
+
+  handlePing(req: PingRequest): LocalPingResponse {
+    const now = this.now()
+    const tid = terminalId(req.login, req.server)
+    let t = this.terminals.get(tid)
+
+    if (!t) {
+      t = this.createTerminal(tid, req, now)
+      this.terminals.set(tid, t)
+      this.log.info(`terminal mới ${tid} (${req.mode}, ea ${req.ea_ver || '?'})`)
+    } else {
+      this.refreshTerminal(t, req, now)
+    }
+
+    this.syncBind(t)
+    this.syncState(t)
+    return this.pingResponse(t)
+  }
+
+  handleSamples(req: SamplesRequest): LocalPingResponse {
+    const tid = terminalId(req.login, req.server)
+    const t = this.terminals.get(tid)
+    // Terminal lạ (Gateway vừa khởi động lại): trả "không xem", EA về TRACK và ping để đăng ký.
+    if (!t || t.key !== req.key) return this.idleResponse()
+
+    t.lastSeenMs = this.now()
+    if (!this.isWatched(t)) return this.pingResponse(t)
+
+    // Loại trùng khi EA gửi lại cùng lô sau lỗi mạng cục bộ.
+    if (t.sid === req.sid && req.seq <= t.lastEaSeq.samples) return this.pingResponse(t)
+    t.lastEaSeq.samples = req.seq
+
+    t.buffer.push(...req.samples)
+    if (t.buffer.length > MAX_BUFFER) t.buffer.splice(0, t.buffer.length - MAX_BUFFER)
+    if (req.positions) {
+      t.positions = req.positions
+      t.posHash = req.pos_hash
+      t.posDirty = true
+    }
+    return this.pingResponse(t)
+  }
+
+  handleEvent(req: EventRequest): LocalEventResponse {
+    const tid = terminalId(req.login, req.server)
+    let t = this.terminals.get(tid)
+    if (!t) {
+      // Sự kiện đến trước ping (Gateway mới khởi động): tạo terminal tạm từ định danh trong tin.
+      t = this.createTerminal(
+        tid,
+        {
+          v: 1,
+          sid: req.sid,
+          key: req.key,
+          login: req.login,
+          server: req.server,
+          ea_ver: '',
+          mode: 'real',
+          conn: true,
+          snap: req.snap ?? { bal: 0, eq: 0, fl: 0 },
+        },
+        this.now(),
+      )
+      this.terminals.set(tid, t)
+      this.syncBind(t)
+    }
+    t.lastSeenMs = this.now()
+
+    // Loại trùng theo (sid, seq): EA gửi lại lô đã nhận mà chưa kịp thấy ack.
+    if (t.sid === req.sid && req.seq <= t.lastEaSeq.event) {
+      return { ok: true, ack_seq: req.seq }
+    }
+    if (t.sid !== req.sid) {
+      t.sid = req.sid
+      t.lastEaSeq = { samples: 0, event: 0 }
+    }
+    t.lastEaSeq.event = req.seq
+
+    if (t.bind === 'rejected') return { ok: true, ack_seq: req.seq }
+
+    this.queue.push({
+      tid,
+      seq: this.nextGseq(),
+      reason: req.reason,
+      events: req.events,
+      snap: req.snap,
+    })
+    this.drainQueue(t)
+    return { ok: true, ack_seq: req.seq }
+  }
+
+  // -------------------------------------------------------------------------
+  // Cloud -> Gateway
+  // -------------------------------------------------------------------------
+
+  onCloudOpen(send: CloudSend): void {
+    this.send = send
+    this.watch.clear()
+    send({
+      t: 'hello',
+      v: 1,
+      gw_ver: GATEWAY_VERSION,
+      vps: this.opts.vps,
+      os: process.platform,
+    })
+    for (const t of this.terminals.values()) {
+      t.bindSent = false
+      t.pushedOnline = null
+      t.inflight.clear()
+      if (t.bind !== 'rejected') t.bind = 'pending'
+      this.syncBind(t)
+    }
+    this.log.info(`cloud đã nối, ${this.terminals.size} terminal đang chờ bind`)
+  }
+
+  /** Mất cloud: ngừng mọi live ngay (an toàn khi lỗi). Sự kiện vẫn ở hàng đợi. */
+  onCloudClose(): void {
+    this.send = null
+    this.watch.clear()
+    for (const t of this.terminals.values()) t.buffer = []
+    this.log.warn('cloud đã ngắt, ngừng live, giữ hàng đợi sự kiện')
+  }
+
+  onCloudMessage(msg: GwServerMessage): void {
+    switch (msg.t) {
+      case 'bound': {
+        const t = this.terminals.get(msg.tid)
+        if (!t) return
+        t.bind = 'ok'
+        t.code = 0
+        this.log.info(`bind ok ${msg.tid} -> liên kết ${msg.link_id}`)
+        this.syncState(t)
+        this.drainQueue(t)
+        return
+      }
+      case 'reject': {
+        const t = this.terminals.get(msg.tid)
+        if (!t) return
+        t.bind = 'rejected'
+        t.code = msg.code
+        t.buffer = []
+        this.watch.delete(msg.tid)
+        const dropped = this.queue.dropTerminal(msg.tid)
+        this.log.warn(`bind bị từ chối ${msg.tid} mã ${msg.code}, bỏ ${dropped} lô sự kiện`)
+        return
+      }
+      case 'watch': {
+        // Lưu nguyên tập cloud yêu cầu: `watch` có thể đến trước `bound`; `isWatched` mới kiểm bind.
+        const next = new Set(msg.tids)
+        for (const tid of this.watch) {
+          if (!next.has(tid)) {
+            const t = this.terminals.get(tid)
+            if (t) t.buffer = []
+          }
+        }
+        this.watch = next
+        const push = clampPushSec(msg.push_sec)
+        if (push !== this.pushSec) {
+          this.pushSec = push
+          this.rescheduleFlush()
+        }
+        this.log.debug(`watch ${next.size} terminal, push ${push}s`)
+        return
+      }
+      case 'ack': {
+        const t = this.terminals.get(msg.tid)
+        t?.inflight.delete(msg.seq)
+        this.queue.ack(msg.tid, msg.seq)
+        return
+      }
+      case 'update':
+        // Tự cập nhật thuộc patch 12 (bộ cài). Ghi nhận để không âm thầm bỏ qua.
+        this.log.warn(`cloud yêu cầu cập nhật >= ${msg.min_ver} (chưa hỗ trợ ở bản này)`)
+        return
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // Bộ hẹn giờ
+  // -------------------------------------------------------------------------
+
+  /** Gom mẫu của các terminal đang được xem thành MỘT tin `batch`. Không ai xem: không gửi gì. */
+  flush(): void {
+    if (!this.send || this.watch.size === 0) return
+    const items: Extract<GwClientMessage, { t: 'batch' }>['items'] = []
+    for (const tid of this.watch) {
+      const t = this.terminals.get(tid)
+      if (!t || !this.isWatched(t)) continue
+      if (t.buffer.length === 0 && !t.posDirty) continue
+      items.push({
+        tid,
+        samples: t.buffer.splice(0, t.buffer.length),
+        ...(t.posDirty && t.positions ? { positions: t.positions, pos_hash: t.posHash } : {}),
+      })
+      t.posDirty = false
+    }
+    if (items.length > 0) this.send({ t: 'batch', items })
+  }
+
+  /** Terminal im quá `offlineAfterSec` thì offline: báo cloud một lần, ngừng giữ mẫu. */
+  sweep(): void {
+    const now = this.now()
+    for (const t of this.terminals.values()) {
+      if (t.online && now - t.lastSeenMs > GW.offlineAfterSec * 1000) {
+        t.online = false
+        t.buffer = []
+        this.log.warn(`terminal ${t.tid} offline (im ${GW.offlineAfterSec}s)`)
+        this.syncState(t)
+      }
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // Trạng thái
+  // -------------------------------------------------------------------------
+
+  status(): GatewayStatus {
+    const now = this.now()
+    return {
+      version: GATEWAY_VERSION,
+      cloud: { configured: this.opts.cloudConfigured ?? false, connected: this.send !== null },
+      uptimeSec: Math.round((now - this.startedMs) / 1000),
+      pushSec: this.pushSec,
+      watched: [...this.terminals.values()].filter((t) => this.isWatched(t)).length,
+      queued: this.queue.length,
+      droppedEvents: this.queue.dropped,
+      terminals: [...this.terminals.values()].map((t) => ({
+        tid: t.tid,
+        login: t.login,
+        server: t.server,
+        mode: t.mode,
+        eaVer: t.eaVer,
+        online: t.online,
+        conn: t.conn,
+        bind: t.bind,
+        code: t.code,
+        watching: this.isWatched(t),
+        lastSeenSec: Math.round((now - t.lastSeenMs) / 1000),
+        queued: this.queue.forTerminal(t.tid).length,
+      })),
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // Nội bộ
+  // -------------------------------------------------------------------------
+
+  private createTerminal(tid: string, req: PingRequest, now: number): Terminal {
+    return {
+      tid,
+      sid: req.sid,
+      key: req.key,
+      login: req.login,
+      server: req.server,
+      mode: req.mode,
+      broker: req.broker,
+      name: req.name,
+      eaVer: req.ea_ver,
+      snap: req.snap,
+      online: true,
+      conn: req.conn,
+      lastSeenMs: now,
+      bind: 'pending',
+      code: 0,
+      bindSent: false,
+      pushedOnline: null,
+      lastEaSeq: { samples: 0, event: 0 },
+      buffer: [],
+      posDirty: false,
+      inflight: new Set(),
+    }
+  }
+
+  private refreshTerminal(t: Terminal, req: PingRequest, now: number): void {
+    const wasOnline = t.online
+    t.lastSeenMs = now
+    t.online = true
+    t.snap = req.snap
+    t.mode = req.mode
+    t.eaVer = req.ea_ver
+    t.broker = req.broker ?? t.broker
+    t.name = req.name ?? t.name
+
+    if (t.sid !== req.sid) {
+      // EA khởi động lại: phiên mới, seq về 0, bỏ mẫu cũ.
+      t.sid = req.sid
+      t.lastEaSeq = { samples: 0, event: 0 }
+      t.buffer = []
+      t.posDirty = false
+    }
+    if (t.key !== req.key) {
+      // Người dùng đổi InpApiKey: bind lại từ đầu, bỏ lô sự kiện của khóa cũ.
+      t.key = req.key
+      t.bind = 'pending'
+      t.code = 0
+      t.bindSent = false
+      this.watch.delete(t.tid)
+      this.queue.dropTerminal(t.tid)
+    }
+    if (t.conn !== req.conn) {
+      t.conn = req.conn
+      this.log.info(`terminal ${t.tid} ${req.conn ? 'nối lại' : 'mất kết nối'} broker`)
+    }
+    if (!wasOnline) this.log.info(`terminal ${t.tid} online trở lại`)
+  }
+
+  /** Gửi `bind` nếu cloud đang nối và chưa gửi cho kết nối này. */
+  private syncBind(t: Terminal): void {
+    if (!this.send || t.bindSent || t.bind === 'rejected') return
+    const ok = this.send({
+      t: 'bind',
+      tid: t.tid,
+      key: t.key,
+      login: t.login,
+      server: t.server,
+      mode: t.mode,
+      broker: t.broker,
+      name: t.name,
+    })
+    if (ok) t.bindSent = true
+  }
+
+  /** Báo `state` khi trạng thái hiệu dụng (online và nối broker) đổi, chỉ sau khi bind ok. */
+  private syncState(t: Terminal): void {
+    if (!this.send || t.bind !== 'ok') return
+    const effective = t.online && t.conn
+    if (t.pushedOnline === effective) return
+    if (this.send({ t: 'state', tid: t.tid, online: effective, snap: t.snap })) {
+      t.pushedOnline = effective
+    }
+  }
+
+  /** Gửi các lô sự kiện chưa gửi của terminal (chỉ khi bind ok). */
+  private drainQueue(t: Terminal): void {
+    if (!this.send || t.bind !== 'ok') return
+    for (const item of this.queue.forTerminal(t.tid)) {
+      if (t.inflight.has(item.seq)) continue
+      const ok = this.send({
+        t: 'event',
+        tid: item.tid,
+        seq: item.seq,
+        reason: item.reason,
+        events: item.events,
+        snap: item.snap,
+      })
+      if (ok) t.inflight.add(item.seq)
+    }
+  }
+
+  private isWatched(t: Terminal): boolean {
+    return t.bind === 'ok' && t.online && this.watch.has(t.tid) && this.send !== null
+  }
+
+  private pingResponse(t: Terminal): LocalPingResponse {
+    return {
+      ok: true,
+      bind: t.bind,
+      code: t.code,
+      watch: this.isWatched(t),
+      interval_ms: clampIntervalMs(this.pushSec * 1000),
+      lease_ms: GW.leaseMs,
+    }
+  }
+
+  private idleResponse(): LocalPingResponse {
+    return {
+      ok: true,
+      bind: 'pending',
+      code: 0,
+      watch: false,
+      interval_ms: clampIntervalMs(this.pushSec * 1000),
+      lease_ms: GW.leaseMs,
+    }
+  }
+
+  /** `seq` gửi cloud: đơn điệu theo thời gian nên không lùi khi mất file hàng đợi. */
+  private nextGseq(): number {
+    this.lastGseq = Math.max(this.lastGseq + 1, this.now())
+    return this.lastGseq
+  }
+}
