@@ -14,3 +14,7 @@ coverage/
 .clang-format
 compile_commands.json
 .mql-auto-forwards/
+*venv/
+*build/
+*.zip
+*.spec
