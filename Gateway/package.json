@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "start": "tsx src/main.ts",
+    "dev": "tsx dev/dev.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "fake-cloud": "tsx dev/fake-cloud.ts",
