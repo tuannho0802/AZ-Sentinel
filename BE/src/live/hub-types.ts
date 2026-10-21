@@ -73,3 +73,23 @@ export type ConnAttachment = {
 }
 
 export type KickMessage = { t: 'kick'; reason: KickReason }
+
+/** Một terminal đã `bind` qua Gateway. Nằm trong attachment nên sống sót qua ngủ đông. */
+export type GwTerm = {
+  tid: string
+  linkId: number
+  ownerId: number | null
+  online: boolean
+  /** Phiên bản EA để ghi vào link_state (chưa có trong `bind`; rỗng = không ghi). */
+  ea: string
+}
+
+/** Trạng thái lưu cùng mỗi WebSocket của Gateway (giới hạn 2 KB, xem MAX_GW_TERMS). */
+export type GwAttachment = {
+  connId: string
+  openedAt: number
+  lastBeatAt: number
+  hello: boolean
+  vps: string | null
+  terms: GwTerm[]
+}

@@ -2,18 +2,35 @@ import { DurableObject } from 'cloudflare:workers'
 import {
   type ClientMessage,
   clientMessageSchema,
+  GW,
+  type GwClientMessage,
+  type GwServerMessage,
+  gwClientMessageSchema,
   type KickReason,
   LIVE,
   type LiveState,
+  normalizeVpsLabel,
   type Position,
   type Sample,
   type ServerMessage,
   type SnapshotLink,
+  terminalId,
 } from '@az-sentinel/shared'
+import { sha256Hex } from '../lib/crypto'
 import { m5Slot } from '../lib/time'
+import {
+  bindTerminal,
+  eventStatements,
+  liveWriteStatements,
+  presenceStatements,
+} from '../services/gw-service'
+import { normalizeSamples } from '../services/live-service'
 import type { Bindings } from '../types'
+import { GW_HEADER, MAX_GW_TERMS } from './gw-header'
 import type {
   ConnAttachment,
+  GwAttachment,
+  GwTerm,
   HubLinkRef,
   HubStats,
   LiveScope,
@@ -25,6 +42,14 @@ import { decodeViewer, VIEWER_HEADER } from './viewer-header'
 
 const WS_OPEN = 1
 const MAX_CLIENT_MESSAGE_CHARS = 512
+/** `batch` của một VPS: tối đa 12 terminal x 20 mẫu và vị thế; chừa dư cho `event`. */
+const MAX_GW_MESSAGE_CHARS = 512 * 1024
+/** Gateway im quá chừng này (kể cả ping giao thức) thì coi là chết. */
+const GW_DEAD_AFTER_MS = GW.wsPingSec * 2.5 * 1000
+/** `link_state` ghi điều tiết khi có người xem (Plan 3C mục 5). */
+const GW_STATE_WRITE_SEC = 300
+const VIEWER_TAG = 'viewer'
+const GW_TAG = 'gw'
 /** Giới hạn bộ nhớ: số liên kết hub nhớ trạng thái (đủ rộng cho 30 EA, chặn tăng vô hạn). */
 const MAX_TRACKED_LINKS = 500
 
@@ -37,6 +62,8 @@ type LinkMemory = {
   lastIngestAt: number
   lastLiveAt: number
   lastBarSlot: number
+  /** Giờ (giây) ghi link_state gần nhất do đường Gateway; 0 = chưa. */
+  lastStateWriteSec: number
   lastPosHash: string | null
   lastSample: Sample | null
   positions: Position[] | null
@@ -69,6 +96,14 @@ const NO_DECISION: PublishResult = {
 export class LiveHub extends DurableObject<Bindings> {
   private links = new Map<number, LinkMemory>()
   private rpcCalls = 0
+  /** Tập `watch` đã gửi cho mỗi Gateway (chỉ để khỏi gửi trùng; mất khi ngủ đông thì gửi lại). */
+  private lastWatch = new Map<string, string>()
+
+  constructor(ctx: DurableObjectState, env: Bindings) {
+    super(ctx, env)
+    // Gateway giữ nhịp bằng "ping" văn bản; hub đáp "pong" mà không bị đánh thức khỏi ngủ đông.
+    ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair('ping', 'pong'))
+  }
 
   // ---------------------------------------------------------------- WebSocket (trình duyệt)
 
@@ -77,6 +112,7 @@ export class LiveHub extends DurableObject<Bindings> {
     if (request.headers.get('Upgrade')?.toLowerCase() !== 'websocket') {
       return new Response('Expected WebSocket', { status: 426 })
     }
+    if (request.headers.get(GW_HEADER) === '1') return this.acceptGateway()
     const viewer = decodeViewer(request.headers.get(VIEWER_HEADER))
     if (!viewer) return new Response('Bad viewer', { status: 400 })
 
@@ -84,7 +120,7 @@ export class LiveHub extends DurableObject<Bindings> {
     const pair = new WebSocketPair()
     const client = pair[0]
     const server = pair[1]
-    this.ctx.acceptWebSocket(server)
+    this.ctx.acceptWebSocket(server, [VIEWER_TAG])
     const att: ConnAttachment = {
       connId: crypto.randomUUID(),
       userId: viewer.userId,
@@ -97,10 +133,43 @@ export class LiveHub extends DurableObject<Bindings> {
     server.serializeAttachment(att)
     // Trình duyệt không đọc được mã HTTP của lần nâng cấp thất bại, nên chấp nhận rồi mới đá.
     if (mine >= LIVE.maxTabsPerUser) this.kick(server, 'too_many_tabs')
+    else this.syncWatch(viewer.nowMs)
     return new Response(null, { status: 101, webSocket: client })
   }
 
-  override webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): void {
+  /**
+   * Kết nối của Gateway (Plan 3C). Không gửi `hello` trong 10 giây thì đóng (B-31). Cố ý KHÔNG
+   * đòi `bind` hợp lệ: Gateway chưa có EA nào (hoặc khóa bị từ chối) vẫn phải giữ kết nối,
+   * nếu không nó sẽ nối lại liên tục.
+   */
+  private acceptGateway(): Response {
+    const pair = new WebSocketPair()
+    const client = pair[0]
+    const server = pair[1]
+    this.ctx.acceptWebSocket(server, [GW_TAG])
+    const now = Date.now()
+    const att: GwAttachment = {
+      connId: crypto.randomUUID(),
+      openedAt: now,
+      lastBeatAt: now,
+      hello: false,
+      vps: null,
+      terms: [],
+    }
+    server.serializeAttachment(att)
+    // setTimeout giữ hub thức tối đa 10 giây mỗi lần Gateway nối: chấp nhận được.
+    setTimeout(() => {
+      const cur = this.readGw(server)
+      if (cur && !cur.hello && server.readyState === WS_OPEN) server.close(4001, 'hello timeout')
+    }, GW.bindTimeoutSec * 1000)
+    return new Response(null, { status: 101, webSocket: client })
+  }
+
+  override async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): Promise<void> {
+    if (this.ctx.getTags(ws).includes(GW_TAG)) {
+      await this.onGwMessage(ws, message)
+      return
+    }
     const att = ws.deserializeAttachment() as ConnAttachment | null
     if (!att) {
       ws.close(1011, 'no_state')
@@ -129,21 +198,39 @@ export class LiveHub extends DurableObject<Bindings> {
       att.hello = true
       ws.serializeAttachment(att)
       this.sendSnapshot(ws, att, now)
+      this.syncWatch(now)
       return
     }
     ws.serializeAttachment(att)
   }
 
-  override webSocketClose(): void {
-    // Không cần làm gì: getWebSockets() không còn trả kết nối đã đóng, nên viewer tự biến mất.
+  override async webSocketClose(ws: WebSocket): Promise<void> {
+    await this.onClosed(ws)
   }
 
-  override webSocketError(ws: WebSocket): void {
+  override async webSocketError(ws: WebSocket): Promise<void> {
     try {
       ws.close(1011, 'error')
     } catch {
       // đã đóng
     }
+    await this.onClosed(ws)
+  }
+
+  /**
+   * Viewer rời: chỉ cần tính lại `watch`. Gateway rời: mọi terminal của nó thành offline (ghi D1
+   * theo chuyển trạng thái) và quên tập `watch` đã gửi.
+   */
+  private async onClosed(ws: WebSocket): Promise<void> {
+    if (this.ctx.getTags(ws).includes(GW_TAG)) {
+      const att = this.readGw(ws)
+      if (att) {
+        this.lastWatch.delete(att.connId)
+        await this.markOffline(att)
+      }
+      return
+    }
+    this.syncWatch(Date.now())
   }
 
   // ---------------------------------------------------------------- RPC (từ Worker)
@@ -176,6 +263,17 @@ export class LiveHub extends DurableObject<Bindings> {
       return { ...decision, duplicate: true }
     }
 
+    return this.applyPublish(input, viewers, mem, decision)
+  }
+
+  /** Phần chung của `publish` (HTTP cũ) và đường Gateway: cập nhật bộ nhớ và phát cho người xem. */
+  private applyPublish(
+    input: PublishInput,
+    viewers: Conn[],
+    mem: LinkMemory,
+    decision: PublishResult,
+  ): PublishResult {
+    const { ref, nowMs } = input
     const wasLive = this.stateOf(mem, nowMs) === 'live'
     mem.lastSid = input.sid
     mem.lastSeq = input.seq
@@ -226,13 +324,47 @@ export class LiveHub extends DurableObject<Bindings> {
   async kickUser(userId: number, reason: KickReason): Promise<number> {
     this.rpcCalls += 1
     let n = 0
-    for (const ws of this.ctx.getWebSockets()) {
+    for (const ws of this.ctx.getWebSockets(VIEWER_TAG)) {
       const att = ws.deserializeAttachment() as ConnAttachment | null
       if (att?.userId === userId) {
         this.kick(ws, reason)
         n += 1
       }
     }
+    this.syncWatch(Date.now())
+    return n
+  }
+
+  /** Các liên kết có terminal đang online qua một Gateway còn sống (danh sách liên kết dùng). */
+  async onlineLinkIds(nowMs: number): Promise<number[]> {
+    this.rpcCalls += 1
+    const ids = new Set<number>()
+    for (const ws of this.ctx.getWebSockets(GW_TAG)) {
+      const att = this.readGw(ws)
+      if (!att || ws.readyState !== WS_OPEN || !this.gwAlive(ws, att, nowMs)) continue
+      for (const t of att.terms) if (t.online) ids.add(t.linkId)
+    }
+    return [...ids]
+  }
+
+  /** Khóa bị khóa, cấp lại hoặc gỡ gắn (B-38): bảo Gateway bỏ terminal và ngừng phát. */
+  async revokeLink(linkId: number): Promise<number> {
+    this.rpcCalls += 1
+    let n = 0
+    for (const ws of this.ctx.getWebSockets(GW_TAG)) {
+      const att = this.readGw(ws)
+      if (!att) continue
+      const gone = att.terms.filter((t) => t.linkId === linkId)
+      if (gone.length === 0) continue
+      ws.serializeAttachment({ ...att, terms: att.terms.filter((t) => t.linkId !== linkId) })
+      for (const t of gone) {
+        this.sendGw(ws, { t: 'reject', tid: t.tid, code: 403 })
+        n += 1
+      }
+      const offline = gone.filter((t) => t.online)
+      if (offline.length > 0) await this.markOffline({ ...att, terms: offline })
+    }
+    this.syncWatch(Date.now())
     return n
   }
 
@@ -252,7 +384,7 @@ export class LiveHub extends DurableObject<Bindings> {
    */
   private aliveConns(nowMs: number): Conn[] {
     const alive: Conn[] = []
-    for (const ws of this.ctx.getWebSockets()) {
+    for (const ws of this.ctx.getWebSockets(VIEWER_TAG)) {
       if (ws.readyState !== WS_OPEN) continue
       const att = ws.deserializeAttachment() as ConnAttachment | null
       if (!att) {
@@ -308,6 +440,7 @@ export class LiveHub extends DurableObject<Bindings> {
         lastIngestAt: 0,
         lastLiveAt: 0,
         lastBarSlot: -1,
+        lastStateWriteSec: 0,
         lastPosHash: null,
         lastSample: null,
         positions: null,
@@ -324,6 +457,258 @@ export class LiveHub extends DurableObject<Bindings> {
     return mem.lastLiveAt !== 0 && nowMs - mem.lastLiveAt <= LIVE.leaseSec * 1000
       ? 'live'
       : 'waking'
+  }
+
+
+  // ---------------------------------------------------------------- Gateway (Plan 3C)
+
+  private readGw(ws: WebSocket): GwAttachment | null {
+    try {
+      return (ws.deserializeAttachment() as GwAttachment | null) ?? null
+    } catch {
+      return null
+    }
+  }
+
+  /** Còn sống: có tin hoặc ping giao thức (auto-response) trong `GW_DEAD_AFTER_MS` gần nhất. */
+  private gwAlive(ws: WebSocket, att: GwAttachment, nowMs: number): boolean {
+    const auto = this.ctx.getWebSocketAutoResponseTimestamp(ws)?.getTime() ?? 0
+    return nowMs - Math.max(att.lastBeatAt, auto) <= GW_DEAD_AFTER_MS
+  }
+
+  private sendGw(ws: WebSocket, msg: GwServerMessage): void {
+    try {
+      ws.send(JSON.stringify(msg))
+    } catch {
+      // đã đóng
+    }
+  }
+
+  /** Chạy một thao tác D1; lỗi thì ghi log và trả null (Gateway giữ hàng đợi, gửi lại sau). */
+  private async withDb<T>(fn: (db: D1Database) => Promise<T>): Promise<T | null> {
+    try {
+      return await fn(this.env.DB)
+    } catch (error) {
+      console.error(
+        JSON.stringify({ level: 'error', msg: 'gw_d1_failed', err: String(error).slice(0, 200) }),
+      )
+      return null
+    }
+  }
+
+  /**
+   * Tính lại và đẩy tập `watch` cho mọi Gateway: các terminal đã bind mà có ít nhất một viewer
+   * còn sống có phạm vi bao gồm. Chỉ gửi khi tập đổi (hoặc `force`). Viewer chết chỉ bị phát hiện
+   * lười ở `aliveConns`, nên hàm này cũng được gọi khi `batch` đến mà không còn ai xem.
+   */
+  private syncWatch(nowMs: number, force?: WebSocket): void {
+    const viewers = this.aliveConns(nowMs)
+    for (const ws of this.ctx.getWebSockets(GW_TAG)) {
+      const att = this.readGw(ws)
+      if (!att || ws.readyState !== WS_OPEN) continue
+      const tids = att.terms
+        .filter((t) => viewers.some((v) => scopeMatches(v.att.scope, t)))
+        .map((t) => t.tid)
+        .sort()
+      const key = tids.join('|')
+      if (this.lastWatch.get(att.connId) === key && force !== ws) continue
+      this.lastWatch.set(att.connId, key)
+      this.sendGw(ws, { t: 'watch', tids, push_sec: GW.defaultPushSec })
+    }
+  }
+
+  private async onGwMessage(ws: WebSocket, message: string | ArrayBuffer): Promise<void> {
+    if (typeof message !== 'string' || message.length > MAX_GW_MESSAGE_CHARS) {
+      ws.close(1009, 'bad_message')
+      return
+    }
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(message)
+    } catch {
+      return
+    }
+    const msg = gwClientMessageSchema.safeParse(parsed)
+    if (!msg.success) return
+    const now = Date.now()
+    const att = this.readGw(ws)
+    if (!att) {
+      ws.close(1011, 'no_state')
+      return
+    }
+    att.lastBeatAt = now
+    if (msg.data.t === 'hello') {
+      att.hello = true
+      att.vps = normalizeVpsLabel(msg.data.vps ?? null)
+    }
+    ws.serializeAttachment(att)
+    switch (msg.data.t) {
+      case 'hello':
+        return
+      case 'bind':
+        await this.gwBind(ws, msg.data, now)
+        return
+      case 'state':
+        await this.gwState(ws, msg.data, now)
+        return
+      case 'batch':
+        await this.gwBatch(ws, msg.data, now)
+        return
+      case 'event':
+        await this.gwEvent(ws, msg.data, now)
+        return
+    }
+  }
+
+  private async gwBind(
+    ws: WebSocket,
+    msg: Extract<GwClientMessage, { t: 'bind' }>,
+    nowMs: number,
+  ): Promise<void> {
+    if (msg.tid !== terminalId(msg.login, msg.server)) {
+      this.sendGw(ws, { t: 'reject', tid: msg.tid, code: 400 })
+      return
+    }
+    const keyHash = await sha256Hex(msg.key)
+    const res = await this.withDb((db) => bindTerminal(db, msg, keyHash, Math.floor(nowMs / 1000)))
+    if (res === null) return // D1 lỗi: im lặng; Gateway giữ "pending" và bind lại khi nối lại
+    if (!res.ok) {
+      this.sendGw(ws, { t: 'reject', tid: msg.tid, code: res.code })
+      return
+    }
+    // Đọc lại attachment SAU await: các tin khác có thể đã xen vào.
+    const att = this.readGw(ws)
+    if (!att) return
+    const term: GwTerm = {
+      tid: msg.tid,
+      linkId: res.linkId,
+      ownerId: res.ownerId,
+      online: false,
+      ea: '',
+    }
+    const next: GwAttachment = {
+      ...att,
+      terms: [...att.terms.filter((t) => t.tid !== msg.tid), term],
+    }
+    if (next.terms.length > MAX_GW_TERMS || JSON.stringify(next).length > 1900) {
+      this.sendGw(ws, { t: 'reject', tid: msg.tid, code: 429 })
+      return
+    }
+    ws.serializeAttachment(next)
+    this.sendGw(ws, { t: 'bound', tid: msg.tid, link_id: res.linkId })
+    this.syncWatch(nowMs, ws)
+  }
+
+  private async gwState(
+    ws: WebSocket,
+    msg: Extract<GwClientMessage, { t: 'state' }>,
+    nowMs: number,
+  ): Promise<void> {
+    const att = this.readGw(ws)
+    const before = att?.terms.find((t) => t.tid === msg.tid)
+    if (!att || !before || before.online === msg.online) return
+    // Cập nhật bộ nhớ trước khi chờ D1 để `state` lặp lại không ghi hai lần.
+    ws.serializeAttachment({
+      ...att,
+      terms: att.terms.map((t) => (t.tid === msg.tid ? { ...t, online: msg.online } : t)),
+    })
+    const stmts = presenceStatements(
+      this.env.DB,
+      before.linkId,
+      msg.online,
+      msg.snap,
+      Math.floor(nowMs / 1000),
+      { eaVer: before.ea, vps: att.vps },
+    )
+    await this.withDb((db) => db.batch(stmts))
+  }
+
+  private async gwBatch(
+    ws: WebSocket,
+    msg: Extract<GwClientMessage, { t: 'batch' }>,
+    nowMs: number,
+  ): Promise<void> {
+    const att = this.readGw(ws)
+    if (!att) return
+    const nowSec = Math.floor(nowMs / 1000)
+    const viewers = this.aliveConns(nowMs)
+    const stmts: D1PreparedStatement[] = []
+    let stale = false
+    for (const item of msg.items) {
+      const term = att.terms.find((t) => t.tid === item.tid)
+      if (!term) continue
+      const matched = viewers.filter((v) => scopeMatches(v.att.scope, term))
+      if (matched.length === 0) {
+        stale = true // không còn ai xem: bỏ (B-35) và bảo Gateway ngừng
+        continue
+      }
+      const ref: HubLinkRef = { linkId: term.linkId, ownerId: term.ownerId }
+      const mem = this.memoryFor(ref)
+      const samples = normalizeSamples(item.samples, nowSec)
+      const decision = this.applyPublish(
+        {
+          ref,
+          sid: 'gw',
+          seq: nowMs,
+          samples,
+          ...(item.positions !== undefined ? { positions: item.positions } : {}),
+          ...(item.pos_hash !== undefined ? { posHash: item.pos_hash } : {}),
+          nowMs,
+        },
+        matched,
+        mem,
+        { ...NO_DECISION, wanted: true },
+      )
+      const stateDue = nowSec - mem.lastStateWriteSec >= GW_STATE_WRITE_SEC
+      if (stateDue) mem.lastStateWriteSec = nowSec
+      stmts.push(
+        ...liveWriteStatements(
+          this.env.DB,
+          term.linkId,
+          nowSec,
+          {
+            bar: decision.barDue,
+            stateDue,
+            ...(decision.posChanged ? { positions: item.positions } : {}),
+            sample: samples.at(-1) ?? mem.lastSample ?? undefined,
+          },
+          { vps: att.vps },
+        ),
+      )
+    }
+    if (stale) this.syncWatch(nowMs)
+    if (stmts.length > 0) await this.withDb((db) => db.batch(stmts))
+  }
+
+  private async gwEvent(
+    ws: WebSocket,
+    msg: Extract<GwClientMessage, { t: 'event' }>,
+    nowMs: number,
+  ): Promise<void> {
+    const att = this.readGw(ws)
+    const term = att?.terms.find((t) => t.tid === msg.tid)
+    if (!att || !term) return
+    const stmts = eventStatements(this.env.DB, term.linkId, msg, Math.floor(nowMs / 1000), {
+      eaVer: term.ea,
+      vps: att.vps,
+    })
+    if (stmts.length > 0) {
+      const done = await this.withDb((db) => db.batch(stmts))
+      if (done === null) return // không ack: Gateway giữ hàng đợi và gửi lại khi nối lại
+    }
+    this.sendGw(ws, { t: 'ack', tid: msg.tid, seq: msg.seq })
+  }
+
+  /** Gateway rời: terminal đang online thành offline (ghi theo chuyển trạng thái). */
+  private async markOffline(att: GwAttachment): Promise<void> {
+    const nowSec = Math.floor(Date.now() / 1000)
+    const stmts: D1PreparedStatement[] = []
+    for (const t of att.terms) {
+      if (t.online) {
+        stmts.push(...presenceStatements(this.env.DB, t.linkId, false, undefined, nowSec, {}))
+      }
+    }
+    if (stmts.length > 0) await this.withDb((db) => db.batch(stmts))
   }
 
   private sendSnapshot(ws: WebSocket, att: ConnAttachment, nowMs: number): void {

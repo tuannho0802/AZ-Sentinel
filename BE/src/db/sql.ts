@@ -258,3 +258,136 @@ export function findLinkOwner(
     .bind(linkId)
     .first<{ owner_id: number | null }>()
 }
+
+// ---------------------------------------------------------------------------
+// Đường Gateway (Plan 3C, patch 08)
+// ---------------------------------------------------------------------------
+
+/** Ảnh chụp tài khoản gọn (từ `state`, `event` hoặc mẫu `batch`). */
+export type SnapLike = {
+  bal: number
+  eq: number
+  fl: number
+  ml?: number | null | undefined
+  margin?: number | undefined
+}
+
+/** Gắn khóa với tài khoản lần đầu theo `bind` của Gateway. Ghi 1 dòng, chỉ khi login còn null. */
+export function bindLinkAccountStmt(
+  db: D1Database,
+  linkId: number,
+  a: {
+    login: number
+    server: string
+    mode: string
+    broker?: string
+    name?: string
+  },
+  now: number,
+): D1PreparedStatement {
+  return db
+    .prepare(
+      `UPDATE ea_links
+       SET login = ?, server = ?, broker = ?, name = ?, mode = ?, bound_at = ?
+       WHERE id = ? AND login IS NULL`,
+    )
+    .bind(a.login, a.server, a.broker ?? null, a.name ?? null, a.mode, now, linkId)
+}
+
+/**
+ * Sự kiện online/offline CHỈ chèn khi chuyển trạng thái so với `presence` đang lưu (so sánh ngay
+ * trong SQL nên `state` lặp lại không ghi gì). Phải chạy TRƯỚC câu cập nhật presence trong batch.
+ * Chưa có dòng link_state coi như đang offline. Ghi 0 hoặc 2 dòng (bảng + chỉ mục).
+ */
+export function insertPresenceEventStmt(
+  db: D1Database,
+  linkId: number,
+  now: number,
+  type: 'online' | 'offline',
+): D1PreparedStatement {
+  const cond =
+    type === 'online'
+      ? 'COALESCE((SELECT presence FROM link_state WHERE link_id = ?), 1) = 1'
+      : 'COALESCE((SELECT presence FROM link_state WHERE link_id = ?), 1) = 0'
+  return db
+    .prepare(
+      `INSERT INTO events (link_id, ts, type, detail_json)
+       SELECT ?, ?, '${type}', NULL WHERE ${cond}`,
+    )
+    .bind(linkId, now, linkId)
+}
+
+/** Chỉ đổi `presence`. Online thì cập nhật luôn last_seen_at; offline giữ mốc cuối cùng thấy. */
+export function setPresenceStmt(
+  db: D1Database,
+  linkId: number,
+  presence: 0 | 1,
+  now: number,
+): D1PreparedStatement {
+  return db
+    .prepare(
+      `UPDATE link_state
+       SET presence = ?, last_seen_at = CASE WHEN ? = 0 THEN ? ELSE last_seen_at END
+       WHERE link_id = ?`,
+    )
+    .bind(presence, presence, now, linkId)
+}
+
+/** Ghi 1 dòng link_state từ ảnh chụp gọn. Không đụng last_sid/last_seq/positions_json. */
+export function upsertSnapStateStmt(
+  db: D1Database,
+  linkId: number,
+  s: SnapLike,
+  now: number,
+  o: { presence: 0 | 1; reason: string; eaVer?: string; vps?: string },
+): D1PreparedStatement {
+  return db
+    .prepare(
+      `INSERT INTO link_state (
+         link_id, balance, equity, margin, margin_level, floating_pl,
+         last_reason, last_seen_at, ea_ver, vps_label, presence
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT (link_id) DO UPDATE SET
+         balance = excluded.balance, equity = excluded.equity,
+         margin = COALESCE(excluded.margin, link_state.margin),
+         margin_level = excluded.margin_level, floating_pl = excluded.floating_pl,
+         last_reason = excluded.last_reason, last_seen_at = excluded.last_seen_at,
+         ea_ver = COALESCE(excluded.ea_ver, link_state.ea_ver),
+         vps_label = COALESCE(excluded.vps_label, link_state.vps_label),
+         presence = excluded.presence`,
+    )
+    .bind(
+      linkId,
+      s.bal,
+      s.eq,
+      s.margin ?? null,
+      s.ml ?? null,
+      s.fl,
+      o.reason,
+      now,
+      o.eaVer ?? null,
+      o.vps ?? null,
+      o.presence,
+    )
+}
+
+/** Sự kiện `risk` (margin level thấp) mà EA báo qua `event`. Ghi 2 dòng. */
+export function insertRiskEventStmt(
+  db: D1Database,
+  linkId: number,
+  now: number,
+  d: { ml: number | null; eq: number | null },
+): D1PreparedStatement {
+  return db
+    .prepare(`INSERT INTO events (link_id, ts, type, detail_json) VALUES (?, ?, 'risk', ?)`)
+    .bind(linkId, now, JSON.stringify(d))
+}
+
+/** Thay danh sách vị thế đã lưu. Ghi 1 dòng. Không tạo dòng mới (link_state đã có từ `state`). */
+export function setPositionsStmt(
+  db: D1Database,
+  linkId: number,
+  json: string,
+): D1PreparedStatement {
+  return db.prepare('UPDATE link_state SET positions_json = ? WHERE link_id = ?').bind(json, linkId)
+}

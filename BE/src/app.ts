@@ -1,4 +1,5 @@
 import { Hono } from 'hono'
+import { createGwWsRoutes } from './live/routes/gw-ws'
 import { createLiveWsRoutes } from './live/routes/live-ws'
 import { resolveViewer, type ViewerAuth } from './live/viewer-auth'
 import { notFound, onError } from './middleware/error-handler'
@@ -17,6 +18,7 @@ export function createApp(opts: AppOptions = {}) {
   app.route('/api', health)
   app.route('/api/ea/v1', createEaRoutes(opts.getHub ?? defaultHub))
   app.route('/api/live', createLiveWsRoutes(opts.viewerAuth ?? resolveViewer))
+  app.route('/api/gw', createGwWsRoutes())
   // DEV Part 1: quản lý liên kết không cần đăng nhập, chỉ bật bằng DEV_LINKS_API. Xóa khi có Part 2/3.
   app.route('/api/dev', devLinks)
   // SPIKE (P1-19): xóa ở P1-31.

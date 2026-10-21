@@ -15,7 +15,8 @@ import { z } from 'zod'
 import { AppError, errorBody } from '../lib/app-error'
 import { generateApiKey } from '../lib/crypto'
 import { nowUnix } from '../lib/time'
-import type { AppEnv } from '../types'
+import { HUB_NAME } from '../live/routes/live-ws'
+import type { AppEnv, Bindings } from '../types'
 
 /**
  * DEV (Part 1): quản lý liên kết EA để thử bằng giao diện, KHÔNG CÓ XÁC THỰC.
@@ -68,6 +69,7 @@ type LinkRow = {
   ea_ver: string | null
   vps_label: string | null
   positions_count: number | null
+  presence: number | null
 }
 
 const SELECT_LINK = `
@@ -75,10 +77,33 @@ const SELECT_LINK = `
          l.login, l.server, l.broker, l.name, l.currency, l.mode,
          s.balance, s.equity, s.margin, s.margin_free, s.margin_level, s.floating_pl,
          s.last_reason, s.last_seen_at, s.last_seq, s.ea_ver, s.vps_label,
-         json_array_length(COALESCE(s.positions_json, '[]')) AS positions_count
+         json_array_length(COALESCE(s.positions_json, '[]')) AS positions_count,
+         s.presence
   FROM ea_links l LEFT JOIN link_state s ON s.link_id = l.id`
 
-function toSummary(r: LinkRow, now: number): LinkSummary {
+/**
+ * Liên kết đang online qua Gateway (hub biết từ WebSocket). Hub lỗi thì coi là rỗng: danh sách
+ * vẫn hiển thị theo `last_seen_at` của đường trực tiếp.
+ */
+async function gatewayOnline(env: Bindings): Promise<Set<number>> {
+  try {
+    const ids = await env.LIVE_HUB.getByName(HUB_NAME).onlineLinkIds(Date.now())
+    return new Set(ids)
+  } catch {
+    return new Set()
+  }
+}
+
+/** Báo hub thu hồi liên kết (khóa bị khóa, cấp lại, gỡ gắn, xóa). Lỗi hub không chặn thao tác. */
+async function revokeAtHub(env: Bindings, linkId: number): Promise<void> {
+  try {
+    await env.LIVE_HUB.getByName(HUB_NAME).revokeLink(linkId)
+  } catch {
+    // hub không sẵn sàng: Gateway sẽ bị từ chối ở lần bind kế tiếp
+  }
+}
+
+function toSummary(r: LinkRow, now: number, viaGateway: Set<number>): LinkSummary {
   return {
     id: r.id,
     key_prefix: r.key_prefix,
@@ -112,7 +137,11 @@ function toSummary(r: LinkRow, now: number): LinkSummary {
             ea_ver: r.ea_ver,
             vps_label: r.vps_label,
             positions_count: r.positions_count ?? 0,
-            online: now - r.last_seen_at <= LINK_ONLINE_THRESHOLD_SECONDS,
+            // Gateway: online theo WebSocket. Đường trực tiếp: theo last_seen_at, trừ khi đã
+            // bị đánh dấu offline (presence = 1).
+            online:
+              viaGateway.has(r.id) ||
+              (r.presence !== 1 && now - r.last_seen_at <= LINK_ONLINE_THRESHOLD_SECONDS),
           },
   }
 }
@@ -122,10 +151,10 @@ function parseId(raw: string): number {
   return Number(raw)
 }
 
-async function loadLink(db: D1Database, id: number): Promise<LinkSummary> {
-  const row = await db.prepare(`${SELECT_LINK} WHERE l.id = ?`).bind(id).first<LinkRow>()
+async function loadLink(env: Bindings, id: number): Promise<LinkSummary> {
+  const row = await env.DB.prepare(`${SELECT_LINK} WHERE l.id = ?`).bind(id).first<LinkRow>()
   if (!row) throw new AppError(404, 'NOT_FOUND', 'Không tìm thấy liên kết')
-  return toSummary(row, nowUnix())
+  return toSummary(row, nowUnix(), await gatewayOnline(env))
 }
 
 function safeJson(text: string | null): unknown {
@@ -142,7 +171,8 @@ devLinks.get('/links', async (c) => {
     `${SELECT_LINK} ORDER BY l.id DESC LIMIT 100`,
   ).all<LinkRow>()
   const now = nowUnix()
-  const body: LinkListResponse = { links: results.map((r) => toSummary(r, now)) }
+  const viaGateway = await gatewayOnline(c.env)
+  const body: LinkListResponse = { links: results.map((r) => toSummary(r, now, viaGateway)) }
   return c.json(body)
 })
 
@@ -163,14 +193,14 @@ devLinks.post('/links', async (c) => {
     .bind(keyHash, keyPrefix, nowUnix())
     .first<{ id: number }>()
   if (!row) throw new AppError(500, 'INTERNAL', 'Lỗi hệ thống')
-  const body: CreateLinkResponse = { link: await loadLink(c.env.DB, row.id), api_key: key }
+  const body: CreateLinkResponse = { link: await loadLink(c.env, row.id), api_key: key }
   c.header('Cache-Control', 'no-store')
   return c.json(body, 201)
 })
 
 devLinks.get('/links/:id', async (c) => {
   const id = parseId(c.req.param('id'))
-  const link = await loadLink(c.env.DB, id)
+  const link = await loadLink(c.env, id)
   const stateRow = await c.env.DB.prepare('SELECT positions_json FROM link_state WHERE link_id = ?')
     .bind(id)
     .first<{ positions_json: string | null }>()
@@ -203,7 +233,8 @@ devLinks.post(
       .bind(status, id)
       .run()
     if (res.meta.changes === 0) throw new AppError(404, 'NOT_FOUND', 'Không tìm thấy liên kết')
-    return c.json(await loadLink(c.env.DB, id))
+    if (status === 'disabled') await revokeAtHub(c.env, id)
+    return c.json(await loadLink(c.env, id))
   },
 )
 
@@ -213,12 +244,13 @@ devLinks.post(
  */
 devLinks.post('/links/:id/rotate-key', async (c) => {
   const id = parseId(c.req.param('id'))
-  await loadLink(c.env.DB, id)
+  await loadLink(c.env, id)
   const { key, keyHash, keyPrefix } = await generateApiKey()
   await c.env.DB.prepare('UPDATE ea_links SET key_hash = ?, key_prefix = ? WHERE id = ?')
     .bind(keyHash, keyPrefix, id)
     .run()
-  const body: CreateLinkResponse = { link: await loadLink(c.env.DB, id), api_key: key }
+  await revokeAtHub(c.env, id)
+  const body: CreateLinkResponse = { link: await loadLink(c.env, id), api_key: key }
   c.header('Cache-Control', 'no-store')
   return c.json(body)
 })
@@ -226,7 +258,7 @@ devLinks.post('/links/:id/rotate-key', async (c) => {
 /** Gỡ gắn tài khoản để thử lại luồng "đăng ký lần đầu" (kể cả với tài khoản MT5 khác). */
 devLinks.post('/links/:id/unbind', async (c) => {
   const id = parseId(c.req.param('id'))
-  await loadLink(c.env.DB, id)
+  await loadLink(c.env, id)
   await c.env.DB.batch([
     c.env.DB.prepare(
       `UPDATE ea_links SET login = NULL, server = NULL, broker = NULL, name = NULL,
@@ -237,12 +269,13 @@ devLinks.post('/links/:id/unbind', async (c) => {
     c.env.DB.prepare('DELETE FROM trades WHERE link_id = ?').bind(id),
     c.env.DB.prepare('DELETE FROM events WHERE link_id = ?').bind(id),
   ])
-  return c.json(await loadLink(c.env.DB, id))
+  await revokeAtHub(c.env, id)
+  return c.json(await loadLink(c.env, id))
 })
 
 devLinks.delete('/links/:id', async (c) => {
   const id = parseId(c.req.param('id'))
-  await loadLink(c.env.DB, id)
+  await loadLink(c.env, id)
   await c.env.DB.batch([
     c.env.DB.prepare('DELETE FROM link_state WHERE link_id = ?').bind(id),
     c.env.DB.prepare('DELETE FROM equity_m5 WHERE link_id = ?').bind(id),
@@ -250,5 +283,6 @@ devLinks.delete('/links/:id', async (c) => {
     c.env.DB.prepare('DELETE FROM events WHERE link_id = ?').bind(id),
     c.env.DB.prepare('DELETE FROM ea_links WHERE id = ?').bind(id),
   ])
+  await revokeAtHub(c.env, id)
   return c.body(null, 204)
 })

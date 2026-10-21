@@ -6,6 +6,7 @@ import type { AppEnv } from '../../types'
 import type { LiveScope } from '../hub-types'
 import { isOriginAllowed } from '../origin'
 import { resolveViewer, type Viewer, type ViewerAuth } from '../viewer-auth'
+import { GW_HEADER } from '../gw-header'
 import { encodeViewer, VIEWER_HEADER } from '../viewer-header'
 
 /** Một Durable Object toàn cục đủ cho khoảng 30 EA (Plan 3B mục 13). */
@@ -62,7 +63,8 @@ export function createLiveWsRoutes(auth: ViewerAuth = resolveViewer) {
     const scope = await resolveScope(c.env.DB, viewer, query.data)
 
     const headers = new Headers(c.req.raw.headers)
-    // Ghi đè: header này do hub tin, không bao giờ lấy từ client.
+    // Header nội bộ do hub tin: không bao giờ lấy từ client (xóa GW_HEADER, ghi đè VIEWER_HEADER).
+    headers.delete(GW_HEADER)
     headers.set(
       VIEWER_HEADER,
       encodeViewer({
