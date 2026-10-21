@@ -1,5 +1,6 @@
 export * from './auth-schema'
 export * from './errors'
+export * from './gw-schema'
 export * from './ingest-schema'
 export * from './links-schema'
 export * from './live-schema'

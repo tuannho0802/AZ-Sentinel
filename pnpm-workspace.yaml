@@ -2,6 +2,7 @@ packages:
   - BE
   - FE
   - Shared
+  - Gateway
 
 # pnpm chặn script cài đặt mặc định; cho phép các gói nhị phân cần thiết.
 allowBuilds:

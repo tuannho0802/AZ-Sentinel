@@ -4,7 +4,7 @@
  * hay tên tài khoản có ký tự lạ cũng không chạy được mã.
  */
 export function statusPage(): string {
-    return `<!doctype html>
+  return `<!doctype html>
 <html lang="vi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>AZ Gateway</title>
 <style>
