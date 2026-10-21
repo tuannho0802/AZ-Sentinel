@@ -468,6 +468,8 @@ export class Gateway {
     t.online = true
     t.snap = req.snap
     t.mode = req.mode
+    // EA đổi phiên bản (biên dịch lại, gắn lại): báo cloud lại để UI hiện đúng bản đang chạy.
+    if (t.eaVer !== req.ea_ver) t.pushedOnline = null
     t.eaVer = req.ea_ver
     t.broker = req.broker ?? t.broker
     t.name = req.name ?? t.name
@@ -509,6 +511,7 @@ export class Gateway {
       mode: t.mode,
       broker: t.broker,
       name: t.name,
+      ea_ver: t.eaVer || undefined,
     })
     if (ok) t.bindSent = true
   }
@@ -518,7 +521,15 @@ export class Gateway {
     if (!this.send || t.bind !== 'ok') return
     const effective = t.online && t.conn
     if (t.pushedOnline === effective) return
-    if (this.send({ t: 'state', tid: t.tid, online: effective, snap: t.snap })) {
+    if (
+      this.send({
+        t: 'state',
+        tid: t.tid,
+        online: effective,
+        snap: t.snap,
+        ea_ver: t.eaVer || undefined,
+      })
+    ) {
       t.pushedOnline = effective
     }
   }

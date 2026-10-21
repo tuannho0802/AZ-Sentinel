@@ -89,6 +89,17 @@ describe('tin WebSocket', () => {
     expect(gwClientMessageSchema.safeParse(bad).success).toBe(false)
   })
 
+  it('bind và state mang ea_ver tùy chọn; từ chối ea_ver quá dài', () => {
+    const tid = terminalId(1, 'S')
+    const bind = { t: 'bind', tid, key: 'k', login: 1, server: 'S', mode: 'demo' }
+    expect(gwClientMessageSchema.safeParse({ ...bind, ea_ver: '0.3.0' }).success).toBe(true)
+    expect(gwClientMessageSchema.safeParse(bind).success).toBe(true)
+    expect(gwClientMessageSchema.safeParse({ ...bind, ea_ver: 'x'.repeat(33) }).success).toBe(false)
+    expect(
+      gwClientMessageSchema.safeParse({ t: 'state', tid, online: true, ea_ver: '0.3.0' }).success,
+    ).toBe(true)
+  })
+
   it('từ chối batch không có phần tử', () => {
     expect(gwClientMessageSchema.safeParse({ t: 'batch', items: [] }).success).toBe(false)
   })

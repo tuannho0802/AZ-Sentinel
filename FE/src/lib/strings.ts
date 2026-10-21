@@ -125,7 +125,7 @@ export const strings = {
   fieldMarginFree: 'Free margin',
   fieldMarginLevel: 'Margin level',
   fieldFloating: 'Lãi/lỗ đang mở',
-  fieldVps: 'VPS',
+  fieldVps: 'Hostname Gateway',
   fieldVpsName: 'Tên VPS',
   vpsNamePlaceholder: 'Tên VPS (không bắt buộc)',
   vpsNameEdit: 'Sửa',

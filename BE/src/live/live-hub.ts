@@ -48,6 +48,8 @@ const MAX_GW_MESSAGE_CHARS = 512 * 1024
 const GW_DEAD_AFTER_MS = GW.wsPingSec * 2.5 * 1000
 /** `link_state` ghi điều tiết khi có người xem (Plan 3C mục 5). */
 const GW_STATE_WRITE_SEC = 300
+/** Cắt phiên bản EA lưu trong attachment của Gateway (giới hạn 2 KB cho cả kết nối). */
+const MAX_EA_VER = 16
 const VIEWER_TAG = 'viewer'
 const GW_TAG = 'gw'
 /** Giới hạn bộ nhớ: số liên kết hub nhớ trạng thái (đủ rộng cho 30 EA, chặn tăng vô hạn). */
@@ -613,7 +615,7 @@ export class LiveHub extends DurableObject<Bindings> {
       linkId: res.linkId,
       ownerId: res.ownerId,
       online: false,
-      ea: '',
+      ea: (msg.ea_ver ?? '').slice(0, MAX_EA_VER),
     }
     const next: GwAttachment = {
       ...att,
@@ -635,11 +637,16 @@ export class LiveHub extends DurableObject<Bindings> {
   ): Promise<void> {
     const att = this.readGw(ws)
     const before = att?.terms.find((t) => t.tid === msg.tid)
-    if (!att || !before || before.online === msg.online) return
+    if (!att || !before) return
+    const eaVer = msg.ea_ver === undefined ? before.ea : msg.ea_ver.slice(0, MAX_EA_VER)
+    // Trạng thái không đổi và EA vẫn cùng phiên bản: bỏ qua. EA đổi phiên bản thì vẫn ghi lại.
+    if (before.online === msg.online && eaVer === before.ea) return
     // Cập nhật bộ nhớ trước khi chờ D1 để `state` lặp lại không ghi hai lần.
     ws.serializeAttachment({
       ...att,
-      terms: att.terms.map((t) => (t.tid === msg.tid ? { ...t, online: msg.online } : t)),
+      terms: att.terms.map((t) =>
+        t.tid === msg.tid ? { ...t, online: msg.online, ea: eaVer } : t,
+      ),
     })
     const stmts = presenceStatements(
       this.env.DB,
@@ -647,7 +654,7 @@ export class LiveHub extends DurableObject<Bindings> {
       msg.online,
       msg.snap,
       Math.floor(nowMs / 1000),
-      { eaVer: before.ea, vps: att.vps },
+      { eaVer, vps: att.vps },
     )
     await this.withDb((db) => db.batch(stmts))
   }

@@ -171,8 +171,17 @@ export const gwClientMessageSchema = z.discriminatedUnion('t', [
     mode: accountMode,
     broker: text(128).optional(),
     name: text(128).optional(),
+    /** Phiên bản EA (từ `ping`), để UI biết terminal đang chạy bản EA nào. */
+    ea_ver: text(32).optional(),
   }),
-  z.object({ t: z.literal('state'), tid, online: z.boolean(), snap: snapSchema.optional() }),
+  z.object({
+    t: z.literal('state'),
+    tid,
+    online: z.boolean(),
+    snap: snapSchema.optional(),
+    /** Gửi lại khi EA đổi phiên bản (biên dịch lại) dù trạng thái online không đổi. */
+    ea_ver: text(32).optional(),
+  }),
   z.object({
     t: z.literal('batch'),
     items: z

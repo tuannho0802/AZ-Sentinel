@@ -82,7 +82,7 @@ export type GwTerm = {
   linkId: number
   ownerId: number | null
   online: boolean
-  /** Phiên bản EA để ghi vào link_state (chưa có trong `bind`; rỗng = không ghi). */
+  /** Phiên bản EA (từ `bind`/`state`) để ghi vào link_state; rỗng = không ghi. */
   ea: string
 }
 

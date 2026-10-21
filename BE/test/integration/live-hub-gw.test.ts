@@ -76,6 +76,13 @@ const until = async (fn: () => boolean, ms = 1500) => {
     await new Promise((r) => setTimeout(r, 10))
   }
 }
+const untilAsync = async (fn: () => Promise<boolean>, ms = 1500) => {
+  const end = Date.now() + ms
+  while (!(await fn())) {
+    if (Date.now() > end) throw new Error('quá thời gian chờ')
+    await new Promise((r) => setTimeout(r, 10))
+  }
+}
 const tick = () => new Promise((r) => setTimeout(r, 40))
 
 const watches = (g: Peer<GwServerMessage>) =>
@@ -155,6 +162,47 @@ describe('watch.fast: xem riêng một liên kết => theo tick', () => {
     await connectViewer(hub, { kind: 'link', linkId: linkId + 1000 })
     await tick()
     expect(lastWatch(g)?.tids ?? []).toEqual([])
+  })
+})
+
+describe('phiên bản EA', () => {
+  const eaVerInDb = async () =>
+    (
+      await env.DB.prepare('SELECT ea_ver FROM link_state WHERE link_id = ?')
+        .bind(linkId)
+        .first<{ ea_ver: string | null }>()
+    )?.ea_ver ?? null
+  const snap = { bal: 10000, eq: 10010, fl: 10, ml: null }
+
+  it('ea_ver trong bind được ghi vào link_state khi state online đến', async () => {
+    const hub = hubFor()
+    const g = await connectGateway(hub)
+    g.ws.send(JSON.stringify({ t: 'hello', v: 1, gw_ver: '0.1.0' }))
+    g.ws.send(
+      JSON.stringify({
+        t: 'bind',
+        tid: TID,
+        key,
+        login: LOGIN,
+        server: SERVER,
+        mode: 'demo',
+        ea_ver: '0.3.0',
+      }),
+    )
+    await until(() => g.msgs.some((m) => m.t === 'bound'))
+    g.ws.send(JSON.stringify({ t: 'state', tid: TID, online: true, snap }))
+    await untilAsync(async () => (await eaVerInDb()) === '0.3.0')
+    expect(await eaVerInDb()).toBe('0.3.0')
+  })
+
+  it('EA đổi phiên bản dù vẫn online: link_state cập nhật theo bản mới', async () => {
+    const hub = hubFor()
+    const g = await boundGateway(hub, key)
+    g.ws.send(JSON.stringify({ t: 'state', tid: TID, online: true, snap, ea_ver: '0.2.0' }))
+    await untilAsync(async () => (await eaVerInDb()) === '0.2.0')
+    g.ws.send(JSON.stringify({ t: 'state', tid: TID, online: true, snap, ea_ver: '0.3.0' }))
+    await untilAsync(async () => (await eaVerInDb()) === '0.3.0')
+    expect(await eaVerInDb()).toBe('0.3.0')
   })
 })
 

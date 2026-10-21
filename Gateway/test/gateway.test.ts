@@ -425,3 +425,29 @@ describe('theo tick cho terminal xem riêng (trang /links/:id)', () => {
     expect(gw.handlePing(ping()).interval_ms).toBe(1000)
   })
 })
+
+describe('phiên bản EA lên cloud', () => {
+  const TID = '111@Demo-1'
+
+  it('bind và state mang ea_ver từ ping', () => {
+    const { gw, cloud } = make()
+    gw.onCloudOpen(cloud.send)
+    gw.handlePing(ping({ ea_ver: '0.3.0' }))
+    expect(cloud.of('bind')[0]).toMatchObject({ tid: TID, ea_ver: '0.3.0' })
+    gw.onCloudMessage(bound(TID))
+    expect(cloud.of('state')[0]).toMatchObject({ tid: TID, online: true, ea_ver: '0.3.0' })
+  })
+
+  it('EA đổi phiên bản (biên dịch lại): báo lại state với ea_ver mới, không báo lặp khi không đổi', () => {
+    const { gw, cloud } = make()
+    gw.onCloudOpen(cloud.send)
+    gw.handlePing(ping({ ea_ver: '0.2.0' }))
+    gw.onCloudMessage(bound(TID))
+    gw.handlePing(ping({ ea_ver: '0.2.0' }))
+    expect(cloud.of('state')).toHaveLength(1)
+    gw.handlePing(ping({ ea_ver: '0.3.0' }))
+    const states = cloud.of('state')
+    expect(states).toHaveLength(2)
+    expect(states[1]).toMatchObject({ online: true, ea_ver: '0.3.0' })
+  })
+})

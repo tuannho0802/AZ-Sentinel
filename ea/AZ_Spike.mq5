@@ -10,10 +10,10 @@
 //| Ten file giu nguyen de giu lich su git (Q2); doi ten khi phat hanh|
 //+------------------------------------------------------------------+
 #property copyright "AZ Team"
-#property version "0.20"
+#property version "0.30"
 #property description "AZ Sentinel tracking EA: ping, samples, event toi Gateway cuc bo"
 
-#define EA_VER "0.2.0"
+#define EA_VER "0.3.0"
 #define MAX_SAMPLES 20
 #define MAX_POSITIONS 200
 #define MAX_PENDING_EVENTS 100
