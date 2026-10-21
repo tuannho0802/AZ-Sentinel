@@ -8,6 +8,7 @@ coverage/
 *.ex5
 .vite/
 *.patch
+spike_result.json
 
 # Tệp tự sinh bởi extension MQL Clangd (chứa đường dẫn riêng của từng máy)
 .clangd
