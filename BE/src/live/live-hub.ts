@@ -459,7 +459,6 @@ export class LiveHub extends DurableObject<Bindings> {
       : 'waking'
   }
 
-
   // ---------------------------------------------------------------- Gateway (Plan 3C)
 
   private readGw(ws: WebSocket): GwAttachment | null {
