@@ -44,8 +44,8 @@ jobs:
       - name: Build az-gateway.exe (esbuild + Node SEA)
         working-directory: Gateway
         run: |
-          node build/bundle.mjs ${{ steps.ver.outputs.version }}
-          node build/sea.mjs
+          node packaging/bundle.mjs ${{ steps.ver.outputs.version }}
+          node packaging/sea.mjs
 
       - name: Chạy thử exe (smoke test)
         shell: pwsh

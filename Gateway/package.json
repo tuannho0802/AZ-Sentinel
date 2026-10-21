@@ -10,8 +10,8 @@
     "test": "vitest run",
     "fake-cloud": "tsx dev/fake-cloud.ts",
     "fake-ea": "tsx dev/fake-ea.ts",
-    "build:bundle": "node build/bundle.mjs",
-    "build:exe": "node build/bundle.mjs && node build/sea.mjs"
+    "build:bundle": "node packaging/bundle.mjs",
+    "build:exe": "node packaging/bundle.mjs && node packaging/sea.mjs"
   },
   "dependencies": {
     "@az-sentinel/shared": "workspace:*",

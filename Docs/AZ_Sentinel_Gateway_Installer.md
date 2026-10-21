@@ -113,7 +113,7 @@ Các mục chưa thể kiểm trên Linux:
 
 | Đường dẫn | Việc |
 |---|---|
-| `Gateway/build/bundle.mjs`, `sea.mjs` | Gom một file `.cjs` bằng esbuild, đóng gói thành `az-gateway.exe` bằng Node SEA |
+| `Gateway/packaging/bundle.mjs`, `sea.mjs` | Gom một file `.cjs` bằng esbuild, đóng gói thành `az-gateway.exe` bằng Node SEA |
 | `Installer/az-gateway.iss` | Script Inno Setup (trang nhập cấu hình, nâng cấp tại chỗ, cài im lặng) |
 | `Installer/run-gateway.cmd` | Vòng lặp giám sát, bật lại Gateway khi thoát |
 | `Installer/scripts/*.ps1` | Đăng ký/gỡ tác vụ, phát hiện terminal và chép EA |
