@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { WebSocketServer, type WebSocket as WsSocket } from 'ws'
 import { CloudClient } from '../src/cloud'
 import { Gateway } from '../src/gateway'
-import { LocalServer } from '../src/local-server'
+import { isLoopbackHost, LocalServer } from '../src/local-server'
 import { eventReq, ping, samplesReq } from './helpers'
 
 /** Cloud giả: WebSocket server thật, ghi tin nhận được, trả "pong" cho "ping" như hub thật. */
@@ -123,6 +123,49 @@ describe('API loopback', () => {
       req.end()
     })
     expect(status).toBe(403)
+  })
+
+  it.each([
+    ['không kèm cổng (kiểu MT5 WebRequest)', '127.0.0.1', 200],
+    ['localhost không kèm cổng', 'localhost', 200],
+    ['localhost viết hoa kèm đúng cổng', 'LOCALHOST', 200],
+    ['sai cổng', '127.0.0.1:1', 403],
+    ['tên miền lạ', 'evil.example', 403],
+    ['tên miền giả mạo đuôi', '127.0.0.1.evil.example', 403],
+    ['tên miền giả mạo tiền tố', 'evil127.0.0.1', 403],
+  ])('Host %s', async (_n, hostHeader, expected) => {
+    const host = hostHeader === 'LOCALHOST' ? `LOCALHOST:${local.listeningPort}` : hostHeader
+    const status = await new Promise<number>((resolve, reject) => {
+      const req = http.request(
+        {
+          host: '127.0.0.1',
+          port: local.listeningPort,
+          path: '/v1/status',
+          headers: { host },
+        },
+        (r) => {
+          r.resume()
+          resolve(r.statusCode ?? 0)
+        },
+      )
+      req.on('error', reject)
+      req.end()
+    })
+    expect(status).toBe(expected)
+  })
+
+  // Client HTTP của Node bỏ header Host rỗng, nên các giá trị biên kiểm bằng hàm thuần.
+  it.each([
+    ['', 47800, false],
+    [' ', 47800, false],
+    ['127.0.0.1', 47800, true],
+    ['127.0.0.1:47800', 47800, true],
+    ['127.0.0.1:47801', 47800, false],
+    ['127.0.0.1:', 47800, false],
+    ['[::1]:47800', 47800, false],
+    ['127.0.0.1@evil.example', 47800, false],
+  ])('isLoopbackHost(%j, %i) = %s', (host, port, expected) => {
+    expect(isLoopbackHost(host, port)).toBe(expected)
   })
 
   it('chỉ nghe 127.0.0.1', () => {

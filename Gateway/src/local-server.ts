@@ -21,6 +21,7 @@ type Handler = (body: unknown) => unknown
  */
 export class LocalServer {
   private server: http.Server | null = null
+  private readonly rejectedHosts = new Set<string>()
 
   constructor(
     private readonly gw: Gateway,
@@ -67,6 +68,16 @@ export class LocalServer {
     })
   }
 
+  /** Ghi log mỗi giá trị Host bị từ chối một lần (tối đa 5 giá trị) để biết client gửi gì mà không tràn log. */
+  private warnBadHost(host: string): void {
+    const shown = JSON.stringify(host.slice(0, 100))
+    if (this.rejectedHosts.has(shown) || this.rejectedHosts.size >= 5) return
+    this.rejectedHosts.add(shown)
+    this.log.warn(
+      `từ chối request: header Host ${shown} không phải loopback (cổng ${this.listeningPort})`,
+    )
+  }
+
   private parsed<T>(schema: ZodType<T>, fn: (b: T) => unknown): Handler {
     return (body) => {
       const r = schema.safeParse(body)
@@ -83,10 +94,11 @@ export class LocalServer {
     req: http.IncomingMessage,
     res: http.ServerResponse,
   ): void {
-    // Chống DNS rebinding: chỉ nhận Host là địa chỉ loopback của chính cổng này.
+    // Chống DNS rebinding: chỉ nhận Host là hostname loopback. Cổng trong Host là tùy chọn vì
+    // `WebRequest` của MT5 có thể không gửi kèm cổng (xem isLoopbackHost).
     const host = req.headers.host ?? ''
-    const port = this.listeningPort
-    if (host !== `127.0.0.1:${port}` && host !== `localhost:${port}`) {
+    if (!isLoopbackHost(host, this.listeningPort)) {
+      this.warnBadHost(host)
       send(res, fail(403, 'bad_host'))
       return
     }
@@ -137,6 +149,17 @@ export class LocalServer {
       },
     )
   }
+}
+
+/**
+ * Host hợp lệ khi hostname chính xác là `127.0.0.1` hoặc `localhost` (không phân biệt hoa thường).
+ * Cổng là tùy chọn; nếu có thì phải đúng cổng đang nghe. Chống DNS rebinding dựa vào hostname
+ * (kẻ tấn công luôn gửi tên miền của họ), nên không bắt buộc phải có cổng.
+ */
+export function isLoopbackHost(header: string, port: number): boolean {
+  const m = /^(?:127\.0\.0\.1|localhost)(?::(\d{1,5}))?$/i.exec(header.trim())
+  if (!m) return false
+  return m[1] === undefined || Number(m[1]) === port
 }
 
 type Failure = { __status: number; body: LocalErrorResponse }
