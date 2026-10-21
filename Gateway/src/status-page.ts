@@ -29,7 +29,7 @@ async function tick(){
     const c=s.cloud;
     $('cloud').textContent=!c.configured?'Cloud: chưa cấu hình (chạy cục bộ)':c.connected?'Cloud: đã kết nối':'Cloud: mất kết nối, đang thử lại';
     $('cloud').className=c.connected?'ok':(c.configured?'bad':'mut');
-    $('meta').textContent='Chạy '+s.uptimeSec+'s · đang xem '+s.watched+' · hàng đợi '+s.queued+' · push '+s.pushSec+'s';
+    $('meta').textContent='Chạy '+s.uptimeSec+'s · đang xem '+s.watched+' (theo tick '+s.fast+') · hàng đợi '+s.queued+' · push '+s.pushSec+'s';
     const rows=$('rows');rows.replaceChildren();
     $('empty').hidden=s.terminals.length>0;
     for(const t of s.terminals){

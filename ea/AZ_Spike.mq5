@@ -3,7 +3,9 @@
 //| Chi noi chuyen voi Gateway cuc bo qua HTTP loopback. Khong giu    |
 //| khoa Cloudflare, khong biet URL cloud.                            |
 //|   TRACK   : ping moi InpPingSec giay, gui event khi co tin hieu.  |
-//|   LIVE    : them lay mau 1 giay va gui samples moi interval_ms.   |
+//|   LIVE    : gui samples THEO TICK (OnTick), cach nhau toi thieu    |
+//|             interval_ms (Gateway quyet dinh); OnTimer 1 giay du   |
+//|             phong khi thi truong khong co tick.                   |
 //|   GW_DOWN : Gateway khong tra loi, chi ghi nhan cuc bo, ping thua.|
 //| Ten file giu nguyen de giu lich su git (Q2); doi ten khi phat hanh|
 //+------------------------------------------------------------------+
@@ -43,7 +45,7 @@ ulong g_lastOkMs = 0;
 int g_failStreak = 0;
 int g_lastHttpErr = 0;
 string g_lastBind = "";
-int g_intervalMs = 2000;
+int g_intervalMs = 1000;
 int g_leaseMs = 15000;
 bool g_prevConn = true;
 
@@ -369,7 +371,7 @@ bool HandleReply(const int code, const string resp)
    if (g_state == ST_GW_DOWN)
       SetState(ST_TRACK);
 
-   g_intervalMs = (int)MathMin(5000, MathMax(1000, JsonInt(resp, "interval_ms", 2000)));
+   g_intervalMs = (int)MathMin(5000, MathMax(100, JsonInt(resp, "interval_ms", 1000)));
    g_leaseMs = (int)MathMin(60000, MathMax(5000, JsonInt(resp, "lease_ms", 15000)));
 
    string bind = JsonStr(resp, "bind");
@@ -503,14 +505,41 @@ string BuildPositions(string &hash, int &total, bool &truncated)
    return out + "]";
 }
 
+//--- Lai/lo hien tai tung vi the: {"<ticket>":profit,...}. Tinh cung `hash` voi BuildPositions
+//--- (ticket/khoi luong/sl/tp) nen chi dung JSON day du khi hash doi; moi tick chi gui goi nay.
+string BuildPl(string &hash)
+{
+   int n = MathMin(PositionsTotal(), MAX_POSITIONS);
+   string out = "{";
+   ulong h = 5381;
+   int written = 0;
+   for (int i = 0; i < n; i++)
+   {
+      ulong ticket = PositionGetTicket(i);
+      if (ticket == 0)
+         continue;
+      double vol = PositionGetDouble(POSITION_VOLUME);
+      double sl = PositionGetDouble(POSITION_SL);
+      double tp = PositionGetDouble(POSITION_TP);
+      h = h * 33 + ticket;
+      h = h * 33 + (ulong)MathRound(vol * 10000.0);
+      h = h * 33 + (ulong)MathRound(sl * 100000.0);
+      h = h * 33 + (ulong)MathRound(tp * 100000.0);
+      if (written > 0)
+         out += ",";
+      out += "\"" + (string)ticket + "\":" + Num(PositionGetDouble(POSITION_PROFIT));
+      written++;
+   }
+   hash = StringFormat("%I64x", h);
+   return out + "}";
+}
+
 void SendSamples()
 {
    if (g_nSamples == 0)
       return;
    string hash = "";
-   int total = 0;
-   bool truncated = false;
-   string pos = BuildPositions(hash, total, truncated);
+   string pl = BuildPl(hash);
 
    string body = "{" + Ident() +
                  ",\"seq\":" + IntegerToString(g_samplesSeq + 1) +
@@ -518,11 +547,18 @@ void SendSamples()
    bool withPos = g_sendPositions || hash != g_lastPosHash;
    if (withPos)
    {
+      // Cau truc danh sach doi (hoac dau dot live): gui day du. Con lai chi gui `pl` cho nhe.
+      int total = 0;
+      bool truncated = false;
+      string h2 = "";
+      string pos = BuildPositions(h2, total, truncated);
       body += ",\"positions\":" + pos + ",\"pos_hash\":\"" + hash + "\"" +
               ",\"total_positions\":" + IntegerToString(total);
       if (truncated)
          body += ",\"truncated\":true";
    }
+   else if (pl != "{}")
+      body += ",\"pl\":" + pl;
    body += "}";
 
    string resp;
@@ -934,6 +970,16 @@ void OnDeinit(const int reason)
    EventKillTimer();
 }
 
+//--- Lay mau va gui khi da toi nhip. Goi tu OnTick (chinh) va OnTimer (du phong); `g_nextSendMs`
+//--- chung nen khong bao gio gui nhanh hon interval_ms du hai noi cung goi.
+void LiveStep(const ulong now)
+{
+   if (g_state != ST_LIVE || now < g_nextSendMs)
+      return;
+   CollectSample();
+   SendSamples();
+}
+
 void OnTimer()
 {
    if (!IdentityReady())
@@ -943,23 +989,27 @@ void OnTimer()
    CheckConnection();
    CheckMarginAlert();
 
-   if (g_state == ST_LIVE)
+   if (g_state == ST_LIVE && now - g_lastOkMs > (ulong)g_leaseMs)
    {
-      CollectSample();
-      if (now - g_lastOkMs > (ulong)g_leaseMs)
-      {
-         Print("AZ: het lease, ngung gui mau.");
-         LeaveLive();
-      }
+      Print("AZ: het lease, ngung gui mau.");
+      LeaveLive();
    }
 
    if (now >= g_nextPingMs)
       DoPing();
 
-   if (g_state == ST_LIVE && now >= g_nextSendMs)
-      SendSamples();
+   // Du phong: khi khong co tick (thi truong dong/it tick) van gui toi thieu moi interval_ms.
+   LiveStep(now);
 
    FlushEvents();
+}
+
+//--- Moi tick: chi lam viec khi dang LIVE va da toi nhip (re khi khong co ai xem).
+void OnTick()
+{
+   if (g_state != ST_LIVE || !IdentityReady())
+      return;
+   LiveStep(GetTickCount64());
 }
 
 void OnTradeTransaction(const MqlTradeTransaction &trans, const MqlTradeRequest &request, const MqlTradeResult &result)

@@ -38,14 +38,34 @@ function writePaused(value: boolean): void {
   }
 }
 
-export function liveUrl(): string {
+/**
+ * Phạm vi xem: cả danh sách (`/links`) hoặc đúng một liên kết (`/links/:id`). Server tự kiểm quyền
+ * và chỉ phát dữ liệu của phạm vi này; trang chi tiết nhờ đó chỉ live đúng tài khoản đang mở.
+ */
+export type LiveScope = { kind: 'links' } | { kind: 'link'; id: number }
+const LIST_SCOPE: LiveScope = { kind: 'links' }
+
+const scopeKey = (scope: LiveScope) => (scope.kind === 'link' ? `link:${scope.id}` : 'links')
+
+export function liveUrl(scope: LiveScope = LIST_SCOPE): string {
   const proto = window.location.protocol === 'https:' ? 'wss' : 'ws'
-  return `${proto}://${window.location.host}/api/live/ws?scope=links`
+  const query = scope.kind === 'link' ? `scope=link&id=${scope.id}` : 'scope=links'
+  return `${proto}://${window.location.host}/api/live/ws?${query}`
+}
+
+function helloMessage(scope: LiveScope): string {
+  return JSON.stringify(
+    scope.kind === 'link'
+      ? { t: 'hello', scope: 'link', id: scope.id }
+      : { t: 'hello', scope: 'links' },
+  )
 }
 
 type Options = {
-  /** Đã đăng nhập và đang ở route `/links`. */
+  /** Đã đăng nhập và đang ở route `/links` hoặc `/links/:id`. */
   enabled: boolean
+  /** Mặc định cả danh sách. Đổi phạm vi thì đóng kết nối cũ và mở lại (vẫn tối đa một socket). */
+  scope?: LiveScope
   /** Gọi khi nối lại (không phải lần đầu): cho phép làm mới danh sách từ D1 đúng một lần. */
   onResync: () => void
   /** Chèn được để test canh thời điểm nối lại chính xác. */
@@ -57,7 +77,12 @@ type Options = {
  * `/links`, đã đăng nhập, công tắc Live bật, tab đang hiện (hoặc ẩn chưa quá 10 giây).
  * Luôn có tối đa MỘT socket mở cho mỗi tab (F-19).
  */
-export function useLiveLease({ enabled, onResync, random = Math.random }: Options) {
+export function useLiveLease({
+  enabled,
+  scope = LIST_SCOPE,
+  onResync,
+  random = Math.random,
+}: Options) {
   const [paused, setPaused] = useState(readPaused)
   const [idlePaused, setIdlePaused] = useState(false)
   const [hidden, setHidden] = useState(false)
@@ -113,11 +138,17 @@ export function useLiveLease({ enabled, onResync, random = Math.random }: Option
   }, [enabled, paused, idlePaused])
 
   const shouldConnect = enabled && !paused && !idlePaused && !hidden && kick === null
+  const key = scopeKey(scope)
+  const scopeRef = useRef(scope)
+  useEffect(() => {
+    scopeRef.current = scope
+  })
 
-  // `nonce` đổi (nút Thử lại) thì chạy lại effect để làm lại từ đầu.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: nonce chủ ý kích hoạt nối lại
+  // `nonce` đổi (nút Thử lại) hoặc `key` (phạm vi xem) đổi thì chạy lại effect để làm lại từ đầu.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: nonce và key chủ ý kích hoạt nối lại
   useEffect(() => {
     if (!shouldConnect) return
+    const liveScope = scopeRef.current
 
     let ws: WebSocket | null = null
     let retryTimer: ReturnType<typeof setTimeout> | undefined
@@ -144,12 +175,12 @@ export function useLiveLease({ enabled, onResync, random = Math.random }: Option
         ws = null
       }
       setConn('connecting')
-      const sock = new WebSocket(liveUrl())
+      const sock = new WebSocket(liveUrl(liveScope))
       ws = sock
       sock.onopen = () => {
         if (ws !== sock) return
         setConn('open')
-        sock.send(JSON.stringify({ t: 'hello', scope: 'links' }))
+        sock.send(helloMessage(liveScope))
         hbTimer = setInterval(() => {
           if (sock.readyState === WebSocket.OPEN) sock.send(JSON.stringify({ t: 'hb' }))
         }, HEARTBEAT_MS)
@@ -251,7 +282,7 @@ export function useLiveLease({ enabled, onResync, random = Math.random }: Option
       }
       clearLive()
     }
-  }, [shouldConnect, nonce])
+  }, [shouldConnect, nonce, key])
 
   const pause = useCallback(() => {
     writePaused(true)

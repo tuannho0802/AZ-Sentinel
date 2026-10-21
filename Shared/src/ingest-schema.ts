@@ -97,6 +97,15 @@ export const sampleSchema = z.object({
 })
 export type Sample = z.infer<typeof sampleSchema>
 export const MAX_EVENTS = 100
+
+/**
+ * Lãi/lỗ hiện tại của từng lệnh đang mở: `{ "<ticket>": profit }`. Gọn hơn nhiều so với gửi lại
+ * toàn bộ `positions` mỗi tick (chỉ gửi `positions` khi cấu trúc danh sách đổi).
+ */
+export const plSchema = z
+  .record(z.string().regex(/^[0-9]{1,20}$/), z.number().finite())
+  .refine((o) => Object.keys(o).length <= MAX_POSITIONS, { message: 'quá nhiều lệnh' })
+export type PositionPl = z.infer<typeof plSchema>
 /** Giới hạn body ingest (Rules BE mục 7). */
 export const MAX_INGEST_BODY_BYTES = 64 * 1024
 

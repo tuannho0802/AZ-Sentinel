@@ -109,12 +109,50 @@ describe('mở/đóng kết nối (F-01..F-08, F-16, F-19)', () => {
     expect(s.messages).toContainEqual({ t: 'hello', scope: 'links' })
   })
 
-  it('F-02: tổng quan, chi tiết và chưa đăng nhập đều không mở WebSocket', async () => {
-    renderApp('/', handlers())
-    await screen.findAllByText(strings.overviewTitle)
-    cleanup()
+  it('chi tiết /links/:id: mở đúng 1 WebSocket phạm vi một liên kết, gửi hello kèm id', async () => {
     renderApp('/links/2', handlers())
     await screen.findByText(strings.accountTitle)
+    const s = await open()
+    expect(FakeWebSocket.instances).toHaveLength(1)
+    expect(s.url).toContain('/api/live/ws?scope=link&id=2')
+    expect(s.messages).toContainEqual({ t: 'hello', scope: 'link', id: 2 })
+  })
+
+  it('chi tiết: lãi/lỗ từng lệnh đổi theo pl, Live thay cho "X giây trước", không gọi lại D1', async () => {
+    let detailCalls = 0
+    renderApp('/links/2', {
+      ...handlers(),
+      'GET /api/dev/links/2': () => {
+        detailCalls += 1
+        return json(200, {
+          ...link,
+          positions: [
+            {
+              ticket: 77,
+              symbol: 'XAUUSD',
+              type: 'buy',
+              volume: 0.1,
+              time: NOW,
+              price: 4010.1,
+              profit: -3.2,
+            },
+          ],
+          events: [],
+        })
+      },
+    })
+    await screen.findByText('XAUUSD')
+    const s = await open()
+    act(() => s.serverSend({ ...samplesMsg(), pl: { '77': 4.92 } }))
+    expect(await screen.findByText('+4.92 USD')).toBeTruthy()
+    expect(screen.getByText(strings.badgeLive)).toBeTruthy()
+    expect(screen.queryByText(new RegExp(strings.updatedAt))).toBeNull() // đang live: ẩn giờ tải D1
+    expect(detailCalls).toBe(1)
+  })
+
+  it('F-02: tổng quan và chưa đăng nhập đều không mở WebSocket', async () => {
+    renderApp('/', handlers())
+    await screen.findAllByText(strings.overviewTitle)
     cleanup()
     renderApp('/links', {
       ...handlers(),
@@ -387,23 +425,22 @@ describe('dữ liệu live và hiển thị (F-12, F-13, F-14, F-18)', () => {
     expect(screen.getByText(strings.badgeIdle)).toBeTruthy()
   })
 
-  it('F-14: đổi đồng hồ trình duyệt không làm "cập nhật X giây trước" đổi', async () => {
+  it('F-14: đang live thì cột "Nhận gần nhất" là huy hiệu Live cố định, đổi đồng hồ trình duyệt không làm nó đổi', async () => {
     vi.useFakeTimers({ toFake: ['Date'] })
     renderApp('/links', handlers())
     await waitFor(() => expect(screen.getByText('5550001')).toBeTruthy())
     await waitFor(() => expect(FakeWebSocket.live).toHaveLength(1))
     await act(async () => sock().serverOpen())
     act(() => sock().serverSend(samplesMsg({ t: NOW - 5 })))
-    const row = screen.getByText('5550001').closest('tr') as HTMLElement
-    const before = row.textContent
-    expect(before).toContain(strings.agoSeconds(5))
+    const row = () => screen.getByText('5550001').closest('tr') as HTMLElement
+    expect(row().textContent).toContain(strings.badgeLive)
+    expect(row().textContent).not.toMatch(/vừa xong|giây trước/)
     vi.setSystemTime(Date.now() + 3_600_000)
     await act(async () => {
       await new Promise((r) => setTimeout(r, 1100)) // để useNow chạy lại
     })
-    expect((screen.getByText('5550001').closest('tr') as HTMLElement).textContent).toContain(
-      strings.agoSeconds(6),
-    )
+    expect(row().textContent).toContain(strings.badgeLive)
+    expect(row().textContent).not.toMatch(/vừa xong|giây trước/)
   })
 
   it('F-18: nút Live có aria-pressed; trạng thái đọc qua vùng aria-live', async () => {

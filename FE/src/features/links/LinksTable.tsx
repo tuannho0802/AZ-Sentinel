@@ -4,7 +4,7 @@ import { formatMoney, formatRelative, formatSigned, plClass } from '../../lib/fo
 import { strings } from '../../lib/strings'
 import { useNow } from '../../lib/use-now'
 import { LiveBadge } from './live/LiveBadge'
-import { effectiveLiveState, getLiveEntry, liveAgeSec, mergeLive } from './live/live-store'
+import { effectiveLiveState, getLiveEntry, mergeLive } from './live/live-store'
 import { PresenceBadge } from './PresenceBadge'
 import { RotateKeyButton } from './RotateKeyButton'
 
@@ -43,7 +43,6 @@ export function LinksTable({
             const l = mergeLive(raw, entry)
             const liveState =
               raw.status === 'active' ? effectiveLiveState(entry, connected, perf) : null
-            const age = liveAgeSec(entry, perf)
             const currency = l.account?.currency ?? null
             return (
               <tr key={l.id} className="border-b last:border-0">
@@ -64,7 +63,8 @@ export function LinksTable({
                 <td className="px-3 py-2">{l.account?.name || '—'}</td>
                 <td className="px-3 py-2">
                   <PresenceBadge link={l} />
-                  <LiveBadge state={liveState} />
+                  {/* Live nằm ở cột "Nhận gần nhất"; ở đây chỉ còn đánh thức / không phản hồi. */}
+                  <LiveBadge state={liveState === 'live' ? null : liveState} />
                 </td>
                 <td className="px-3 py-2 whitespace-nowrap">
                   {formatMoney(l.state?.balance, currency)}
@@ -76,11 +76,13 @@ export function LinksTable({
                   {formatSigned(l.state?.floating_pl, currency)}
                 </td>
                 <td className="px-3 py-2 whitespace-nowrap">
-                  {age !== null
-                    ? strings.agoSeconds(age)
-                    : l.state
-                      ? formatRelative(l.state.last_seen_at, now)
-                      : '—'}
+                  {liveState === 'live' ? (
+                    <LiveBadge state="live" />
+                  ) : l.state ? (
+                    formatRelative(l.state.last_seen_at, now)
+                  ) : (
+                    '—'
+                  )}
                 </td>
                 <td className="px-3 py-2 text-right">
                   <Link href={`/links/${l.id}`} className="underline">

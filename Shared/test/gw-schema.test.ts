@@ -81,6 +81,14 @@ describe('tin WebSocket', () => {
     for (const m of msgs) expect(gwClientMessageSchema.safeParse(m).success).toBe(true)
   })
 
+  it('batch mang pl (lãi/lỗ từng lệnh); từ chối khóa không phải số ticket', () => {
+    const tid = terminalId(1, 'S')
+    const ok = { t: 'batch', items: [{ tid, samples: [sample], pl: { '4016996233': 4.92 } }] }
+    expect(gwClientMessageSchema.safeParse(ok).success).toBe(true)
+    const bad = { t: 'batch', items: [{ tid, samples: [sample], pl: { abc: 1 } }] }
+    expect(gwClientMessageSchema.safeParse(bad).success).toBe(false)
+  })
+
   it('từ chối batch không có phần tử', () => {
     expect(gwClientMessageSchema.safeParse({ t: 'batch', items: [] }).success).toBe(false)
   })
@@ -92,6 +100,7 @@ describe('tin WebSocket', () => {
       { t: 'reject', tid, code: 401 },
       { t: 'watch', tids: [tid], push_sec: 2 },
       { t: 'watch', tids: [], push_sec: 2 },
+      { t: 'watch', tids: [tid], push_sec: 1, fast: [tid] },
       { t: 'ack', tid, seq: 3 },
       { t: 'update', min_ver: '0.2.0', url: 'https://x/y.exe', sha256: 'a'.repeat(64) },
     ]
@@ -111,9 +120,16 @@ describe('kẹp tham số', () => {
     expect(clampPushSec('x')).toBe(GW.defaultPushSec)
   })
 
-  it('interval_ms kẹp vào [1000, 5000], rác dùng mặc định', () => {
-    expect(clampIntervalMs(10)).toBe(1000)
+  it('interval_ms kẹp vào [100, 5000], rác dùng mặc định', () => {
+    expect(clampIntervalMs(10)).toBe(100)
+    expect(clampIntervalMs(250)).toBe(250)
     expect(clampIntervalMs(99_999)).toBe(5000)
     expect(clampIntervalMs(Number.NaN)).toBe(GW.defaultIntervalMs)
+  })
+
+  it('nhịp theo tick (trang chi tiết) nhanh hơn nhịp danh sách', () => {
+    expect(GW.fastIntervalMs).toBeLessThan(GW.defaultIntervalMs)
+    expect(GW.fastPushMs).toBeLessThan(GW.defaultPushSec * 1000)
+    expect(clampIntervalMs(GW.fastIntervalMs)).toBe(GW.fastIntervalMs)
   })
 })

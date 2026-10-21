@@ -53,6 +53,7 @@ describe('serverMessageSchema', () => {
     const msgs = [
       { t: 'snapshot', server_time: 1, links: [{ id: 1, live_state: 'live', sample }] },
       { t: 'samples', id: 1, server_time: 1, samples: [sample] },
+      { t: 'samples', id: 1, server_time: 1, samples: [sample], pl: { '4016996233': -1.5 } },
       { t: 'positions', id: 1, server_time: 1, positions: [], pos_hash: 'ab' },
       { t: 'live_state', id: 1, server_time: 1, state: 'waking' },
       { t: 'kick', reason: 'too_many_tabs' },

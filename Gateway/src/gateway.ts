@@ -10,6 +10,7 @@ import {
   type LocalPingResponse,
   type PingRequest,
   type Position,
+  type PositionPl,
   type Sample,
   type SamplesRequest,
   type Snap,
@@ -22,6 +23,9 @@ export const GATEWAY_VERSION = '0.1.0'
 
 /** Trần số mẫu giữ cho mỗi terminal giữa hai lần gom (push tối đa 5 giây, 1 mẫu/giây). */
 const MAX_BUFFER = 60
+
+/** Dung sai (ms) khi so nhịp đẩy: bộ hẹn giờ lệch vài ms không được làm lỡ một nhịp. */
+const PUSH_SLACK_MS = 20
 
 /** Gửi một tin lên cloud. Trả về false khi chưa có kết nối (tin bị bỏ, không xếp hàng ở đây). */
 export type CloudSend = (msg: GwClientMessage) => boolean
@@ -54,6 +58,10 @@ type Terminal = {
   positions?: Position[]
   posHash?: string
   posDirty: boolean
+  /** Lãi/lỗ từng lệnh mới nhất chưa gửi (chỉ giữ cho terminal xem riêng). */
+  pl?: PositionPl
+  /** Lần cuối đã đẩy `batch` có terminal này (ms); 0 = chưa, nên nhịp đầu đi ngay. */
+  lastPushMs: number
   /** Lần gửi hàng đợi cuối `seq` -> đã gửi lên cloud kết nối hiện tại. */
   inflight: Set<number>
 }
@@ -79,6 +87,8 @@ export type GatewayStatus = {
   uptimeSec: number
   pushSec: number
   watched: number
+  /** Số terminal đang được xem riêng (trang chi tiết): EA gửi và Gateway đẩy theo tick. */
+  fast: number
   queued: number
   droppedEvents: number
   terminals: TerminalStatus[]
@@ -107,6 +117,8 @@ export class Gateway {
   private readonly startedMs: number
   private send: CloudSend | null = null
   private watch = new Set<string>()
+  /** Tập con của `watch` đang được xem riêng: đẩy theo tick (`GW.fastPushMs`). */
+  private fast = new Set<string>()
   private pushSec: number = GW.defaultPushSec
   private lastGseq = 0
   private flushTimer: NodeJS.Timeout | null = null
@@ -123,11 +135,15 @@ export class Gateway {
   // Vòng đời
   // -------------------------------------------------------------------------
 
-  /** Bật hai bộ hẹn giờ: quét offline (1 giây) và gom `batch` (theo `push_sec`). */
+  /**
+   * Bật hai bộ hẹn giờ: quét offline (1 giây) và gom `batch`. Bộ gom chạy ở nhịp nhanh nhất; mỗi
+   * terminal tự giới hạn nhịp của mình trong `flush` (theo tick nếu xem riêng, `push_sec` nếu không).
+   */
   start(): void {
     this.sweepTimer = setInterval(() => this.sweep(), 1000)
     this.sweepTimer.unref()
-    this.rescheduleFlush()
+    this.flushTimer = setInterval(() => this.flush(), GW.fastPushMs)
+    this.flushTimer.unref()
   }
 
   stop(): void {
@@ -136,12 +152,6 @@ export class Gateway {
     this.sweepTimer = null
     this.flushTimer = null
     this.queue.flush()
-  }
-
-  private rescheduleFlush(): void {
-    if (this.flushTimer) clearInterval(this.flushTimer)
-    this.flushTimer = setInterval(() => this.flush(), this.pushSec * 1000)
-    this.flushTimer.unref()
   }
 
   // -------------------------------------------------------------------------
@@ -185,6 +195,9 @@ export class Gateway {
       t.positions = req.positions
       t.posHash = req.pos_hash
       t.posDirty = true
+      t.pl = undefined // danh sách đầy đủ đã gồm lãi/lỗ hiện tại
+    } else if (req.pl && this.isFast(t)) {
+      t.pl = req.pl
     }
     return this.pingResponse(t)
   }
@@ -244,6 +257,7 @@ export class Gateway {
   onCloudOpen(send: CloudSend): void {
     this.send = send
     this.watch.clear()
+    this.fast.clear()
     send({
       t: 'hello',
       v: 1,
@@ -265,7 +279,11 @@ export class Gateway {
   onCloudClose(): void {
     this.send = null
     this.watch.clear()
-    for (const t of this.terminals.values()) t.buffer = []
+    this.fast.clear()
+    for (const t of this.terminals.values()) {
+      t.buffer = []
+      t.pl = undefined
+    }
     this.log.warn('cloud đã ngắt, ngừng live, giữ hàng đợi sự kiện')
   }
 
@@ -288,6 +306,7 @@ export class Gateway {
         t.code = msg.code
         t.buffer = []
         this.watch.delete(msg.tid)
+        this.fast.delete(msg.tid)
         const dropped = this.queue.dropTerminal(msg.tid)
         this.log.warn(`bind bị từ chối ${msg.tid} mã ${msg.code}, bỏ ${dropped} lô sự kiện`)
         return
@@ -295,19 +314,31 @@ export class Gateway {
       case 'watch': {
         // Lưu nguyên tập cloud yêu cầu: `watch` có thể đến trước `bound`; `isWatched` mới kiểm bind.
         const next = new Set(msg.tids)
+        // `fast` chỉ có nghĩa với terminal đang được watch.
+        const nextFast = new Set((msg.fast ?? []).filter((tid) => next.has(tid)))
         for (const tid of this.watch) {
           if (!next.has(tid)) {
             const t = this.terminals.get(tid)
-            if (t) t.buffer = []
+            if (t) {
+              t.buffer = []
+              t.pl = undefined
+              t.lastPushMs = 0
+            }
+          }
+        }
+        for (const tid of this.fast) {
+          // Rời chế độ theo tick: bỏ lãi/lỗ đang giữ (danh sách chỉ cần tổng).
+          if (!nextFast.has(tid)) {
+            const t = this.terminals.get(tid)
+            if (t) t.pl = undefined
           }
         }
         this.watch = next
-        const push = clampPushSec(msg.push_sec)
-        if (push !== this.pushSec) {
-          this.pushSec = push
-          this.rescheduleFlush()
-        }
-        this.log.debug(`watch ${next.size} terminal, push ${push}s`)
+        this.fast = nextFast
+        this.pushSec = clampPushSec(msg.push_sec)
+        this.log.debug(
+          `watch ${next.size} terminal (${nextFast.size} theo tick), push ${this.pushSec}s`,
+        )
         return
       }
       case 'ack': {
@@ -327,20 +358,30 @@ export class Gateway {
   // Bộ hẹn giờ
   // -------------------------------------------------------------------------
 
-  /** Gom mẫu của các terminal đang được xem thành MỘT tin `batch`. Không ai xem: không gửi gì. */
+  /**
+   * Gom mẫu của các terminal đang được xem thành MỘT tin `batch`. Không ai xem: không gửi gì.
+   * Mỗi terminal có nhịp riêng: xem riêng thì theo tick (`fastPushMs`), chỉ trong danh sách thì
+   * mỗi `push_sec` giây. Mẫu chưa tới nhịp được giữ lại cho lần sau, không mất.
+   */
   flush(): void {
     if (!this.send || this.watch.size === 0) return
+    const now = this.now()
     const items: Extract<GwClientMessage, { t: 'batch' }>['items'] = []
     for (const tid of this.watch) {
       const t = this.terminals.get(tid)
       if (!t || !this.isWatched(t)) continue
-      if (t.buffer.length === 0 && !t.posDirty) continue
+      if (t.buffer.length === 0 && !t.posDirty && !t.pl) continue
+      const every = this.isFast(t) ? GW.fastPushMs : this.pushSec * 1000
+      if (t.lastPushMs !== 0 && now - t.lastPushMs < every - PUSH_SLACK_MS) continue
+      t.lastPushMs = now
       items.push({
         tid,
         samples: t.buffer.splice(0, t.buffer.length),
         ...(t.posDirty && t.positions ? { positions: t.positions, pos_hash: t.posHash } : {}),
+        ...(!t.posDirty && t.pl ? { pl: t.pl } : {}),
       })
       t.posDirty = false
+      t.pl = undefined
     }
     if (items.length > 0) this.send({ t: 'batch', items })
   }
@@ -370,6 +411,7 @@ export class Gateway {
       uptimeSec: Math.round((now - this.startedMs) / 1000),
       pushSec: this.pushSec,
       watched: [...this.terminals.values()].filter((t) => this.isWatched(t)).length,
+      fast: [...this.terminals.values()].filter((t) => this.isFast(t)).length,
       queued: this.queue.length,
       droppedEvents: this.queue.dropped,
       terminals: [...this.terminals.values()].map((t) => ({
@@ -415,6 +457,7 @@ export class Gateway {
       lastEaSeq: { samples: 0, event: 0 },
       buffer: [],
       posDirty: false,
+      lastPushMs: 0,
       inflight: new Set(),
     }
   }
@@ -435,6 +478,7 @@ export class Gateway {
       t.lastEaSeq = { samples: 0, event: 0 }
       t.buffer = []
       t.posDirty = false
+      t.pl = undefined
     }
     if (t.key !== req.key) {
       // Người dùng đổi InpApiKey: bind lại từ đầu, bỏ lô sự kiện của khóa cũ.
@@ -443,6 +487,7 @@ export class Gateway {
       t.code = 0
       t.bindSent = false
       this.watch.delete(t.tid)
+      this.fast.delete(t.tid)
       this.queue.dropTerminal(t.tid)
     }
     if (t.conn !== req.conn) {
@@ -499,13 +544,18 @@ export class Gateway {
     return t.bind === 'ok' && t.online && this.watch.has(t.tid) && this.send !== null
   }
 
+  /** Terminal đang được xem riêng: EA gửi theo tick, Gateway đẩy lên cloud cùng nhịp. */
+  private isFast(t: Terminal): boolean {
+    return this.isWatched(t) && this.fast.has(t.tid)
+  }
+
   private pingResponse(t: Terminal): LocalPingResponse {
     return {
       ok: true,
       bind: t.bind,
       code: t.code,
       watch: this.isWatched(t),
-      interval_ms: clampIntervalMs(this.pushSec * 1000),
+      interval_ms: this.isFast(t) ? GW.fastIntervalMs : clampIntervalMs(this.pushSec * 1000),
       lease_ms: GW.leaseMs,
     }
   }

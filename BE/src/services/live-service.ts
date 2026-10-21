@@ -108,15 +108,30 @@ export async function gate(input: GateInput): Promise<GateResponse & { meta?: ob
   return meta ? { ...body, meta } : body
 }
 
-/** Mẫu đáng tin: `t` lệch quá 120 giây so với giờ nhận thì dùng giờ nhận; tăng dần. */
+/** Hai mẫu giống hệt nhau (cùng giây và cùng giá trị): bản gửi lại, không phải tick mới. */
+export function sameSample(a: Sample, b: Sample | null): boolean {
+  return (
+    b !== null &&
+    a.t === b.t &&
+    a.eq === b.eq &&
+    a.bal === b.bal &&
+    a.fl === b.fl &&
+    (a.ml ?? null) === (b.ml ?? null)
+  )
+}
+
+/**
+ * Mẫu đáng tin: `t` lệch quá 120 giây so với giờ nhận thì dùng giờ nhận. `t` là Unix giây nên nhiều
+ * tick có thể cùng giây: cho phép `t` bằng nhau nếu giá trị khác; bỏ mẫu lùi về trước và bản trùng.
+ */
 export function normalizeSamples(samples: Sample[], now: number): Sample[] {
   const out: Sample[] = []
-  let prev = 0
   for (const s of samples) {
     const t = Math.abs(s.t - now) > LIVE.sampleSkewSec ? now : s.t
-    if (t <= prev) continue
-    prev = t
-    out.push({ ...s, t })
+    const next = { ...s, t }
+    const prev = out.at(-1) ?? null
+    if (prev !== null && (t < prev.t || sameSample(next, prev))) continue
+    out.push(next)
   }
   return out
 }

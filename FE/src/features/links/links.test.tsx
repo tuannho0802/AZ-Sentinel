@@ -314,18 +314,22 @@ describe('cột và tự làm mới', () => {
     await waitFor(() => expect(calls).toBe(2))
   })
 
-  it('có ô chọn chu kỳ và giờ cập nhật; trang chi tiết cũng có', async () => {
-    renderApp('/links/2', { ...base, 'GET /api/dev/links/2': () => json(200, detail) })
-    const select = (await screen.findByLabelText(strings.autoRefresh)) as HTMLSelectElement
-    expect(select.value).toBe('2000')
-    expect(Array.from(select.options).map((o) => o.textContent)).toEqual([
-      '1 giây',
-      '2 giây',
-      '5 giây',
-      '30 giây',
-      strings.refreshOff,
-    ])
-    expect(await screen.findByText(new RegExp(strings.updatedAt))).toBeTruthy()
+  it('trang chi tiết không tự poll D1 và không còn ô chọn chu kỳ; bấm Làm mới gọi lại đúng một lần', async () => {
+    let calls = 0
+    renderApp('/links/2', {
+      ...base,
+      'GET /api/dev/links/2': () => {
+        calls += 1
+        return json(200, detail)
+      },
+    })
+    await screen.findByText('Broker <b>X</b>')
+    expect(screen.queryByRole('combobox')).toBeNull()
+    expect(await screen.findByText(new RegExp(strings.updatedAt))).toBeTruthy() // chưa live: có giờ tải D1
+    await new Promise((r) => setTimeout(r, 2500))
+    expect(calls).toBe(1)
+    fireEvent.click(screen.getByRole('button', { name: strings.refresh }))
+    await waitFor(() => expect(calls).toBe(2))
   })
 })
 

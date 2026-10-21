@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { MAX_POSITIONS, MAX_SAMPLES, positionSchema, sampleSchema } from './ingest-schema'
+import { MAX_POSITIONS, MAX_SAMPLES, plSchema, positionSchema, sampleSchema } from './ingest-schema'
 
 /**
  * Giao thức live theo nhu cầu (Plan 3B). Hằng số dùng chung BE, FE, fake-ea; EA (MQL5) chép
@@ -12,6 +12,12 @@ export const LIVE = {
   maxIntervalSec: 30,
   /** Quyền gửi live hết hạn sau chừng này giây nếu EA không nhận được gia hạn (dead-man switch). */
   leaseSec: 45,
+  /**
+   * FE coi liên kết là `idle` (không phản hồi) khi mẫu live cuối cũ hơn chừng này giây. Qua Gateway
+   * EA gửi ít nhất mỗi giây nên 10 giây là im lặng thật; huy hiệu Live không còn hiện tuổi mẫu nên
+   * phải hạ cờ nhanh hơn `leaseSec` (45 giây, dành cho đường HTTP cũ).
+   */
+  staleSec: 10,
   /** Chu kỳ hỏi gate khi không ai xem, và biên kẹp (giây). */
   idlePollSec: 120,
   minPollSec: 30,
@@ -92,6 +98,8 @@ export const serverMessageSchema = z.discriminatedUnion('t', [
     id: linkIdSchema,
     server_time: z.number().int(),
     samples: z.array(sampleSchema).min(1).max(MAX_SAMPLES),
+    /** Lãi/lỗ hiện tại từng lệnh (chỉ khi xem riêng một liên kết). */
+    pl: plSchema.optional(),
   }),
   z.object({
     t: z.literal('positions'),

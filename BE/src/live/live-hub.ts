@@ -24,7 +24,7 @@ import {
   liveWriteStatements,
   presenceStatements,
 } from '../services/gw-service'
-import { normalizeSamples } from '../services/live-service'
+import { normalizeSamples, sameSample } from '../services/live-service'
 import type { Bindings } from '../types'
 import { GW_HEADER, MAX_GW_TERMS } from './gw-header'
 import type {
@@ -280,7 +280,11 @@ export class LiveHub extends DurableObject<Bindings> {
     mem.lastIngestAt = nowMs
     mem.lastLiveAt = nowMs
 
-    const fresh = input.samples.filter((s) => s.t > mem.lastT)
+    // `t` là Unix giây nên nhiều tick rơi vào cùng một giây: chấp nhận `t` bằng mốc cũ nếu giá trị
+    // khác (tin đến sau là mới hơn, cùng một kết nối có thứ tự). Bỏ mẫu lùi về trước và bản trùng.
+    const fresh = input.samples.filter(
+      (s) => s.t > mem.lastT || (s.t === mem.lastT && !sameSample(s, mem.lastSample)),
+    )
     const last = fresh.at(-1)
     if (last) {
       mem.lastT = last.t
@@ -300,6 +304,15 @@ export class LiveHub extends DurableObject<Bindings> {
       mem.posHash = input.posHash ?? null
     }
 
+    // Lãi/lỗ từng lệnh: cập nhật bản nhớ để `snapshot` của viewer vào sau luôn mới.
+    const pl = input.positions === undefined ? input.pl : undefined
+    if (pl && mem.positions) {
+      mem.positions = mem.positions.map((p) => {
+        const profit = pl[String(p.ticket)]
+        return profit === undefined ? p : { ...p, profit }
+      })
+    }
+
     const serverTime = Math.floor(nowMs / 1000)
     const out: ServerMessage[] = []
     if (!wasLive)
@@ -316,7 +329,19 @@ export class LiveHub extends DurableObject<Bindings> {
         ...(input.posHash !== undefined ? { pos_hash: input.posHash } : {}),
       })
     }
-    for (const message of out) this.broadcast(viewers, message)
+    const detailViewers = viewers.filter((v) => v.att.scope.kind === 'link')
+    for (const message of out) {
+      if (message.t === 'samples' && pl) {
+        // `pl` chỉ cần cho viewer xem riêng một liên kết; danh sách chỉ hiện tổng lãi/lỗ.
+        this.broadcast(detailViewers, { ...message, pl })
+        this.broadcast(
+          viewers.filter((v) => v.att.scope.kind !== 'link'),
+          message,
+        )
+      } else {
+        this.broadcast(viewers, message)
+      }
+    }
     return decision
   }
 
@@ -505,14 +530,19 @@ export class LiveHub extends DurableObject<Bindings> {
     for (const ws of this.ctx.getWebSockets(GW_TAG)) {
       const att = this.readGw(ws)
       if (!att || ws.readyState !== WS_OPEN) continue
-      const tids = att.terms
-        .filter((t) => viewers.some((v) => scopeMatches(v.att.scope, t)))
+      const watched = att.terms.filter((t) => viewers.some((v) => scopeMatches(v.att.scope, t)))
+      const tids = watched.map((t) => t.tid).sort()
+      // Xem riêng một liên kết (`/links/:id`): theo tick. Chỉ nằm trong danh sách: nhịp thường.
+      const fast = watched
+        .filter((t) =>
+          viewers.some((v) => v.att.scope.kind === 'link' && scopeMatches(v.att.scope, t)),
+        )
         .map((t) => t.tid)
         .sort()
-      const key = tids.join('|')
+      const key = `${tids.join('|')}#${fast.join('|')}`
       if (this.lastWatch.get(att.connId) === key && force !== ws) continue
       this.lastWatch.set(att.connId, key)
-      this.sendGw(ws, { t: 'watch', tids, push_sec: GW.defaultPushSec })
+      this.sendGw(ws, { t: 'watch', tids, fast, push_sec: GW.defaultPushSec })
     }
   }
 
@@ -652,6 +682,7 @@ export class LiveHub extends DurableObject<Bindings> {
           samples,
           ...(item.positions !== undefined ? { positions: item.positions } : {}),
           ...(item.pos_hash !== undefined ? { posHash: item.pos_hash } : {}),
+          ...(item.pl !== undefined ? { pl: item.pl } : {}),
           nowMs,
         },
         matched,

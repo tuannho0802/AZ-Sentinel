@@ -7,11 +7,10 @@ import type {
 } from '@az-sentinel/shared'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiDelete, apiGet, apiPost } from '../../lib/api-client'
-import { DEFAULT_REFRESH_MS } from './refresh'
 
 const BASE = '/api/dev/links'
 export const LINKS_KEY = ['links'] as const
-const linkKey = (id: number) => ['links', id] as const
+export const linkKey = (id: number) => ['links', id] as const
 
 /**
  * Chu kỳ tự làm mới do người dùng chọn trên màn hình thử (xem `refresh.ts`); 0 = tắt.
@@ -26,11 +25,14 @@ export function useLinks() {
   })
 }
 
-export function useLink(id: number, refreshMs: number = DEFAULT_REFRESH_MS) {
+/**
+ * Một liên kết (D1): tải một lần khi vào trang, khi nối lại, hoặc khi bấm Làm mới. KHÔNG tự poll:
+ * số liệu sống của đúng liên kết này đến qua WebSocket `scope=link` (Plan 3C).
+ */
+export function useLink(id: number) {
   return useQuery({
     queryKey: linkKey(id),
     queryFn: () => apiGet<LinkDetail>(`${BASE}/${id}`),
-    refetchInterval: refreshMs > 0 ? refreshMs : false,
   })
 }
 

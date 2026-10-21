@@ -1,4 +1,4 @@
-import type { KickReason, Position, Sample, UserRole } from '@az-sentinel/shared'
+import type { KickReason, Position, PositionPl, Sample, UserRole } from '@az-sentinel/shared'
 
 /** Phạm vi liên kết mà một kết nối người xem được phép xem (do server quyết định, không do FE). */
 export type LiveScope =
@@ -29,6 +29,8 @@ export type PublishInput = {
   /** Vắng mặt = "không đổi". Có mặt = danh sách đầy đủ hiện tại (profit đã cập nhật). */
   positions?: Position[]
   posHash?: string
+  /** Lãi/lỗ hiện tại từng lệnh khi `positions` vắng mặt (đường Gateway, xem theo tick). */
+  pl?: PositionPl
   nowMs: number
 }
 

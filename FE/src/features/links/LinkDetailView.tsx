@@ -1,4 +1,4 @@
-import type { LinkDetail } from '@az-sentinel/shared'
+import type { LinkDetail, LiveState } from '@az-sentinel/shared'
 import type { ReactNode } from 'react'
 import { Card } from '../../components/Card'
 import {
@@ -12,6 +12,7 @@ import {
 import { strings } from '../../lib/strings'
 import { useNow } from '../../lib/use-now'
 import { LinkActions } from './LinkActions'
+import { LiveBadge } from './live/LiveBadge'
 import { PresenceBadge } from './PresenceBadge'
 
 function Row({ label, children }: { label: string; children: ReactNode }) {
@@ -24,7 +25,15 @@ function Row({ label, children }: { label: string; children: ReactNode }) {
 }
 
 /** Mọi chuỗi do EA gửi (tên, broker, comment...) hiển thị dạng văn bản thuần (Rules FE mục 7). */
-export function LinkDetailView({ link }: { link: LinkDetail }) {
+export function LinkDetailView({
+  link,
+  liveState = null,
+}: {
+  /** Đã phủ số liệu live (`mergeLiveDetail`) nếu đang nối. */
+  link: LinkDetail
+  /** Trạng thái live hiệu dụng; `live` thì huy hiệu Live thay cho "X giây trước" nhấp nháy. */
+  liveState?: LiveState | null
+}) {
   const now = useNow()
   const a = link.account
   const s = link.state
@@ -36,6 +45,8 @@ export function LinkDetailView({ link }: { link: LinkDetail }) {
           {strings.linksPageTitle} #{link.id}
         </h1>
         <PresenceBadge link={link} />
+        {/* Live nằm ở dòng "Nhận gần nhất"; ở đây chỉ còn đánh thức / không phản hồi. */}
+        <LiveBadge state={liveState === 'live' ? null : liveState} />
       </div>
       {!s && <p className="rounded bg-blue-50 p-3 text-sm text-blue-800">{strings.waitingFirst}</p>}
 
@@ -84,9 +95,13 @@ export function LinkDetailView({ link }: { link: LinkDetail }) {
               <Row label={strings.fieldSeq}>{s.last_seq ?? '—'}</Row>
               <Row label={strings.fieldReason}>{s.last_reason ?? '—'}</Row>
               <Row label={strings.fieldLastSeen}>
-                <span title={formatDateTime(s.last_seen_at)}>
-                  {formatRelative(s.last_seen_at, now)}
-                </span>
+                {liveState === 'live' ? (
+                  <LiveBadge state="live" />
+                ) : (
+                  <span title={formatDateTime(s.last_seen_at)}>
+                    {formatRelative(s.last_seen_at, now)}
+                  </span>
+                )}
               </Row>
             </dl>
           ) : (

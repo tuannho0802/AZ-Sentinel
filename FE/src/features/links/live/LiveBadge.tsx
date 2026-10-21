@@ -5,8 +5,10 @@ import { strings } from '../../../lib/strings'
 export function LiveBadge({ state }: { state: LiveState | null }) {
   if (state === null) return null
   if (state === 'live') {
+    // Xanh lá + chấm nhấp nháy: đặt ở cột "Nhận gần nhất" thay cho nhãn "vừa xong" cứ nhảy giữa các tick.
     return (
-      <span className="ml-1 rounded bg-blue-100 px-2 py-0.5 text-xs text-blue-700">
+      <span className="inline-flex items-center gap-1 rounded bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700">
+        <span aria-hidden="true" className="h-1.5 w-1.5 animate-pulse rounded-full bg-green-500" />
         {strings.badgeLive}
       </span>
     )

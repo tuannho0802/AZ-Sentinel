@@ -1,10 +1,11 @@
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { GW } from '@az-sentinel/shared'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { Gateway } from '../src/gateway'
 import { EventQueue } from '../src/queue'
-import { bound, eventReq, fakeCloud, ping, samplesReq } from './helpers'
+import { bound, eventReq, fakeCloud, ping, sample, samplesReq } from './helpers'
 
 let clock = 1_000_000
 const now = () => clock
@@ -99,6 +100,7 @@ describe('G-02 và G-03 watch', () => {
     ]
     gw.handleSamples(samplesReq({ seq: 1, positions: pos, pos_hash: 'h1' }))
     gw.flush()
+    clock += 1000
     gw.handleSamples(samplesReq({ seq: 2 }))
     gw.flush()
     const [first, second] = cloud.of('batch')
@@ -309,5 +311,117 @@ describe('trạng thái không lộ khóa', () => {
     const { gw } = make()
     gw.handlePing(ping())
     expect(JSON.stringify(gw.status())).not.toContain('test-key')
+  })
+})
+
+describe('theo tick cho terminal xem riêng (trang /links/:id)', () => {
+  const TID = '111@Demo-1'
+
+  function ready(watch: { tids: string[]; fast?: string[] }) {
+    const { gw, cloud } = make()
+    gw.onCloudOpen(cloud.send)
+    gw.handlePing(ping())
+    gw.onCloudMessage(bound(TID))
+    gw.onCloudMessage({ t: 'watch', push_sec: 1, ...watch })
+    return { gw, cloud }
+  }
+  const send = (gw: Gateway, seq: number, over: Parameters<typeof samplesReq>[0] = {}) =>
+    gw.handleSamples(samplesReq({ seq, samples: [sample(1_760_000_000 + seq)], ...over }))
+
+  it('interval_ms theo terminal: xem riêng 250 ms, chỉ trong danh sách 1000 ms', () => {
+    const { gw } = ready({ tids: [TID], fast: [TID] })
+    expect(gw.handlePing(ping()).interval_ms).toBe(GW.fastIntervalMs)
+    gw.onCloudMessage({ t: 'watch', tids: [TID], push_sec: 1 })
+    expect(gw.handlePing(ping()).interval_ms).toBe(1000)
+    gw.onCloudMessage({ t: 'watch', tids: [TID], fast: [TID], push_sec: 1 })
+    expect(gw.handlePing(ping()).interval_ms).toBe(GW.fastIntervalMs)
+  })
+
+  it('xem riêng: mỗi 250 ms một batch; không chờ đủ 1 giây', () => {
+    const { gw, cloud } = ready({ tids: [TID], fast: [TID] })
+    for (let i = 1; i <= 4; i++) {
+      send(gw, i)
+      gw.flush()
+      clock += GW.fastPushMs
+    }
+    expect(cloud.of('batch')).toHaveLength(4)
+  })
+
+  it('chỉ trong danh sách: tối đa mỗi giây một batch dù EA gửi nhanh hơn', () => {
+    const { gw, cloud } = ready({ tids: [TID] })
+    for (let i = 1; i <= 8; i++) {
+      send(gw, i)
+      gw.flush()
+      clock += GW.fastPushMs // 8 lần x 250 ms = 2 giây
+    }
+    expect(cloud.of('batch')).toHaveLength(2)
+  })
+
+  it('mẫu giữa hai nhịp không mất: gom vào batch kế tiếp', () => {
+    const { gw, cloud } = ready({ tids: [TID] })
+    send(gw, 1)
+    gw.flush() // batch 1
+    clock += 300
+    send(gw, 2)
+    gw.flush() // chưa tới nhịp 1 giây: giữ lại
+    expect(cloud.of('batch')).toHaveLength(1)
+    clock += 800
+    gw.flush()
+    const batches = cloud.of('batch')
+    expect(batches).toHaveLength(2)
+    expect(batches[1]?.items[0]?.samples.map((s) => s.t)).toEqual([1_760_000_002])
+  })
+
+  it('pl chỉ đi lên cloud với terminal xem riêng', () => {
+    const fast = ready({ tids: [TID], fast: [TID] })
+    send(fast.gw, 1, { pl: { '4016996233': 4.92 } })
+    fast.gw.flush()
+    expect(fast.cloud.of('batch')[0]?.items[0]?.pl).toEqual({ '4016996233': 4.92 })
+
+    const list = ready({ tids: [TID] })
+    send(list.gw, 1, { pl: { '4016996233': 4.92 } })
+    list.gw.flush()
+    expect(list.cloud.of('batch')[0]?.items[0]?.pl).toBeUndefined()
+  })
+
+  it('positions đầy đủ thay pl; pl không bị gửi lặp ở batch sau', () => {
+    const { gw, cloud } = ready({ tids: [TID], fast: [TID] })
+    const positions = [
+      { ticket: 7, symbol: 'XAUUSDm', type: 'sell' as const, volume: 0.01, time: 1, price: 4120.8 },
+    ]
+    send(gw, 1, { positions, pos_hash: 'h1', pl: { '7': 1 } })
+    gw.flush()
+    const first = cloud.of('batch')[0]?.items[0]
+    expect(first?.positions).toHaveLength(1)
+    expect(first?.pl).toBeUndefined()
+
+    clock += GW.fastPushMs
+    send(gw, 2, { pl: { '7': 2 } })
+    gw.flush()
+    clock += GW.fastPushMs
+    send(gw, 3) // không pl
+    gw.flush()
+    const batches = cloud.of('batch')
+    expect(batches[1]?.items[0]?.pl).toEqual({ '7': 2 })
+    expect(batches[2]?.items[0]?.pl).toBeUndefined()
+  })
+
+  it('watch rỗng hoặc mất cloud thì không còn terminal nào theo tick', () => {
+    const { gw, cloud } = ready({ tids: [TID], fast: [TID] })
+    expect(gw.status().fast).toBe(1)
+    gw.onCloudMessage({ t: 'watch', tids: [], push_sec: 1 })
+    expect(gw.status().fast).toBe(0)
+    gw.onCloudMessage({ t: 'watch', tids: [TID], fast: [TID], push_sec: 1 })
+    gw.onCloudClose()
+    expect(gw.status().fast).toBe(0)
+    send(gw, 9)
+    gw.flush()
+    expect(cloud.of('batch')).toHaveLength(0)
+  })
+
+  it('fast chỉ có nghĩa với terminal đang được watch', () => {
+    const { gw } = ready({ tids: [], fast: [TID] })
+    expect(gw.status().fast).toBe(0)
+    expect(gw.handlePing(ping()).interval_ms).toBe(1000)
   })
 })

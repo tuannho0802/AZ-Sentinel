@@ -1,4 +1,3 @@
-import { LIVE } from '@az-sentinel/shared'
 import { strings } from '../../../lib/strings'
 import type { LiveStatus } from './useLiveLease'
 
@@ -14,7 +13,7 @@ type Props = {
 function label(status: LiveStatus, anyLive: boolean): string {
   switch (status) {
     case 'open':
-      return anyLive ? strings.liveRunning(LIVE.defaultIntervalSec) : strings.liveWaking
+      return anyLive ? strings.liveRunning : strings.liveWaking
     case 'connecting':
       return strings.liveConnecting
     case 'paused':

@@ -2,7 +2,7 @@
  * Cloud giả để thử Gateway và EA thật trước khi BE có `/api/gw/ws` (patch 08).
  *   pnpm --filter @az-sentinel/gateway fake-cloud            # nghe ws://127.0.0.1:8788/api/gw/ws
  * Phím (gõ rồi Enter):  w = bật/tắt "có người xem" cho mọi terminal · r = từ chối khóa kế tiếp (409)
- *                       s = in trạng thái · q = thoát
+ *                       f = bật/tắt "xem riêng" (trang /links/:id: đẩy theo tick) · s = in trạng thái · q = thoát
  * Tự động: bound cho mọi bind, ack cho mọi event, in từng tin nhận được (rút gọn).
  */
 import { createInterface } from 'node:readline'
@@ -13,13 +13,17 @@ const port = Number(process.env.PORT ?? 8788)
 const wss = new WebSocketServer({ port, host: '127.0.0.1', path: '/api/gw/ws' })
 const tids = new Set<string>()
 let watching = false
+let fast = false
 let rejectNext = false
 let batches = 0
 let samples = 0
 
 const send = (s: import('ws').WebSocket, m: GwServerMessage) => s.send(JSON.stringify(m))
 const pushWatch = () => {
-  for (const s of wss.clients) send(s, { t: 'watch', tids: watching ? [...tids] : [], push_sec: 2 })
+  const watched = watching ? [...tids] : []
+  for (const s of wss.clients) {
+    send(s, { t: 'watch', tids: watched, fast: fast ? watched : [], push_sec: GW.defaultPushSec })
+  }
 }
 
 wss.on('connection', (s) => {
@@ -65,7 +69,7 @@ wss.on('connection', (s) => {
         batches++
         for (const i of m.items) samples += i.samples.length
         console.log(
-          `[cloud] batch ${m.items.map((i) => `${i.tid}:${i.samples.length}${i.positions ? `+${i.positions.length}pos` : ''}`).join(' ')}  (tổng ${batches} batch, ${samples} mẫu)`,
+          `[cloud] batch ${m.items.map((i) => `${i.tid}:${i.samples.length}${i.positions ? `+${i.positions.length}pos` : ''}${i.pl ? '+pl' : ''}`).join(' ')}  (tổng ${batches} batch, ${samples} mẫu)`,
         )
         break
       case 'event':
@@ -84,7 +88,7 @@ wss.on('connection', (s) => {
 
 wss.on('listening', () => {
   console.log(
-    `[cloud] nghe ws://127.0.0.1:${port}/api/gw/ws   (w = bật/tắt xem · r = từ chối · s = trạng thái · q = thoát)`,
+    `[cloud] nghe ws://127.0.0.1:${port}/api/gw/ws   (w = bật/tắt xem · f = theo tick · r = từ chối · s = trạng thái · q = thoát)`,
   )
 })
 
@@ -96,6 +100,11 @@ createInterface({ input: process.stdin }).on('line', (line) => {
       console.log(
         `[cloud] viewer ${watching ? 'VÀO' : 'RỜI'} (watch ${watching ? tids.size : 0} terminal)`,
       )
+      break
+    case 'f':
+      fast = !fast
+      pushWatch()
+      console.log(`[cloud] xem riêng ${fast ? 'BẬT (theo tick)' : 'TẮT (nhịp danh sách)'}`)
       break
     case 'r':
       rejectNext = true

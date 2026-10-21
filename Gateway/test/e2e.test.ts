@@ -87,7 +87,7 @@ describe('API loopback', () => {
     const text = await res.text()
     expect(res.status).toBe(200)
     expect(text).toBe(
-      '{"ok":true,"bind":"pending","code":0,"watch":false,"interval_ms":2000,"lease_ms":15000}',
+      '{"ok":true,"bind":"pending","code":0,"watch":false,"interval_ms":1000,"lease_ms":15000}',
     )
   })
 

@@ -3,6 +3,7 @@ import {
   MAX_EVENTS,
   MAX_POSITIONS,
   MAX_SAMPLES,
+  plSchema,
   positionSchema,
   REASONS,
   sampleSchema,
@@ -20,12 +21,22 @@ export const GW = {
   minPingSec: 2,
   /** Dead-man switch của EA: quá chừng này ms không ping thành công thì ngừng gửi mẫu. */
   leaseMs: 15_000,
-  /** Nhịp EA gửi `samples` cho Gateway khi live, và biên kẹp (ms). */
-  defaultIntervalMs: 2000,
-  minIntervalMs: 1000,
+  /**
+   * Nhịp tối thiểu giữa hai lần EA gửi `samples` cho Gateway (EA gửi theo `OnTick`, có sàn 1 giây
+   * từ `OnTimer` khi thị trường không có tick), và biên kẹp (ms). Loopback nên gần như miễn phí.
+   */
+  defaultIntervalMs: 1000,
+  minIntervalMs: 100,
   maxIntervalMs: 5000,
-  /** Nhịp Gateway gom `batch` gửi cloud khi có watch, và biên kẹp (giây). */
-  defaultPushSec: 2,
+  /**
+   * Terminal đang được xem RIÊNG (trang `/links/:id`): EA gửi theo tick, cách nhau tối thiểu chừng
+   * này ms, và Gateway đẩy lên cloud cùng nhịp. Terminal chỉ nằm trong danh sách `/links` dùng
+   * nhịp thường (`defaultPushSec`) để tiết kiệm request.
+   */
+  fastIntervalMs: 250,
+  fastPushMs: 250,
+  /** Nhịp Gateway gom `batch` gửi cloud cho terminal xem trong danh sách, và biên kẹp (giây). */
+  defaultPushSec: 1,
   minPushSec: 1,
   maxPushSec: 5,
   /** Terminal im quá chừng này giây thì Gateway coi là offline. */
@@ -103,6 +114,8 @@ export const samplesRequestSchema = identity.extend({
   /** Vắng mặt = "không đổi" (EA chỉ gửi khi `pos_hash` đổi). */
   positions: z.array(positionSchema).max(MAX_POSITIONS).optional(),
   pos_hash: text(64).optional(),
+  /** Lãi/lỗ từng lệnh khi cấu trúc không đổi (thay cho `positions`). */
+  pl: plSchema.optional(),
   truncated: z.boolean().optional(),
   total_positions: z.number().int().nonnegative().optional(),
 })
@@ -169,6 +182,7 @@ export const gwClientMessageSchema = z.discriminatedUnion('t', [
           samples: z.array(sampleSchema).max(MAX_SAMPLES),
           positions: z.array(positionSchema).max(MAX_POSITIONS).optional(),
           pos_hash: text(64).optional(),
+          pl: plSchema.optional(),
         }),
       )
       .min(1),
@@ -190,7 +204,13 @@ export const GW_REJECT_CODES = [401, 403, 409] as const
 export const gwServerMessageSchema = z.discriminatedUnion('t', [
   z.object({ t: z.literal('bound'), tid, link_id: z.number().int().positive() }),
   z.object({ t: z.literal('reject'), tid, code: z.number().int() }),
-  z.object({ t: z.literal('watch'), tids: z.array(tid).max(500), push_sec: z.number() }),
+  z.object({
+    t: z.literal('watch'),
+    tids: z.array(tid).max(500),
+    push_sec: z.number(),
+    /** Tập con của `tids` đang được xem riêng (trang `/links/:id`): đẩy theo tick. Vắng = rỗng. */
+    fast: z.array(tid).max(500).optional(),
+  }),
   z.object({ t: z.literal('ack'), tid, seq: z.number().int().nonnegative() }),
   z.object({
     t: z.literal('update'),

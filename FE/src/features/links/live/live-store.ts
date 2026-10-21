@@ -1,8 +1,11 @@
 import {
   LIVE,
+  type LinkDetail,
   type LinkStateView,
   type LinkSummary,
   type LiveState,
+  type Position,
+  type PositionPl,
   type Sample,
   type ServerMessage,
 } from '@az-sentinel/shared'
@@ -17,6 +20,12 @@ export type LiveEntry = {
   state: LiveState | null
   sample: Sample | null
   positionsCount: number | null
+  /** Danh sách lệnh đầy đủ gần nhất từ hub (chỉ cần ở trang chi tiết). */
+  positions: Position[] | null
+  /** Lãi/lỗ hiện tại từng lệnh, đến theo tick khi xem riêng; phủ lên `positions` (hoặc D1). */
+  pl: PositionPl | null
+  /** Số lần cấu trúc danh sách lệnh đổi (mở/đóng/sửa); trang chi tiết dùng để làm mới sự kiện. */
+  posVersion: number
   /** Mốc `performance.now()` mà mẫu hiện tại ra đời theo giờ server; null = chưa có mẫu. */
   sampleAtPerf: number | null
 }
@@ -49,6 +58,9 @@ const empty = (): LiveEntry => ({
   state: null,
   sample: null,
   positionsCount: null,
+  positions: null,
+  pl: null,
+  posVersion: 0,
   sampleAtPerf: null,
 })
 
@@ -67,6 +79,9 @@ export function applyLiveMessage(msg: ServerMessage, perfNow: number = performan
           state: l.live_state,
           sample: l.sample,
           positionsCount: l.positions?.length ?? null,
+          positions: l.positions ?? null,
+          pl: null,
+          posVersion: 0,
           sampleAtPerf: l.sample ? sampleAt(msg.server_time, l.sample, perfNow) : null,
         })
       }
@@ -80,13 +95,21 @@ export function applyLiveMessage(msg: ServerMessage, perfNow: number = performan
         ...prev,
         state: 'live',
         sample: last,
+        // Tin không kèm `pl` (viewer danh sách) giữ nguyên giá trị cũ thay vì xóa.
+        pl: msg.pl ?? prev.pl,
         sampleAtPerf: sampleAt(msg.server_time, last, perfNow),
       })
       break
     }
     case 'positions': {
       const prev = entries.get(msg.id) ?? empty()
-      entries.set(msg.id, { ...prev, positionsCount: msg.positions.length })
+      entries.set(msg.id, {
+        ...prev,
+        positionsCount: msg.positions.length,
+        positions: msg.positions,
+        pl: null, // danh sách đầy đủ đã gồm lãi/lỗ hiện tại
+        posVersion: prev.posVersion + 1,
+      })
       break
     }
     case 'live_state': {
@@ -102,7 +125,8 @@ export function applyLiveMessage(msg: ServerMessage, perfNow: number = performan
 
 /**
  * Trạng thái hiển thị của một liên kết. `null` khi chưa nối. Nối mà chưa có tin về liên kết đó
- * thì là `waking` (có người xem, EA chưa vào live). Mẫu quá hạn lease thì `idle` (không phản hồi).
+ * thì là `waking` (có người xem, EA chưa vào live). Mẫu im quá `LIVE.staleSec` thì `idle` (không
+ * phản hồi): huy hiệu Live không còn hiện tuổi mẫu nên phải hạ cờ nhanh khi EA ngừng gửi.
  */
 export function effectiveLiveState(
   entry: LiveEntry | undefined,
@@ -112,15 +136,9 @@ export function effectiveLiveState(
   if (!connected) return null
   if (entry?.state === 'live' && entry.sampleAtPerf !== null) {
     const age = (perfNow - entry.sampleAtPerf) / 1000
-    return age > LIVE.leaseSec ? 'idle' : 'live'
+    return age > LIVE.staleSec ? 'idle' : 'live'
   }
   return entry?.state ?? 'waking'
-}
-
-/** Tuổi mẫu live (giây) theo đồng hồ đơn điệu; null nếu chưa có mẫu. */
-export function liveAgeSec(entry: LiveEntry | undefined, perfNow: number): number | null {
-  if (!entry || entry.sampleAtPerf === null) return null
-  return Math.max(0, Math.floor((perfNow - entry.sampleAtPerf) / 1000))
 }
 
 /** Phủ mẫu live lên số liệu D1 để hiển thị (balance, equity, lãi/lỗ, margin level). */
@@ -156,4 +174,21 @@ export function mergeLive(link: LinkSummary, entry: LiveEntry | undefined): Link
       online: true,
     },
   }
+}
+
+/** Phủ lãi/lỗ theo tick lên danh sách lệnh: ưu tiên danh sách của hub, rồi tới bản D1. */
+export function livePositions(base: Position[], entry: LiveEntry | undefined): Position[] {
+  const list = entry?.positions ?? base
+  const pl = entry?.pl
+  if (!pl) return list
+  return list.map((p) => {
+    const profit = pl[String(p.ticket)]
+    return profit === undefined ? p : { ...p, profit }
+  })
+}
+
+/** Như `mergeLive` nhưng cho trang chi tiết: thêm danh sách lệnh với lãi/lỗ theo tick. */
+export function mergeLiveDetail(link: LinkDetail, entry: LiveEntry | undefined): LinkDetail {
+  const merged = mergeLive(link, entry)
+  return { ...link, state: merged.state, positions: livePositions(link.positions, entry) }
 }
