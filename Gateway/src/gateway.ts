@@ -19,7 +19,8 @@ import {
 import { type Logger, silentLogger } from './log'
 import { EventQueue } from './queue'
 
-export const GATEWAY_VERSION = '0.1.0'
+/** Bản build (CI gắn `GW_BUILD_VERSION` từ tag `gateway-vX.Y.Z`); chạy dev thì dùng mặc định. */
+export const GATEWAY_VERSION = process.env.GW_BUILD_VERSION || '0.1.0'
 
 /** Trần số mẫu giữ cho mỗi terminal giữa hai lần gom (push tối đa 5 giây, 1 mẫu/giây). */
 const MAX_BUFFER = 60
@@ -98,6 +99,8 @@ export type TerminalStatus = {
 
 export type GatewayStatus = {
   version: string
+  /** Nhãn VPS (hostname) gửi lên cloud. */
+  vps: string
   cloud: { configured: boolean; connected: boolean }
   uptimeSec: number
   pushSec: number
@@ -450,6 +453,7 @@ export class Gateway {
     const now = this.now()
     return {
       version: GATEWAY_VERSION,
+      vps: this.opts.vps ?? '',
       cloud: { configured: this.opts.cloudConfigured ?? false, connected: this.send !== null },
       uptimeSec: Math.round((now - this.startedMs) / 1000),
       pushSec: this.pushSec,

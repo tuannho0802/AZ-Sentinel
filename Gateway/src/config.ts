@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { GW } from '@az-sentinel/shared'
@@ -58,4 +58,54 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): GatewayConfig 
     throw new Error(`Cấu hình không hợp lệ: ${i?.path.join('.')} ${i?.message}`)
   }
   return parsed.data
+}
+
+/** Các trường người dùng được sửa từ giao diện cục bộ (không gồm `port`, `dataDir`: đổi tay trong file). */
+export const editableSchema = z.object({
+  cloudUrl: z
+    .string()
+    .trim()
+    .refine((v) => v === '' || /^wss?:\/\/[^\s]+$/i.test(v), 'phải bắt đầu bằng wss:// hoặc ws://'),
+  /** Chuỗi rỗng = giữ token cũ (giao diện không bao giờ nhận lại token). */
+  cloudToken: z.string().trim().max(512),
+  vps: z.string().trim().min(1).max(64),
+  idleFlushSec: z.number().int().min(0).max(86400),
+})
+export type EditableConfig = z.infer<typeof editableSchema>
+
+/** Đường dẫn file cấu hình đang dùng (cùng quy tắc với `loadConfig`). */
+export function configFilePath(env: NodeJS.ProcessEnv = process.env): string {
+  const dataDir = env.AZ_GW_DATA ?? defaultDataDir()
+  return env.AZ_GW_CONFIG ?? path.join(dataDir, 'config.json')
+}
+
+/**
+ * Ghi các trường sửa được vào file cấu hình, giữ nguyên các khóa khác (port, dataDir, logLevel...).
+ * Ghi vào file tạm rồi đổi tên để mất điện giữa chừng không làm hỏng file.
+ */
+export function saveEditableConfig(
+  patch: EditableConfig,
+  env: NodeJS.ProcessEnv = process.env,
+): void {
+  const file = configFilePath(env)
+  let current: Record<string, unknown> = {}
+  if (existsSync(file)) {
+    try {
+      const parsed: unknown = JSON.parse(readFileSync(file, 'utf8'))
+      if (typeof parsed === 'object' && parsed !== null) current = parsed as Record<string, unknown>
+    } catch {
+      throw new Error(`File cấu hình ${file} đang hỏng JSON, hãy sửa hoặc xóa trước`)
+    }
+  }
+  const next = {
+    ...current,
+    cloudUrl: patch.cloudUrl,
+    vps: patch.vps,
+    idleFlushSec: patch.idleFlushSec,
+  }
+  if (patch.cloudToken !== '') (next as Record<string, unknown>).cloudToken = patch.cloudToken
+  mkdirSync(path.dirname(file), { recursive: true })
+  const tmp = `${file}.tmp`
+  writeFileSync(tmp, `${JSON.stringify(next, null, 2)}\n`, 'utf8')
+  renameSync(tmp, file)
 }

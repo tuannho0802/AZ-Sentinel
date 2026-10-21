@@ -1,0 +1,92 @@
+name: Release Gateway
+
+# Đẩy tag dạng gateway-vX.Y.Z (vd gateway-v0.2.0) để build bộ cài trên Windows và tạo GitHub Release.
+# Chạy tay (workflow_dispatch) chỉ build và đưa file vào Artifacts, không tạo Release.
+on:
+  push:
+    tags: ['gateway-v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: latest
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Test và typecheck Gateway
+        run: |
+          pnpm --filter @az-sentinel/gateway typecheck
+          pnpm --filter @az-sentinel/gateway test
+
+      - name: Xác định phiên bản
+        id: ver
+        shell: pwsh
+        run: |
+          if ($env:GITHUB_REF_TYPE -eq 'tag') { $v = $env:GITHUB_REF_NAME -replace '^gateway-v','' }
+          else { $v = (Get-Content Gateway/package.json -Raw | ConvertFrom-Json).version }
+          "version=$v" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          Write-Host "Phien ban: $v"
+
+      - name: Build az-gateway.exe (esbuild + Node SEA)
+        working-directory: Gateway
+        run: |
+          node build/bundle.mjs ${{ steps.ver.outputs.version }}
+          node build/sea.mjs
+
+      - name: Chạy thử exe (smoke test)
+        shell: pwsh
+        run: |
+          $env:AZ_GW_DATA = Join-Path $env:RUNNER_TEMP 'azgw'
+          $p = Start-Process -FilePath Gateway/dist/az-gateway.exe -PassThru -WindowStyle Hidden
+          try {
+            $s = $null
+            for ($i = 0; $i -lt 20 -and -not $s; $i++) {
+              Start-Sleep -Milliseconds 500
+              try { $s = Invoke-RestMethod http://127.0.0.1:47800/v1/status } catch {}
+            }
+            if (-not $s) { throw 'Gateway khong tra loi /v1/status' }
+            if ($s.version -ne '${{ steps.ver.outputs.version }}') { throw "Sai phien ban: $($s.version)" }
+            Write-Host "OK: Gateway v$($s.version) dang chay"
+          } finally { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue }
+
+      - name: Build bộ cài (Inno Setup)
+        shell: pwsh
+        run: |
+          choco install innosetup -y --no-progress
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          & $iscc "/DMyAppVersion=${{ steps.ver.outputs.version }}" Installer\az-gateway.iss
+          if ($LASTEXITCODE -ne 0) { throw 'ISCC loi' }
+          $f = 'Gateway\dist\AZSentinel-Gateway-Setup.exe'
+          $h = (Get-FileHash $f -Algorithm SHA256).Hash.ToLower()
+          "$h  AZSentinel-Gateway-Setup.exe" | Out-File Gateway\dist\SHA256SUMS.txt -Encoding ascii
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AZSentinel-Gateway-${{ steps.ver.outputs.version }}
+          path: |
+            Gateway/dist/AZSentinel-Gateway-Setup.exe
+            Gateway/dist/SHA256SUMS.txt
+
+      - name: Tạo GitHub Release
+        if: github.ref_type == 'tag'
+        uses: softprops/action-gh-release@v2
+        with:
+          name: AZ Gateway v${{ steps.ver.outputs.version }}
+          generate_release_notes: true
+          files: |
+            Gateway/dist/AZSentinel-Gateway-Setup.exe
+            Gateway/dist/SHA256SUMS.txt

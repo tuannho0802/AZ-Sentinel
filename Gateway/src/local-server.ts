@@ -8,11 +8,28 @@ import {
   samplesRequestSchema,
 } from '@az-sentinel/shared'
 import type { ZodType } from 'zod'
+import { type EditableConfig, editableSchema } from './config'
 import type { Gateway } from './gateway'
 import { type Logger, silentLogger } from './log'
 import { statusPage } from './status-page'
+import type { UpdateInfo } from './update-check'
 
 type Handler = (body: unknown) => unknown
+
+/**
+ * Phần giao diện quản trị (cấu hình, log, cập nhật). Không bắt buộc: thiếu thì các route này 404,
+ * nên test cũ và `fake-ea` không đổi.
+ */
+export type UiHooks = {
+  /** Cấu hình hiện tại cho giao diện; KHÔNG chứa token, chỉ cờ `tokenSet`. */
+  getConfig: () => Omit<EditableConfig, 'cloudToken'> & { tokenSet: boolean; port: number }
+  saveConfig: (c: EditableConfig) => void
+  getUpdate: () => UpdateInfo | null
+  /** Vài trăm dòng log cuối, mới nhất ở cuối. */
+  tailLog: (lines: number) => string
+  /** Thoát tiến trình để trình giám sát (run-gateway.cmd) bật lại với cấu hình mới. */
+  restart: () => void
+}
 
 /**
  * Máy chủ HTTP loopback cho EA (Plan 3C mục 3). Chỉ lắng nghe 127.0.0.1, không bao giờ 0.0.0.0.
@@ -27,6 +44,7 @@ export class LocalServer {
     private readonly gw: Gateway,
     private readonly port: number,
     private readonly log: Logger = silentLogger,
+    private readonly ui: UiHooks | null = null,
   ) {}
 
   /** Cổng thực tế đang nghe (khác `port` khi truyền 0 trong test). */
@@ -117,6 +135,11 @@ export class LocalServer {
       return
     }
 
+    if (this.ui && url.startsWith('/v1/ui/')) {
+      this.onUi(url, req, res)
+      return
+    }
+
     const handler = routes[url]
     if (!handler) {
       send(res, fail(404, 'not_found'))
@@ -127,6 +150,16 @@ export class LocalServer {
       return
     }
 
+    this.readJson(req, res, (body) => send(res, handler(body)), url)
+  }
+
+  /** Đọc thân JSON (tối đa `GW.maxBodyBytes`) rồi gọi `fn`. Lỗi đọc, JSON hỏng đều trả 4xx. */
+  private readJson(
+    req: http.IncomingMessage,
+    res: http.ServerResponse,
+    fn: (body: unknown) => void,
+    url: string,
+  ): void {
     readBody(req, GW.maxBodyBytes).then(
       (raw) => {
         let body: unknown
@@ -137,7 +170,7 @@ export class LocalServer {
           return
         }
         try {
-          send(res, handler(body))
+          fn(body)
         } catch (e) {
           this.log.error(`lỗi xử lý ${url}: ${e instanceof Error ? e.message : String(e)}`)
           send(res, fail(500, 'internal'))
@@ -147,6 +180,65 @@ export class LocalServer {
         res.shouldKeepAlive = false
         send(res, fail(413, 'too_large'))
       },
+    )
+  }
+
+  /**
+   * API của giao diện cục bộ. Ngoài kiểm tra Host (loopback), các route GHI còn đòi header
+   * `x-az-ui: 1` (trình duyệt buộc preflight nếu trang lạ cố gọi, mà Gateway không trả CORS) và,
+   * nếu có `Origin`, phải là chính Gateway. Chặn trang web bất kỳ trên máy VPS sửa cấu hình.
+   */
+  private onUi(url: string, req: http.IncomingMessage, res: http.ServerResponse): void {
+    const ui = this.ui as UiHooks
+    if (req.method === 'GET' && url === '/v1/ui/config') {
+      send(res, ui.getConfig())
+      return
+    }
+    if (req.method === 'GET' && url === '/v1/ui/update') {
+      send(res, ui.getUpdate() ?? { available: false })
+      return
+    }
+    if (req.method === 'GET' && url === '/v1/ui/log') {
+      res.writeHead(200, {
+        'content-type': 'text/plain; charset=utf-8',
+        'cache-control': 'no-store',
+      })
+      res.end(ui.tailLog(200))
+      return
+    }
+    if (req.method !== 'POST' || (url !== '/v1/ui/config' && url !== '/v1/ui/restart')) {
+      send(res, fail(404, 'not_found'))
+      return
+    }
+    const origin = req.headers.origin
+    const okOrigin =
+      origin === undefined ||
+      origin === `http://127.0.0.1:${this.listeningPort}` ||
+      origin === `http://localhost:${this.listeningPort}`
+    if (req.headers['x-az-ui'] !== '1' || !okOrigin) {
+      send(res, fail(403, 'bad_origin'))
+      return
+    }
+    if (url === '/v1/ui/restart') {
+      send(res, { ok: true })
+      setTimeout(() => ui.restart(), 300)
+      return
+    }
+    this.readJson(
+      req,
+      res,
+      (body) => {
+        const r = editableSchema.safeParse(body)
+        if (!r.success) {
+          const i = r.error.issues[0]
+          send(res, fail(400, `invalid_body:${i?.path.join('.') || '-'}:${i?.message ?? ''}`))
+          return
+        }
+        ui.saveConfig(r.data)
+        this.log.info('cấu hình được cập nhật từ giao diện cục bộ')
+        send(res, { ok: true })
+      },
+      url,
     )
   }
 }

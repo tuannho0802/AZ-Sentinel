@@ -19,3 +19,5 @@ compile_commands.json
 *build/
 *.zip
 *.spec
+# Bộ cài Gateway: cho phép commit EA đã biên dịch để bộ cài chép vào terminal (build CI không có MetaEditor)
+!Installer/ea/*.ex5
