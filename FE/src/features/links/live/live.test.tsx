@@ -14,6 +14,7 @@ const link: LinkSummary = {
   status: 'active',
   created_at: NOW,
   bound_at: NOW,
+  vps_name: null,
   account: {
     login: 5550001,
     server: 'Demo-Srv',

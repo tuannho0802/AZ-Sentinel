@@ -18,6 +18,7 @@ const unbound: LinkSummary = {
   status: 'active',
   created_at: NOW,
   bound_at: null,
+  vps_name: null,
   account: null,
   state: null,
 }
@@ -28,6 +29,7 @@ const bound: LinkSummary = {
   status: 'active',
   created_at: NOW,
   bound_at: NOW,
+  vps_name: 'VPS-A01',
   account: {
     login: 5550001,
     server: 'Demo-Srv',
@@ -159,6 +161,80 @@ describe('tạo liên kết', () => {
     fireEvent.click(await screen.findByRole('button', { name: strings.linkCreate }))
     expect((await screen.findByRole('alert')).textContent).toContain('Đã đạt giới hạn 20 liên kết')
     expect(screen.queryByRole('dialog')).toBeNull()
+  })
+})
+
+describe('tên VPS tự nhập', () => {
+  const bodyOf = (fetchMock: { mock: { calls: unknown[][] } }, method: string, url: string) => {
+    const call = fetchMock.mock.calls.find(
+      (c) => (c[1] as RequestInit | undefined)?.method === method && c[0] === url,
+    )
+    return call ? JSON.parse(String((call[1] as RequestInit).body)) : undefined
+  }
+
+  it('danh sách có cột VPS hiện tên đã nhập', async () => {
+    renderApp('/links', { ...base, 'GET /api/dev/links': () => json(200, { links: [bound] }) })
+    expect(await screen.findByText(strings.colVps)).toBeTruthy()
+    expect(await screen.findByText('VPS-A01')).toBeTruthy()
+  })
+
+  it('tạo liên kết kèm tên VPS: gửi vps_name đã chuẩn hóa, ô nhập được xóa sau khi tạo', async () => {
+    const created: CreateLinkResponse = { link: unbound, api_key: 'SECRET-KEY-VALUE-1234567890' }
+    const { fetchMock } = renderApp('/links', {
+      ...base,
+      'GET /api/dev/links': () => json(200, { links: [] }),
+      'POST /api/dev/links': () => json(201, created),
+    })
+    const input = (await screen.findByLabelText(strings.vpsNamePlaceholder)) as HTMLInputElement
+    fireEvent.change(input, { target: { value: '  VPS   Hà Nội 01 ' } })
+    fireEvent.click(screen.getByRole('button', { name: strings.linkCreate }))
+    await screen.findByRole('dialog')
+    expect(bodyOf(fetchMock, 'POST', '/api/dev/links')).toEqual({ vps_name: 'VPS Hà Nội 01' })
+    expect(input.value).toBe('')
+  })
+
+  it('tạo liên kết không nhập tên: gửi thân rỗng như trước', async () => {
+    const created: CreateLinkResponse = { link: unbound, api_key: 'SECRET-KEY-VALUE-1234567890' }
+    const { fetchMock } = renderApp('/links', {
+      ...base,
+      'GET /api/dev/links': () => json(200, { links: [] }),
+      'POST /api/dev/links': () => json(201, created),
+    })
+    fireEvent.click(await screen.findByRole('button', { name: strings.linkCreate }))
+    await screen.findByRole('dialog')
+    expect(bodyOf(fetchMock, 'POST', '/api/dev/links')).toEqual({})
+  })
+
+  it('sửa tên ngay trong danh sách: Lưu gửi tên mới; Hủy thì không gửi gì', async () => {
+    let name: string | null = 'VPS-A01'
+    const { fetchMock } = renderApp('/links', {
+      ...base,
+      'GET /api/dev/links': () => json(200, { links: [{ ...bound, vps_name: name }] }),
+      'POST /api/dev/links/2/vps-name': () => json(200, { ...bound, vps_name: name }),
+    })
+    await screen.findByText('VPS-A01')
+    fireEvent.click(
+      screen.getByRole('button', { name: `${strings.vpsNameEdit} ${strings.fieldVpsName} #2` }),
+    )
+    fireEvent.click(screen.getByRole('button', { name: strings.vpsNameCancel }))
+    expect(bodyOf(fetchMock, 'POST', '/api/dev/links/2/vps-name')).toBeUndefined()
+
+    fireEvent.click(
+      screen.getByRole('button', { name: `${strings.vpsNameEdit} ${strings.fieldVpsName} #2` }),
+    )
+    fireEvent.change(screen.getByLabelText(`${strings.fieldVpsName} #2`), {
+      target: { value: 'VPS-B02' },
+    })
+    name = 'VPS-B02'
+    fireEvent.click(screen.getByRole('button', { name: strings.vpsNameSave }))
+    expect(await screen.findByText('VPS-B02')).toBeTruthy()
+    expect(bodyOf(fetchMock, 'POST', '/api/dev/links/2/vps-name')).toEqual({ vps_name: 'VPS-B02' })
+  })
+
+  it('trang chi tiết hiện tên VPS ở thẻ Tài khoản', async () => {
+    renderApp('/links/2', { ...base, 'GET /api/dev/links/2': () => json(200, detail) })
+    expect(await screen.findByText(strings.fieldVpsName)).toBeTruthy()
+    expect(screen.getByText('VPS-A01')).toBeTruthy()
   })
 })
 

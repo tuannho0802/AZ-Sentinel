@@ -1,5 +1,6 @@
 import {
   type CreateLinkResponse,
+  createLinkRequestSchema,
   LINK_ONLINE_THRESHOLD_SECONDS,
   LINK_STATUSES,
   type LinkDetail,
@@ -7,7 +8,9 @@ import {
   type LinkListResponse,
   type LinkStatus,
   type LinkSummary,
+  normalizeVpsName,
   positionSchema,
+  setVpsNameSchema,
 } from '@az-sentinel/shared'
 import { zValidator } from '@hono/zod-validator'
 import { Hono } from 'hono'
@@ -51,6 +54,7 @@ type LinkRow = {
   status: LinkStatus
   created_at: number
   bound_at: number | null
+  vps_name: string | null
   login: number | null
   server: string | null
   broker: string | null
@@ -73,7 +77,7 @@ type LinkRow = {
 }
 
 const SELECT_LINK = `
-  SELECT l.id, l.key_prefix, l.status, l.created_at, l.bound_at,
+  SELECT l.id, l.key_prefix, l.status, l.created_at, l.bound_at, l.vps_name,
          l.login, l.server, l.broker, l.name, l.currency, l.mode,
          s.balance, s.equity, s.margin, s.margin_free, s.margin_level, s.floating_pl,
          s.last_reason, s.last_seen_at, s.last_seq, s.ea_ver, s.vps_label,
@@ -110,6 +114,7 @@ function toSummary(r: LinkRow, now: number, viaGateway: Set<number>): LinkSummar
     status: r.status,
     created_at: r.created_at,
     bound_at: r.bound_at,
+    vps_name: r.vps_name,
     account:
       r.login !== null && r.server !== null
         ? {
@@ -185,12 +190,17 @@ devLinks.post('/links', async (c) => {
       `Đã đạt giới hạn ${MAX_DEV_LINKS} liên kết (chế độ thử). Hãy xóa bớt.`,
     )
   }
+  // Thân yêu cầu có thể rỗng hoặc không phải JSON: coi như không có tên VPS. Có nhưng sai kiểu thì 400.
+  const raw: unknown = await c.req.json().catch(() => ({}))
+  const parsed = createLinkRequestSchema.safeParse(raw ?? {})
+  if (!parsed.success) throw new AppError(400, 'VALIDATION_FAILED', 'Tên VPS không hợp lệ')
+  const vpsName = normalizeVpsName(parsed.data.vps_name)
   const { key, keyHash, keyPrefix } = await generateApiKey()
   const row = await c.env.DB.prepare(
-    `INSERT INTO ea_links (key_hash, key_prefix, status, created_at)
-     VALUES (?, ?, 'active', ?) RETURNING id`,
+    `INSERT INTO ea_links (key_hash, key_prefix, status, created_at, vps_name)
+     VALUES (?, ?, 'active', ?, ?) RETURNING id`,
   )
-    .bind(keyHash, keyPrefix, nowUnix())
+    .bind(keyHash, keyPrefix, nowUnix(), vpsName)
     .first<{ id: number }>()
   if (!row) throw new AppError(500, 'INTERNAL', 'Lỗi hệ thống')
   const body: CreateLinkResponse = { link: await loadLink(c.env, row.id), api_key: key }
@@ -234,6 +244,23 @@ devLinks.post(
       .run()
     if (res.meta.changes === 0) throw new AppError(404, 'NOT_FOUND', 'Không tìm thấy liên kết')
     if (status === 'disabled') await revokeAtHub(c.env, id)
+    return c.json(await loadLink(c.env, id))
+  },
+)
+
+/** Đặt hoặc đổi tên VPS (người dùng tự nhập). Rỗng/null = xóa tên. Không đụng tới khóa hay Gateway. */
+devLinks.post(
+  '/links/:id/vps-name',
+  zValidator('json', setVpsNameSchema, (result, c) => {
+    if (!result.success) return c.json(errorBody('VALIDATION_FAILED', 'Tên VPS không hợp lệ'), 400)
+  }),
+  async (c) => {
+    const id = parseId(c.req.param('id'))
+    const vpsName = normalizeVpsName(c.req.valid('json').vps_name)
+    const res = await c.env.DB.prepare('UPDATE ea_links SET vps_name = ? WHERE id = ?')
+      .bind(vpsName, id)
+      .run()
+    if (res.meta.changes === 0) throw new AppError(404, 'NOT_FOUND', 'Không tìm thấy liên kết')
     return c.json(await loadLink(c.env, id))
   },
 )

@@ -1,3 +1,4 @@
+import { normalizeVpsName, VPS_NAME_MAX } from '@az-sentinel/shared'
 import { useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import { ApiError } from '../../lib/api-client'
@@ -24,10 +25,12 @@ export function LinksList() {
     ) ?? false
   const create = useCreateLink()
   const [revealedKey, setRevealedKey] = useState<string | null>(null)
+  const [vpsName, setVpsName] = useState('')
 
   function onCreate() {
-    create.mutate(undefined, {
+    create.mutate(normalizeVpsName(vpsName), {
       onSuccess: (res) => {
+        setVpsName('')
         setRevealedKey(res.api_key)
         // Không để khóa nằm lại trong bộ nhớ đệm của mutation.
         create.reset()
@@ -62,6 +65,18 @@ export function LinksList() {
           >
             {strings.refresh}
           </button>
+          <input
+            aria-label={strings.vpsNamePlaceholder}
+            placeholder={strings.vpsNamePlaceholder}
+            className="w-48 rounded border px-2 py-1 text-sm"
+            maxLength={VPS_NAME_MAX}
+            value={vpsName}
+            disabled={create.isPending || devOff}
+            onChange={(e) => setVpsName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !create.isPending && !devOff) onCreate()
+            }}
+          />
           <button
             type="button"
             className="rounded bg-gray-900 px-3 py-1 text-white disabled:opacity-60"

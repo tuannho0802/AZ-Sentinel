@@ -43,8 +43,23 @@ export function useLink(id: number) {
 export function useCreateLink() {
   const client = useQueryClient()
   return useMutation({
-    mutationFn: () => apiPost<CreateLinkResponse>(BASE, {}),
+    // Tên VPS là tùy chọn: không nhập thì gửi thân rỗng như trước.
+    mutationFn: (vpsName?: string | null) =>
+      apiPost<CreateLinkResponse>(BASE, vpsName ? { vps_name: vpsName } : {}),
     onSuccess: () => client.invalidateQueries({ queryKey: LINKS_KEY }),
+  })
+}
+
+/** Đặt/đổi tên VPS của một liên kết (null = xóa tên). Cập nhật cả danh sách lẫn trang chi tiết. */
+export function useSetVpsName(id: number) {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: (vpsName: string | null) =>
+      apiPost<LinkSummary>(`${BASE}/${id}/vps-name`, { vps_name: vpsName }),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: linkKey(id) })
+      return client.invalidateQueries({ queryKey: LINKS_KEY })
+    },
   })
 }
 

@@ -46,6 +46,8 @@ export type LinkSummary = {
   status: LinkStatus
   created_at: number
   bound_at: number | null
+  /** Tên VPS do người dùng tự nhập (tài khoản này đang chạy ở VPS nào); null = chưa đặt. */
+  vps_name: string | null
   /** null = chưa gắn tài khoản MT5 (chưa có lần gửi nào). */
   account: LinkAccountView | null
   /** null = chưa nhận dữ liệu lần nào. */

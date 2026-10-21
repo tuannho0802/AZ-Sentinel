@@ -7,6 +7,7 @@ import { LiveBadge } from './live/LiveBadge'
 import { effectiveLiveState, getLiveEntry, mergeLive } from './live/live-store'
 import { PresenceBadge } from './PresenceBadge'
 import { RotateKeyButton } from './RotateKeyButton'
+import { VpsNameCell } from './VpsNameCell'
 
 const th = 'px-3 py-2 whitespace-nowrap'
 
@@ -29,6 +30,7 @@ export function LinksTable({
             <th className={th}>{strings.colKey}</th>
             <th className={th}>{strings.colAccount}</th>
             <th className={th}>{strings.colAccountName}</th>
+            <th className={th}>{strings.colVps}</th>
             <th className={th}>{strings.colPresence}</th>
             <th className={th}>{strings.colBalance}</th>
             <th className={th}>{strings.colEquity}</th>
@@ -61,6 +63,9 @@ export function LinksTable({
                   )}
                 </td>
                 <td className="px-3 py-2">{l.account?.name || '—'}</td>
+                <td className="px-3 py-2">
+                  <VpsNameCell linkId={l.id} value={l.vps_name} />
+                </td>
                 <td className="px-3 py-2">
                   <PresenceBadge link={l} />
                   {/* Live nằm ở cột "Nhận gần nhất"; ở đây chỉ còn đánh thức / không phản hồi. */}

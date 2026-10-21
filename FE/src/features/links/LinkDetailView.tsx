@@ -15,6 +15,7 @@ import { useNow } from '../../lib/use-now'
 import { LinkActions } from './LinkActions'
 import { LiveBadge } from './live/LiveBadge'
 import { PresenceBadge } from './PresenceBadge'
+import { VpsNameCell } from './VpsNameCell'
 
 function Row({ label, children }: { label: string; children: ReactNode }) {
   return (
@@ -59,6 +60,9 @@ export function LinkDetailView({
             </Row>
             <Row label={strings.colStatus}>
               {link.status === 'active' ? strings.statusActive : strings.statusDisabled}
+            </Row>
+            <Row label={strings.fieldVpsName}>
+              <VpsNameCell linkId={link.id} value={link.vps_name} />
             </Row>
             {a ? (
               <>

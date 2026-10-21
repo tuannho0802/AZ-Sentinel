@@ -199,3 +199,58 @@ describe('/api/dev (chỉ bật khi DEV_LINKS_API=1)', () => {
     expect(res.status).toBe(400)
   })
 })
+
+describe('tên VPS do người dùng nhập', () => {
+  const create = async (body: unknown) => {
+    const res = await dev('/links', { method: 'POST', body: JSON.stringify(body) })
+    return { res, json: (await res.json()) as CreateLinkResponse }
+  }
+  const setName = (id: number, vps_name: unknown) =>
+    dev(`/links/${id}/vps-name`, { method: 'POST', body: JSON.stringify({ vps_name }) })
+
+  it('tạo liên kết không kèm tên thì vps_name là null', async () => {
+    const { link } = await createLink()
+    expect(link.vps_name).toBeNull()
+  })
+
+  it('tạo liên kết kèm tên: được chuẩn hóa, có trong danh sách và chi tiết', async () => {
+    const { res, json } = await create({ vps_name: '  VPS   Hà Nội 01 ' })
+    expect(res.status).toBe(201)
+    expect(json.link.vps_name).toBe('VPS Hà Nội 01')
+    const list = (await (await dev('/links')).json()) as LinkListResponse
+    expect(list.links[0]?.vps_name).toBe('VPS Hà Nội 01')
+    const detail = (await (await dev(`/links/${json.link.id}`)).json()) as LinkDetail
+    expect(detail.vps_name).toBe('VPS Hà Nội 01')
+  })
+
+  it('tên toàn khoảng trắng thì coi như không đặt; sai kiểu bị 400 và không tạo liên kết', async () => {
+    expect((await create({ vps_name: '   ' })).json.link.vps_name).toBeNull()
+    const before = await count('ea_links')
+    const bad = await dev('/links', { method: 'POST', body: JSON.stringify({ vps_name: 5 }) })
+    expect(bad.status).toBe(400)
+    expect(await count('ea_links')).toBe(before)
+  })
+
+  it('đổi tên rồi xóa tên; id không tồn tại hoặc dữ liệu sai thì lỗi', async () => {
+    const { link } = await createLink()
+    const renamed = (await (await setName(link.id, 'VPS-02')).json()) as LinkSummary
+    expect(renamed.vps_name).toBe('VPS-02')
+    const cleared = (await (await setName(link.id, '')).json()) as LinkSummary
+    expect(cleared.vps_name).toBeNull()
+    expect((await setName(999999, 'x')).status).toBe(404)
+    expect((await setName(link.id, 5)).status).toBe(400)
+    expect((await dev(`/links/${link.id}/vps-name`, { method: 'POST', body: '{}' })).status).toBe(
+      400,
+    )
+  })
+
+  it('đổi tên không làm đổi khóa hay tài khoản đã gắn', async () => {
+    const { link, api_key } = await createLink()
+    await post(api_key, makePayload())
+    await setName(link.id, 'VPS-03')
+    const detail = (await (await dev(`/links/${link.id}`)).json()) as LinkDetail
+    expect(detail.vps_name).toBe('VPS-03')
+    expect(detail.account?.login).toBeDefined()
+    expect(detail.key_prefix).toBe(link.key_prefix)
+  })
+})
