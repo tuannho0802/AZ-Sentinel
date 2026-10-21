@@ -104,6 +104,7 @@ code .
 1. Đăng ký tại https://dash.cloudflare.com/sign-up bằng email của bạn và xác thực email.
 2. Bạn **chưa cần** làm gì thêm ở dashboard. Ở Part 1 (mục 1.F) chúng ta sẽ đăng nhập Wrangler (`wrangler login` mở trình duyệt để cấp quyền) và tạo D1.
 3. Không cần thêm domain vào Cloudflare ở giai đoạn này.
+4. Khi deploy thật (không phải `pnpm dev`), đặt token cho Gateway: tạo một chuỗi ngẫu nhiên dài, chạy `wrangler secret put GW_CONNECT_TOKEN` trong thư mục `BE`, rồi đặt đúng chuỗi đó vào `AZ_GW_TOKEN` (hoặc `cloudToken` trong `config.json`) trên mọi VPS. Thiếu token thì Worker trả 503 cho `/api/gw/ws`. Khi chạy dev bằng `pnpm dev` thì không cần (cờ `DEV_LINKS_API=1` cho qua).
 
 ## 7. Chuẩn bị MT5 (để thử EA ở Part 1.G)
 

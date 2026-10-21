@@ -64,6 +64,21 @@ type Terminal = {
   lastPushMs: number
   /** Lần gửi hàng đợi cuối `seq` -> đã gửi lên cloud kết nối hiện tại. */
   inflight: Set<number>
+  /** Mẫu và lãi/lỗ cuối đã đẩy lên cloud, và giờ đẩy (ms), để bỏ bản trùng hệt (có nhịp giữ sống). */
+  lastSent?: Sample
+  lastSentAtMs: number
+  lastPlJson?: string
+}
+
+/** Hai mẫu cùng giá trị (bỏ qua `t`): không có gì mới để cho người xem. */
+function sameValues(a: Sample, b: Sample | undefined): boolean {
+  return (
+    b !== undefined &&
+    a.eq === b.eq &&
+    a.bal === b.bal &&
+    a.fl === b.fl &&
+    (a.ml ?? null) === (b.ml ?? null)
+  )
 }
 
 export type TerminalStatus = {
@@ -100,6 +115,8 @@ export type GatewayOptions = {
   log?: Logger
   now?: () => number
   cloudConfigured?: boolean
+  /** Ghi đè `GW.idleFlushSec` (0 = gửi `event` ngay cả khi không ai xem). */
+  idleFlushSec?: number
 }
 
 /**
@@ -121,6 +138,8 @@ export class Gateway {
   private fast = new Set<string>()
   private pushSec: number = GW.defaultPushSec
   private lastGseq = 0
+  /** Lần cuối đẩy `state`/`event` đã giữ lại (ms). Khởi tạo = lúc khởi động: giữ ngay từ đầu. */
+  private lastDeferredMs: number
   private flushTimer: NodeJS.Timeout | null = null
   private sweepTimer: NodeJS.Timeout | null = null
 
@@ -129,6 +148,7 @@ export class Gateway {
     this.log = opts.log ?? silentLogger
     this.now = opts.now ?? Date.now
     this.startedMs = this.now()
+    this.lastDeferredMs = this.startedMs
   }
 
   // -------------------------------------------------------------------------
@@ -323,6 +343,9 @@ export class Gateway {
               t.buffer = []
               t.pl = undefined
               t.lastPushMs = 0
+              t.lastSent = undefined
+              t.lastSentAtMs = 0
+              t.lastPlJson = undefined
             }
           }
         }
@@ -336,6 +359,8 @@ export class Gateway {
         this.watch = next
         this.fast = nextFast
         this.pushSec = clampPushSec(msg.push_sec)
+        // Có người bắt đầu xem: đẩy ngay `event` đã giữ để lịch sử lệnh hiện đúng.
+        if (next.size > 0) this.flushDeferred()
         this.log.debug(
           `watch ${next.size} terminal (${nextFast.size} theo tick), push ${this.pushSec}s`,
         )
@@ -373,10 +398,27 @@ export class Gateway {
       if (t.buffer.length === 0 && !t.posDirty && !t.pl) continue
       const every = this.isFast(t) ? GW.fastPushMs : this.pushSec * 1000
       if (t.lastPushMs !== 0 && now - t.lastPushMs < every - PUSH_SLACK_MS) continue
+      // Không có gì mới (thị trường đóng, lãi/lỗ không đổi): chỉ giữ mẫu mới nhất và đẩy một mẫu
+      // giữ sống mỗi `keepAliveMs`, để người xem vẫn thấy Live mà cloud không phải nhận từng giây.
+      const plJson = !t.posDirty && t.pl ? JSON.stringify(t.pl) : undefined
+      const quiet =
+        !t.posDirty &&
+        (plJson === undefined || plJson === t.lastPlJson) &&
+        t.buffer.every((s) => sameValues(s, t.lastSent))
+      if (quiet && t.lastSentAtMs !== 0 && now - t.lastSentAtMs < GW.keepAliveMs) {
+        if (t.buffer.length > 1) t.buffer.splice(0, t.buffer.length - 1)
+        t.pl = undefined
+        continue
+      }
       t.lastPushMs = now
+      const samples = t.buffer.splice(0, t.buffer.length)
+      t.lastSent = samples.at(-1) ?? t.lastSent
+      t.lastSentAtMs = now
+      if (t.posDirty) t.lastPlJson = undefined
+      else if (plJson !== undefined) t.lastPlJson = plJson
       items.push({
         tid,
-        samples: t.buffer.splice(0, t.buffer.length),
+        samples,
         ...(t.posDirty && t.positions ? { positions: t.positions, pos_hash: t.posHash } : {}),
         ...(!t.posDirty && t.pl ? { pl: t.pl } : {}),
       })
@@ -389,6 +431,7 @@ export class Gateway {
   /** Terminal im quá `offlineAfterSec` thì offline: báo cloud một lần, ngừng giữ mẫu. */
   sweep(): void {
     const now = this.now()
+    if (this.send && this.watch.size === 0 && !this.holdDeferred()) this.flushDeferred()
     for (const t of this.terminals.values()) {
       if (t.online && now - t.lastSeenMs > GW.offlineAfterSec * 1000) {
         t.online = false
@@ -459,6 +502,7 @@ export class Gateway {
       posDirty: false,
       lastPushMs: 0,
       inflight: new Set(),
+      lastSentAtMs: 0,
     }
   }
 
@@ -535,8 +579,9 @@ export class Gateway {
   }
 
   /** Gửi các lô sự kiện chưa gửi của terminal (chỉ khi bind ok). */
-  private drainQueue(t: Terminal): void {
+  private drainQueue(t: Terminal, force = false): void {
     if (!this.send || t.bind !== 'ok') return
+    if (!force && this.holdDeferred()) return
     for (const item of this.queue.forTerminal(t.tid)) {
       if (t.inflight.has(item.seq)) continue
       const ok = this.send({
@@ -549,6 +594,25 @@ export class Gateway {
       })
       if (ok) t.inflight.add(item.seq)
     }
+  }
+
+  /**
+   * Không ai xem thì `event` (lệnh vào/ra) chờ ở Gateway. `bind` và `state` vẫn đi ngay: hub cần
+   * biết terminal để tính `watch`, và danh sách web lấy trạng thái online từ hub; `state` chỉ đổi
+   * vài chục lần mỗi ngày. Hết giữ khi: có người xem (watch khác rỗng), đủ `idleFlushSec`, hoặc
+   * hàng đợi đạt `idleFlushQueue`. Nhờ vậy cả ngày không ai đăng nhập chỉ còn vài lần đẩy gộp.
+   */
+  private holdDeferred(): boolean {
+    const idleSec = this.opts.idleFlushSec ?? GW.idleFlushSec
+    if (idleSec <= 0 || this.watch.size > 0) return false
+    if (this.queue.length >= GW.idleFlushQueue) return false
+    return this.now() - this.lastDeferredMs < idleSec * 1000
+  }
+
+  /** Đẩy mọi `event` đang giữ, rồi đặt lại mốc giữ. */
+  private flushDeferred(): void {
+    this.lastDeferredMs = this.now()
+    for (const t of this.terminals.values()) this.drainQueue(t, true)
   }
 
   private isWatched(t: Terminal): boolean {

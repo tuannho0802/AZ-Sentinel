@@ -86,12 +86,14 @@ export type GwTerm = {
   ea: string
 }
 
-/** Trạng thái lưu cùng mỗi WebSocket của Gateway (giới hạn 2 KB, xem MAX_GW_TERMS). */
+/**
+ * Trạng thái nhỏ lưu cùng mỗi WebSocket của Gateway (giới hạn 2 KB). Danh sách terminal KHÔNG nằm
+ * ở đây mà ở storage của hub, khóa `gw:<connId>` (xem `LiveHub.loadTerms`).
+ */
 export type GwAttachment = {
   connId: string
   openedAt: number
   lastBeatAt: number
   hello: boolean
   vps: string | null
-  terms: GwTerm[]
 }

@@ -5,5 +5,8 @@
  */
 export const GW_HEADER = 'X-AZ-Gw'
 
-/** Mỗi kết nối Gateway giữ tối đa chừng này terminal (giới hạn 2 KB của serializeAttachment). */
-export const MAX_GW_TERMS = 12
+/**
+ * Mỗi kết nối Gateway giữ tối đa chừng này terminal. Danh sách terminal nằm trong storage của hub
+ * (không còn nằm trong `serializeAttachment` 2 KB), nên giới hạn chỉ còn là chặn an toàn.
+ */
+export const MAX_GW_TERMS = 64

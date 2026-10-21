@@ -3,6 +3,8 @@
 > Bản v0.2 · 21/10/2026 · Thay thế phần "EA hỏi gate qua internet" của `AZ_Sentinel_Plan3B_Live_On_Demand.md`. Giữ nguyên phần viewer WebSocket, `LiveHub`, `useLiveLease` đã làm.
 > **Trạng thái v0.2:** patch 05 đến 07 và 09 đến 11 (một phần) đã có mã và test xanh: schema dùng chung, Gateway (Node/TypeScript), EA `AZ_Spike.mq5` v0.2.0, `fake-cloud`, `fake-ea`. **Còn thiếu:** (patch 08 BE và patch 09 FE đã có mã, chờ manual test) thử EA trên MT5 thật (G0, A-01 đến A-07), bộ cài (12), FE (13). Xem bảng mục 11.
 
+> **Cập nhật 21/10/2026:** tối ưu gói free của Cloudflare, bỏ giới hạn 12 terminal mỗi Gateway, thêm token mức kết nối và giữ `state`/`event` khi không ai xem: xem `AZ_Sentinel_Plan3D_Free_Tier.md`. Các chỗ bên dưới nhắc "chưa có xác thực mức VPS" hoặc ngân sách cũ đã được Plan 3D thay thế.
+
 ## 0. Vì sao đổi hướng
 
 Plan 3B để mỗi EA tự gọi `GET /gate` qua internet mỗi 120 giây để biết "có người xem không". Điều đó tốn 21.600 request Worker và 10.800 dòng ghi D1 mỗi ngày dù không ai mở web, và trễ tối đa 120 giây mới vào live.
@@ -115,7 +117,7 @@ Gateway mở `GET /api/gw/ws` và giữ vĩnh viễn, nối lại theo backoff 1
 | `ack` | `{tid, seq}` cho `event` |
 | `update` | `{min_ver, url, sha256}` khi bản Gateway quá cũ (mục 7) |
 
-Kết nối chưa `bind` hợp lệ trong 10 giây thì bị đóng; chưa có xác thực mức VPS ở MVP (Q3), nên mọi quyền đều đi qua khóa của từng liên kết.
+Kết nối chưa `hello` trong 10 giây thì bị đóng. Từ Plan 3D, Worker đòi `Authorization: Bearer <GW_CONNECT_TOKEN>` khi mở WebSocket và từ chối trước khi gọi hub; quyền dữ liệu vẫn đi qua khóa của từng liên kết trong `bind` (Q3 giữ nguyên cho phần liên kết).
 
 ## 5. Thay đổi ở BE
 
@@ -345,6 +347,8 @@ Thứ tự ưu tiên: biến môi trường ghi đè file `config.json` ghi đè
 |---|---|---|
 | `port` | `AZ_GW_PORT` | 47800 |
 | `cloudUrl` | `AZ_GW_CLOUD_URL` | rỗng = chỉ chạy cục bộ, không live |
+| `cloudToken` | `AZ_GW_TOKEN` | rỗng; bản deploy bắt buộc đặt cùng giá trị `GW_CONNECT_TOKEN` của Worker (Plan 3D) |
+| `idleFlushSec` | `AZ_GW_IDLE_FLUSH_SEC` | 1800; không ai xem thì `state`/`event` chờ chừng này giây mới đẩy gộp, 0 = gửi ngay (Plan 3D) |
 | `vps` | `AZ_GW_VPS` | tên máy |
 | `dataDir` | `AZ_GW_DATA` | `%ProgramData%\AZSentinel` (Windows), `~/.az-sentinel` (khác) |
 | `logLevel` | `AZ_GW_LOG` | `info` |

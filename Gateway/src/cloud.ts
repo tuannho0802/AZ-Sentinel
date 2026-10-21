@@ -4,6 +4,8 @@ import { type Logger, silentLogger } from './log'
 
 export type CloudOptions = {
   url: string
+  /** Bí mật chung gửi bằng `Authorization: Bearer`; rỗng = không gửi (chỉ dùng khi chạy dev). */
+  token?: string
   log?: Logger
   /** Chỉ để kiểm thử: nhân bản bộ ngẫu nhiên cho jitter. */
   random?: () => number
@@ -62,7 +64,16 @@ export class CloudClient {
     if (this.stopped) return
     let ws: WebSocket
     try {
-      ws = new WebSocket(this.opts.url)
+      // WebSocket toàn cục của Node (undici) nhận `headers` trong tham số thứ hai.
+      const init = this.opts.token
+        ? { headers: { Authorization: `Bearer ${this.opts.token}` } }
+        : undefined
+      ws = init
+        ? new (WebSocket as unknown as new (url: string, init: object) => WebSocket)(
+            this.opts.url,
+            init,
+          )
+        : new WebSocket(this.opts.url)
     } catch (e) {
       this.log.error(`URL cloud không hợp lệ: ${e instanceof Error ? e.message : String(e)}`)
       return

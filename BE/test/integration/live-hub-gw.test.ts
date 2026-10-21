@@ -1,3 +1,4 @@
+import { runInDurableObject } from 'cloudflare:test'
 import { env } from 'cloudflare:workers'
 import {
   GW,
@@ -7,7 +8,7 @@ import {
   terminalId,
 } from '@az-sentinel/shared'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { GW_HEADER } from '../../src/live/gw-header'
+import { GW_HEADER, MAX_GW_TERMS } from '../../src/live/gw-header'
 import { encodeViewer, VIEWER_HEADER } from '../../src/live/viewer-header'
 import type { Bindings } from '../../src/types'
 import { LOGIN, resetDb, SERVER, seedLink, setOwner } from '../helpers'
@@ -274,5 +275,113 @@ describe('batch: phát theo tick, pl', () => {
     const snap = late.msgs.find((m) => m.t === 'snapshot')
     const positions = snap?.t === 'snapshot' ? snap.links[0]?.positions : undefined
     expect(positions?.[0]?.profit).toBe(5.5)
+  })
+})
+
+describe('nhiều terminal trên một Gateway (Plan 3D: terminal nằm trong storage, không còn 2 KB)', () => {
+  /** Seed thêm `n` liên kết có chủ và trả danh sách (tid, key). */
+  async function seedMany(n: number) {
+    const out: { tid: string; key: string; login: number }[] = []
+    for (let i = 0; i < n; i++) {
+      const login = 7_000_000 + i
+      const seeded = await seedLink({ login })
+      await setOwner(seeded.id, OWNER)
+      out.push({ tid: terminalId(login, SERVER), key: seeded.key, login })
+    }
+    return out
+  }
+
+  it('bind 30 terminal trên một kết nối đều thành công (trước đây chỉ 12)', async () => {
+    const hub = hubFor()
+    const g = await connectGateway(hub)
+    g.ws.send(JSON.stringify({ t: 'hello', v: 1, gw_ver: '0.1.0' }))
+    const terms = await seedMany(30)
+    for (const t of terms) {
+      g.ws.send(
+        JSON.stringify({
+          t: 'bind',
+          tid: t.tid,
+          key: t.key,
+          login: t.login,
+          server: SERVER,
+          mode: 'demo',
+        }),
+      )
+    }
+    await until(() => g.msgs.filter((m) => m.t === 'bound').length === 30, 5000)
+    expect(g.msgs.filter((m) => m.t === 'reject')).toHaveLength(0)
+  })
+
+  it('xem danh sách: watch chứa đủ 30 terminal', async () => {
+    const hub = hubFor()
+    const g = await connectGateway(hub)
+    g.ws.send(JSON.stringify({ t: 'hello', v: 1, gw_ver: '0.1.0' }))
+    const terms = await seedMany(30)
+    for (const t of terms) {
+      g.ws.send(
+        JSON.stringify({
+          t: 'bind',
+          tid: t.tid,
+          key: t.key,
+          login: t.login,
+          server: SERVER,
+          mode: 'demo',
+        }),
+      )
+    }
+    await until(() => g.msgs.filter((m) => m.t === 'bound').length === 30, 5000)
+    await connectViewer(hub, { kind: 'links' })
+    await until(() => (lastWatch(g)?.tids.length ?? 0) === 30)
+  })
+
+  it('vượt MAX_GW_TERMS thì terminal vượt bị từ chối 429', async () => {
+    const hub = hubFor()
+    const g = await connectGateway(hub)
+    g.ws.send(JSON.stringify({ t: 'hello', v: 1, gw_ver: '0.1.0' }))
+    const terms = await seedMany(MAX_GW_TERMS + 1)
+    for (const t of terms) {
+      g.ws.send(
+        JSON.stringify({
+          t: 'bind',
+          tid: t.tid,
+          key: t.key,
+          login: t.login,
+          server: SERVER,
+          mode: 'demo',
+        }),
+      )
+    }
+    await until(
+      () => g.msgs.filter((m) => m.t === 'bound' || m.t === 'reject').length >= terms.length,
+      8000,
+    )
+    expect(g.msgs.filter((m) => m.t === 'bound')).toHaveLength(MAX_GW_TERMS)
+    expect(g.msgs.filter((m) => m.t === 'reject' && m.code === 429)).toHaveLength(1)
+  })
+})
+
+describe('ngủ đông: danh sách terminal sống sót qua storage', () => {
+  it('xóa bản nhớ (giống hub vừa thức dậy) mà batch và watch vẫn đúng', async () => {
+    const hub = hubFor()
+    const g = await boundGateway(hub, key)
+    const v = await connectViewer(hub, { kind: 'link', linkId })
+    await until(() => v.msgs.some((m) => m.t === 'snapshot'))
+
+    await runInDurableObject(hub, (instance) => {
+      ;(instance as unknown as { gwTerms: Map<string, unknown> }).gwTerms.clear()
+    })
+
+    g.ws.send(batch({ samples: [sample(10_001)] }))
+    await until(() => v.msgs.some((m) => m.t === 'samples'))
+  })
+
+  it('Gateway đóng: khóa terminal trong storage bị xóa', async () => {
+    const hub = hubFor()
+    const g = await boundGateway(hub, key)
+    const keysOf = () =>
+      runInDurableObject(hub, (_i, state) => [...state.storage.kv.list({ prefix: 'gw:' })].length)
+    expect(await keysOf()).toBe(1)
+    g.ws.close(1000)
+    await untilAsync(async () => (await keysOf()) === 0)
   })
 })

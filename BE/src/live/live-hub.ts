@@ -42,8 +42,10 @@ import { decodeViewer, VIEWER_HEADER } from './viewer-header'
 
 const WS_OPEN = 1
 const MAX_CLIENT_MESSAGE_CHARS = 512
-/** `batch` của một VPS: tối đa 12 terminal x 20 mẫu và vị thế; chừa dư cho `event`. */
-const MAX_GW_MESSAGE_CHARS = 512 * 1024
+/** `batch` của một VPS: tối đa 64 terminal x 20 mẫu và vị thế; chừa dư cho `event`. */
+const MAX_GW_MESSAGE_CHARS = 2 * 1024 * 1024
+/** Khóa storage của danh sách terminal theo từng kết nối Gateway. */
+const GW_TERMS_PREFIX = 'gw:'
 /** Gateway im quá chừng này (kể cả ping giao thức) thì coi là chết. */
 const GW_DEAD_AFTER_MS = GW.wsPingSec * 2.5 * 1000
 /** `link_state` ghi điều tiết khi có người xem (Plan 3C mục 5). */
@@ -92,7 +94,7 @@ const NO_DECISION: PublishResult = {
  * - Không dùng `setInterval`, alarm hay fetch treo: chúng chặn ngủ đông và tốn thời gian chạy.
  * - Viewer chết (cắt mạng đột ngột không có `close`) chỉ phát hiện bằng `hb`, dọn lười khi có
  *   gate hoặc ingest (`aliveConns`).
- * - Hub không đọc D1 và không ghi storage: không tốn dòng ghi.
+ * - Hub không đọc D1. Storage chỉ giữ danh sách terminal của từng Gateway (`gw:<connId>`), ghi khi\n *   `bind` hoặc khi terminal đổi online/offline: vài dòng mỗi ngày, không ghi theo tick.
  * - Mọi mốc thời gian đi vào qua tham số `nowMs` do Worker truyền để test xác định được.
  */
 export class LiveHub extends DurableObject<Bindings> {
@@ -100,11 +102,14 @@ export class LiveHub extends DurableObject<Bindings> {
   private rpcCalls = 0
   /** Tập `watch` đã gửi cho mỗi Gateway (chỉ để khỏi gửi trùng; mất khi ngủ đông thì gửi lại). */
   private lastWatch = new Map<string, string>()
+  /** Bản nhớ của danh sách terminal theo connId; nạp lười từ storage sau khi hub ngủ đông. */
+  private gwTerms = new Map<string, GwTerm[]>()
 
   constructor(ctx: DurableObjectState, env: Bindings) {
     super(ctx, env)
     // Gateway giữ nhịp bằng "ping" văn bản; hub đáp "pong" mà không bị đánh thức khỏi ngủ đông.
     ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair('ping', 'pong'))
+    this.purgeOrphanTerms()
   }
 
   // ---------------------------------------------------------------- WebSocket (trình duyệt)
@@ -156,7 +161,6 @@ export class LiveHub extends DurableObject<Bindings> {
       lastBeatAt: now,
       hello: false,
       vps: null,
-      terms: [],
     }
     server.serializeAttachment(att)
     // setTimeout giữ hub thức tối đa 10 giây mỗi lần Gateway nối: chấp nhận được.
@@ -228,7 +232,9 @@ export class LiveHub extends DurableObject<Bindings> {
       const att = this.readGw(ws)
       if (att) {
         this.lastWatch.delete(att.connId)
-        await this.markOffline(att)
+        const terms = this.loadTerms(att.connId)
+        this.dropTerms(att.connId)
+        await this.markOffline(terms)
       }
       return
     }
@@ -369,7 +375,7 @@ export class LiveHub extends DurableObject<Bindings> {
     for (const ws of this.ctx.getWebSockets(GW_TAG)) {
       const att = this.readGw(ws)
       if (!att || ws.readyState !== WS_OPEN || !this.gwAlive(ws, att, nowMs)) continue
-      for (const t of att.terms) if (t.online) ids.add(t.linkId)
+      for (const t of this.loadTerms(att.connId)) if (t.online) ids.add(t.linkId)
     }
     return [...ids]
   }
@@ -381,15 +387,19 @@ export class LiveHub extends DurableObject<Bindings> {
     for (const ws of this.ctx.getWebSockets(GW_TAG)) {
       const att = this.readGw(ws)
       if (!att) continue
-      const gone = att.terms.filter((t) => t.linkId === linkId)
+      const terms = this.loadTerms(att.connId)
+      const gone = terms.filter((t) => t.linkId === linkId)
       if (gone.length === 0) continue
-      ws.serializeAttachment({ ...att, terms: att.terms.filter((t) => t.linkId !== linkId) })
+      this.saveTerms(
+        att.connId,
+        terms.filter((t) => t.linkId !== linkId),
+      )
       for (const t of gone) {
         this.sendGw(ws, { t: 'reject', tid: t.tid, code: 403 })
         n += 1
       }
       const offline = gone.filter((t) => t.online)
-      if (offline.length > 0) await this.markOffline({ ...att, terms: offline })
+      if (offline.length > 0) await this.markOffline(offline)
     }
     this.syncWatch(Date.now())
     return n
@@ -502,6 +512,38 @@ export class LiveHub extends DurableObject<Bindings> {
     return nowMs - Math.max(att.lastBeatAt, auto) <= GW_DEAD_AFTER_MS
   }
 
+  /** Danh sách terminal của một kết nối Gateway: bộ nhớ trước, rồi storage (sau ngủ đông). */
+  private loadTerms(connId: string): GwTerm[] {
+    let terms = this.gwTerms.get(connId)
+    if (!terms) {
+      terms = this.ctx.storage.kv.get<GwTerm[]>(GW_TERMS_PREFIX + connId) ?? []
+      this.gwTerms.set(connId, terms)
+    }
+    return terms
+  }
+
+  private saveTerms(connId: string, terms: GwTerm[]): void {
+    this.gwTerms.set(connId, terms)
+    this.ctx.storage.kv.put(GW_TERMS_PREFIX + connId, terms)
+  }
+
+  private dropTerms(connId: string): void {
+    this.gwTerms.delete(connId)
+    this.ctx.storage.kv.delete(GW_TERMS_PREFIX + connId)
+  }
+
+  /** Dọn khóa của kết nối Gateway không còn (hub bị khởi động lại làm các kết nối đóng). */
+  private purgeOrphanTerms(): void {
+    const live = new Set<string>()
+    for (const ws of this.ctx.getWebSockets(GW_TAG)) {
+      const att = this.readGw(ws)
+      if (att) live.add(att.connId)
+    }
+    for (const [key] of this.ctx.storage.kv.list({ prefix: GW_TERMS_PREFIX })) {
+      if (!live.has(key.slice(GW_TERMS_PREFIX.length))) this.ctx.storage.kv.delete(key)
+    }
+  }
+
   private sendGw(ws: WebSocket, msg: GwServerMessage): void {
     try {
       ws.send(JSON.stringify(msg))
@@ -532,7 +574,9 @@ export class LiveHub extends DurableObject<Bindings> {
     for (const ws of this.ctx.getWebSockets(GW_TAG)) {
       const att = this.readGw(ws)
       if (!att || ws.readyState !== WS_OPEN) continue
-      const watched = att.terms.filter((t) => viewers.some((v) => scopeMatches(v.att.scope, t)))
+      const watched = this.loadTerms(att.connId).filter((t) =>
+        viewers.some((v) => scopeMatches(v.att.scope, t)),
+      )
       const tids = watched.map((t) => t.tid).sort()
       // Xem riêng một liên kết (`/links/:id`): theo tick. Chỉ nằm trong danh sách: nhịp thường.
       const fast = watched
@@ -617,15 +661,12 @@ export class LiveHub extends DurableObject<Bindings> {
       online: false,
       ea: (msg.ea_ver ?? '').slice(0, MAX_EA_VER),
     }
-    const next: GwAttachment = {
-      ...att,
-      terms: [...att.terms.filter((t) => t.tid !== msg.tid), term],
-    }
-    if (next.terms.length > MAX_GW_TERMS || JSON.stringify(next).length > 1900) {
+    const next = [...this.loadTerms(att.connId).filter((t) => t.tid !== msg.tid), term]
+    if (next.length > MAX_GW_TERMS) {
       this.sendGw(ws, { t: 'reject', tid: msg.tid, code: 429 })
       return
     }
-    ws.serializeAttachment(next)
+    this.saveTerms(att.connId, next)
     this.sendGw(ws, { t: 'bound', tid: msg.tid, link_id: res.linkId })
     this.syncWatch(nowMs, ws)
   }
@@ -636,18 +677,17 @@ export class LiveHub extends DurableObject<Bindings> {
     nowMs: number,
   ): Promise<void> {
     const att = this.readGw(ws)
-    const before = att?.terms.find((t) => t.tid === msg.tid)
+    const terms = att ? this.loadTerms(att.connId) : []
+    const before = terms.find((t) => t.tid === msg.tid)
     if (!att || !before) return
     const eaVer = msg.ea_ver === undefined ? before.ea : msg.ea_ver.slice(0, MAX_EA_VER)
     // Trạng thái không đổi và EA vẫn cùng phiên bản: bỏ qua. EA đổi phiên bản thì vẫn ghi lại.
     if (before.online === msg.online && eaVer === before.ea) return
     // Cập nhật bộ nhớ trước khi chờ D1 để `state` lặp lại không ghi hai lần.
-    ws.serializeAttachment({
-      ...att,
-      terms: att.terms.map((t) =>
-        t.tid === msg.tid ? { ...t, online: msg.online, ea: eaVer } : t,
-      ),
-    })
+    this.saveTerms(
+      att.connId,
+      terms.map((t) => (t.tid === msg.tid ? { ...t, online: msg.online, ea: eaVer } : t)),
+    )
     const stmts = presenceStatements(
       this.env.DB,
       before.linkId,
@@ -666,12 +706,13 @@ export class LiveHub extends DurableObject<Bindings> {
   ): Promise<void> {
     const att = this.readGw(ws)
     if (!att) return
+    const terms = this.loadTerms(att.connId)
     const nowSec = Math.floor(nowMs / 1000)
     const viewers = this.aliveConns(nowMs)
     const stmts: D1PreparedStatement[] = []
     let stale = false
     for (const item of msg.items) {
-      const term = att.terms.find((t) => t.tid === item.tid)
+      const term = terms.find((t) => t.tid === item.tid)
       if (!term) continue
       const matched = viewers.filter((v) => scopeMatches(v.att.scope, term))
       if (matched.length === 0) {
@@ -723,7 +764,7 @@ export class LiveHub extends DurableObject<Bindings> {
     nowMs: number,
   ): Promise<void> {
     const att = this.readGw(ws)
-    const term = att?.terms.find((t) => t.tid === msg.tid)
+    const term = att ? this.loadTerms(att.connId).find((t) => t.tid === msg.tid) : undefined
     if (!att || !term) return
     const stmts = eventStatements(this.env.DB, term.linkId, msg, Math.floor(nowMs / 1000), {
       eaVer: term.ea,
@@ -737,10 +778,10 @@ export class LiveHub extends DurableObject<Bindings> {
   }
 
   /** Gateway rời: terminal đang online thành offline (ghi theo chuyển trạng thái). */
-  private async markOffline(att: GwAttachment): Promise<void> {
+  private async markOffline(terms: GwTerm[]): Promise<void> {
     const nowSec = Math.floor(Date.now() / 1000)
     const stmts: D1PreparedStatement[] = []
-    for (const t of att.terms) {
+    for (const t of terms) {
       if (t.online) {
         stmts.push(...presenceStatements(this.env.DB, t.linkId, false, undefined, nowSec, {}))
       }

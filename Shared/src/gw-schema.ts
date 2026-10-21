@@ -39,6 +39,17 @@ export const GW = {
   defaultPushSec: 1,
   minPushSec: 1,
   maxPushSec: 5,
+  /**
+   * Mẫu y hệt lần đẩy trước (thị trường đóng, không tick) thì không đẩy lại, trừ một mẫu giữ sống
+   * mỗi chừng này ms. Phải nhỏ hơn `LIVE.staleSec` (10 giây) để FE không hạ cờ Live nhầm.
+   */
+  keepAliveMs: 5000,
+  /**
+   * Không ai xem thì `event` (lệnh vào/ra) được giữ ở Gateway, chỉ đẩy lên cloud mỗi chừng này giây,
+   * khi hàng đợi đạt `idleFlushQueue` lô, hoặc ngay khi có người bắt đầu xem. 0 = không giữ.
+   */
+  idleFlushSec: 1800,
+  idleFlushQueue: 100,
   /** Terminal im quá chừng này giây thì Gateway coi là offline. */
   offlineAfterSec: 20,
   /** Cloud đóng kết nối nếu chưa `bind` hợp lệ trong chừng này giây. */

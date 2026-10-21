@@ -10,7 +10,13 @@ async function main() {
   const cfg = loadConfig()
   const log = createLogger(cfg.logLevel)
   const queue = new EventQueue(path.join(cfg.dataDir, 'queue.json'))
-  const gw = new Gateway({ vps: cfg.vps, queue, log, cloudConfigured: cfg.cloudUrl !== '' })
+  const gw = new Gateway({
+    vps: cfg.vps,
+    queue,
+    log,
+    cloudConfigured: cfg.cloudUrl !== '',
+    idleFlushSec: cfg.idleFlushSec,
+  })
   const local = new LocalServer(gw, cfg.port, log)
 
   await local.start()
@@ -18,7 +24,7 @@ async function main() {
 
   let cloud: CloudClient | null = null
   if (cfg.cloudUrl) {
-    cloud = new CloudClient(gw, { url: cfg.cloudUrl, log })
+    cloud = new CloudClient(gw, { url: cfg.cloudUrl, token: cfg.cloudToken, log })
     cloud.start()
   } else {
     log.warn('chưa cấu hình cloudUrl: chỉ chạy cục bộ, không có live')

@@ -11,7 +11,7 @@ let clock = 1_000_000
 const now = () => clock
 
 function make(queue?: EventQueue) {
-  const gw = new Gateway({ now, queue })
+  const gw = new Gateway({ now, queue, idleFlushSec: 0 })
   const cloud = fakeCloud()
   return { gw, cloud }
 }
@@ -326,7 +326,14 @@ describe('theo tick cho terminal xem riêng (trang /links/:id)', () => {
     return { gw, cloud }
   }
   const send = (gw: Gateway, seq: number, over: Parameters<typeof samplesReq>[0] = {}) =>
-    gw.handleSamples(samplesReq({ seq, samples: [sample(1_760_000_000 + seq)], ...over }))
+    gw.handleSamples(
+      samplesReq({
+        seq,
+        // Giá trị đổi theo seq: mẫu trùng hệt bị Gateway bỏ (xem nhóm "mẫu trùng").
+        samples: [{ ...sample(1_760_000_000 + seq), eq: 1000 + seq }],
+        ...over,
+      }),
+    )
 
   it('interval_ms theo terminal: xem riêng 250 ms, chỉ trong danh sách 1000 ms', () => {
     const { gw } = ready({ tids: [TID], fast: [TID] })
@@ -449,5 +456,145 @@ describe('phiên bản EA lên cloud', () => {
     const states = cloud.of('state')
     expect(states).toHaveLength(2)
     expect(states[1]).toMatchObject({ online: true, ea_ver: '0.3.0' })
+  })
+})
+
+describe('Plan 3D: không ai xem thì event được giữ lại', () => {
+  const TID = '111@Demo-1'
+  const IDLE = 1800
+
+  /** Gateway dùng nhịp giữ mặc định (idleFlushSec > 0), cloud đã nối và terminal đã bind. */
+  function idleGateway() {
+    const gw = new Gateway({ now, idleFlushSec: IDLE })
+    const cloud = fakeCloud()
+    gw.onCloudOpen(cloud.send)
+    gw.handlePing(ping())
+    gw.onCloudMessage(bound(TID))
+    return { gw, cloud }
+  }
+
+  it('bind và state đi ngay; event chờ', () => {
+    const { gw, cloud } = idleGateway()
+    gw.handleEvent(eventReq({ seq: 1 }))
+    gw.sweep()
+    expect(cloud.of('bind')).toHaveLength(1)
+    expect(cloud.of('state')).toHaveLength(1)
+    expect(cloud.of('event')).toHaveLength(0)
+  })
+
+  it('đổi online/offline vẫn báo ngay dù không ai xem (danh sách web cần)', () => {
+    const { gw, cloud } = idleGateway()
+    clock += (GW.offlineAfterSec + 1) * 1000
+    gw.sweep()
+    expect(cloud.of('state').map((m) => m.online)).toEqual([true, false])
+  })
+
+  it('có người bắt đầu xem: event đã giữ đi ngay', () => {
+    const { gw, cloud } = idleGateway()
+    gw.handleEvent(eventReq({ seq: 1 }))
+    gw.onCloudMessage({ t: 'watch', tids: [TID], push_sec: 1 })
+    expect(cloud.of('event')).toHaveLength(1)
+  })
+
+  it('đủ idleFlushSec thì đẩy gộp một lần rồi lại giữ', () => {
+    const { gw, cloud } = idleGateway()
+    gw.handleEvent(eventReq({ seq: 1 }))
+    clock += IDLE * 1000 - 1000
+    gw.sweep()
+    expect(cloud.of('event')).toHaveLength(0)
+    clock += 1000
+    gw.sweep()
+    expect(cloud.of('event')).toHaveLength(1)
+    gw.handleEvent(eventReq({ seq: 2 }))
+    clock += 5000
+    gw.sweep()
+    expect(cloud.of('event')).toHaveLength(1)
+  })
+
+  it('hàng đợi đạt ngưỡng thì đẩy sớm, không chờ hết idleFlushSec', () => {
+    const { gw, cloud } = idleGateway()
+    for (let seq = 1; seq <= GW.idleFlushQueue; seq++) gw.handleEvent(eventReq({ seq }))
+    expect(cloud.of('event').length).toBeGreaterThan(0)
+  })
+
+  it('idleFlushSec = 0: gửi ngay như trước', () => {
+    const gw = new Gateway({ now, idleFlushSec: 0 })
+    const cloud = fakeCloud()
+    gw.onCloudOpen(cloud.send)
+    gw.handlePing(ping())
+    gw.onCloudMessage(bound(TID))
+    gw.handleEvent(eventReq({ seq: 1 }))
+    expect(cloud.of('event')).toHaveLength(1)
+  })
+})
+
+describe('Plan 3D: mẫu trùng không đẩy lại, có nhịp giữ sống', () => {
+  const TID = '111@Demo-1'
+
+  function ready(fast = false) {
+    const { gw, cloud } = make()
+    gw.onCloudOpen(cloud.send)
+    gw.handlePing(ping())
+    gw.onCloudMessage(bound(TID))
+    gw.onCloudMessage({ t: 'watch', tids: [TID], ...(fast ? { fast: [TID] } : {}), push_sec: 1 })
+    return { gw, cloud }
+  }
+  let seq = 0
+  const feed = (gw: Gateway, eq = 1010.5) =>
+    gw.handleSamples(samplesReq({ seq: ++seq, samples: [{ ...sample(1_760_000_000 + seq), eq }] }))
+
+  beforeEach(() => {
+    seq = 0
+  })
+
+  it('giá trị không đổi: chỉ mẫu đầu và mẫu giữ sống mỗi keepAliveMs', () => {
+    const { gw, cloud } = ready()
+    for (let i = 0; i < 20; i++) {
+      feed(gw)
+      gw.flush()
+      clock += 1000
+    }
+    // 20 giây: mẫu đầu + giữ sống ở giây 5, 10, 15 (không phải 20 batch).
+    expect(cloud.of('batch')).toHaveLength(4)
+  })
+
+  it('giá trị đổi thì đi ngay ở nhịp kế tiếp', () => {
+    const { gw, cloud } = ready()
+    feed(gw)
+    gw.flush()
+    clock += 1000
+    feed(gw)
+    gw.flush()
+    expect(cloud.of('batch')).toHaveLength(1)
+    clock += 1000
+    feed(gw, 1011)
+    gw.flush()
+    expect(cloud.of('batch')).toHaveLength(2)
+  })
+
+  it('xem riêng: lãi/lỗ không đổi cũng không đẩy lại', () => {
+    const { gw, cloud } = ready(true)
+    const pl = { '77': 1.5 }
+    for (let i = 0; i < 6; i++) {
+      gw.handleSamples(samplesReq({ seq: ++seq, samples: [sample(1_760_000_000 + seq)], pl }))
+      gw.flush()
+      clock += GW.fastPushMs
+    }
+    expect(cloud.of('batch')).toHaveLength(1)
+    gw.handleSamples(samplesReq({ seq: ++seq, samples: [sample(1_760_000_100)], pl: { '77': 2 } }))
+    gw.flush()
+    expect(cloud.of('batch')).toHaveLength(2)
+  })
+
+  it('người xem mới (watch đổi): mẫu đầu đi ngay dù trùng', () => {
+    const { gw, cloud } = ready()
+    feed(gw)
+    gw.flush()
+    gw.onCloudMessage({ t: 'watch', tids: [], push_sec: 1 })
+    gw.onCloudMessage({ t: 'watch', tids: [TID], push_sec: 1 })
+    clock += 1000
+    feed(gw)
+    gw.flush()
+    expect(cloud.of('batch')).toHaveLength(2)
   })
 })

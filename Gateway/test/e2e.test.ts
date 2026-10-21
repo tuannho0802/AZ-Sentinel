@@ -14,8 +14,10 @@ async function startCloud() {
   await new Promise((r) => wss.once('listening', r))
   const received: GwClientMessage[] = []
   const pings: string[] = []
+  const auths: (string | null)[] = []
   const sockets = new Set<WsSocket>()
-  wss.on('connection', (s) => {
+  wss.on('connection', (s, req) => {
+    auths.push(req.headers.authorization ?? null)
     sockets.add(s)
     s.on('close', () => sockets.delete(s))
     s.on('message', (d) => {
@@ -32,6 +34,7 @@ async function startCloud() {
     url: `ws://127.0.0.1:${(wss.address() as AddressInfo).port}/api/gw/ws`,
     received,
     pings,
+    auths,
     push: (m: GwServerMessage) => {
       for (const s of sockets) s.send(JSON.stringify(m))
     },
@@ -66,7 +69,7 @@ let base: string
 
 beforeEach(async () => {
   cloud = await startCloud()
-  gw = new Gateway({ cloudConfigured: true })
+  gw = new Gateway({ cloudConfigured: true, idleFlushSec: 0 })
   gw.start()
   local = new LocalServer(gw, 0)
   await local.start()
@@ -298,5 +301,21 @@ describe('E-21 không viewer', () => {
     await new Promise((r) => setTimeout(r, 1500))
     expect(cloud.of('batch')).toHaveLength(0)
     expect(cloud.of('event')).toHaveLength(0)
+  })
+})
+
+describe('token nối cloud (Plan 3D)', () => {
+  it('có token: gửi Authorization Bearer khi mở WebSocket', async () => {
+    client.stop()
+    client = new CloudClient(gw, { url: cloud.url, token: 'bi-mat-chung', random: () => 0 })
+    client.start()
+    await until(() => cloud.connections() === 1)
+    expect(cloud.auths).toEqual(['Bearer bi-mat-chung'])
+  })
+
+  it('không token: không gửi header Authorization', async () => {
+    client.start()
+    await until(() => cloud.connections() === 1)
+    expect(cloud.auths).toEqual([null])
   })
 })
