@@ -1,0 +1,81 @@
+name: Deploy
+
+# Chỉ deploy khi COMMIT MỚI NHẤT của lần push lên main có chứa [deploy] trong message:
+#   git commit -m "update: add new feat [deploy]"
+# Không có [deploy] thì workflow bị bỏ qua (job "skipped"). Chạy tay (workflow_dispatch) luôn deploy.
+#
+# Thứ tự: kiểm tra (lint, typecheck, test) -> migration D1 remote -> deploy API -> deploy Web.
+# Kiểm tra hỏng thì dừng, không deploy gì cả.
+#
+# Cần 3 secret trong Settings > Secrets and variables > Actions:
+#   CLOUDFLARE_API_TOKEN   token có quyền Workers Scripts:Edit và D1:Edit
+#   CLOUDFLARE_ACCOUNT_ID  ID tài khoản Cloudflare
+#   D1_DATABASE_ID         database_id thật của D1 "az-sentinel-db" (trong repo chỉ có ID giả)
+# Lưu ý: GITHUB_TOKEN mặc định chỉ đọc code, nên workflow này không thể tự ghi vào repo.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Hai lần deploy không chạy chồng nhau (migration + deploy xen kẽ rất dễ lỗi); lần sau xếp hàng chờ.
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[deploy]')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      D1_DATABASE_ID: ${{ secrets.D1_DATABASE_ID }}
+    steps:
+      - name: Kiểm tra đủ secret
+        run: |
+          missing=0
+          for v in CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID D1_DATABASE_ID; do
+            if [ -z "${!v}" ]; then echo "::error::Thieu secret $v (Settings > Secrets and variables > Actions)"; missing=1; fi
+          done
+          if ! [[ "$D1_DATABASE_ID" =~ ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$ ]]; then
+            echo "::error::D1_DATABASE_ID khong phai UUID"; missing=1
+          fi
+          exit $missing
+
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: latest
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Lint, typecheck, test
+        run: pnpm check
+
+      # wrangler.jsonc trong repo giữ database_id giả (không commit ID thật). Thay ngay trên bản checkout
+      # của runner; thay không được (đã bị sửa hoặc đổi chuỗi giả) thì dừng chứ không deploy nhầm.
+      - name: Điền database_id thật vào wrangler.jsonc
+        run: |
+          fake='00000000-0000-0000-0000-000000000000'
+          grep -q "$fake" BE/wrangler.jsonc || { echo "::error::Khong thay database_id gia trong BE/wrangler.jsonc"; exit 1; }
+          sed -i "s/$fake/$D1_DATABASE_ID/" BE/wrangler.jsonc
+          if grep -q "$fake" BE/wrangler.jsonc; then echo "::error::Van con database_id gia"; exit 1; fi
+
+      - name: Migration D1 (remote)
+        run: pnpm db:migrate:remote
+
+      - name: Deploy API (Worker)
+        run: pnpm deploy:api
+
+      - name: Deploy Web (static assets)
+        run: pnpm deploy:web

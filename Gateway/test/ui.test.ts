@@ -2,7 +2,13 @@ import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { configFilePath, loadConfig, saveEditableConfig } from '../src/config'
+import {
+  configFilePath,
+  loadConfig,
+  OFF_FLAG_NAME,
+  saveEditableConfig,
+  writeOffFlag,
+} from '../src/config'
 import { Gateway } from '../src/gateway'
 import { LocalServer, type UiHooks } from '../src/local-server'
 import { createFileSink } from '../src/log'
@@ -61,6 +67,20 @@ describe('saveEditableConfig', () => {
   })
 })
 
+describe('writeOffFlag', () => {
+  it('tạo file cờ (cả khi thư mục dữ liệu chưa có) và có thể ghi lại nhiều lần', () => {
+    const dir = path.join(mkdtempSync(path.join(os.tmpdir(), 'azgw-off-')), 'sub', 'AZSentinel')
+    const file = writeOffFlag(dir)
+    expect(file).toBe(path.join(dir, OFF_FLAG_NAME))
+    expect(readFileSync(file, 'utf8')).toMatch(/^\d{4}-\d{2}-\d{2}T/)
+    expect(() => writeOffFlag(dir)).not.toThrow()
+  })
+
+  it('tên cờ khớp với run-gateway.cmd, start-gateway.ps1, install-task.ps1', () => {
+    expect(OFF_FLAG_NAME).toBe('disabled.flag')
+  })
+})
+
 describe('createFileSink', () => {
   it('xoay vòng khi vượt maxBytes và giữ tối đa số tệp', () => {
     const dir = mkdtempSync(path.join(os.tmpdir(), 'azgw-log-'))
@@ -76,9 +96,18 @@ describe('API giao diện /v1/ui/*', () => {
   let local: LocalServer
   let saved: unknown = null
   let restarted = false
+  let shutDown = false
+  let failShutdown = false
   let base = ''
   const hooks: UiHooks = {
-    getConfig: () => ({ vps: 'VPS-T', cloudUrl: '', idleFlushSec: 5, tokenSet: true, port: 1 }),
+    getConfig: () => ({
+      vps: 'VPS-T',
+      cloudUrl: '',
+      idleFlushSec: 5,
+      tokenSet: true,
+      port: 1,
+      supervised: true,
+    }),
     saveConfig: (c) => {
       saved = c
     },
@@ -87,11 +116,17 @@ describe('API giao diện /v1/ui/*', () => {
     restart: () => {
       restarted = true
     },
+    shutdown: () => {
+      if (failShutdown) throw new Error('ro')
+      shutDown = true
+    },
   }
 
   beforeEach(async () => {
     saved = null
     restarted = false
+    shutDown = false
+    failShutdown = false
     const gw = new Gateway({ queue: new EventQueue(null) })
     local = new LocalServer(gw, 0, undefined, hooks)
     await local.start()
@@ -138,6 +173,27 @@ describe('API giao diện /v1/ui/*', () => {
     expect((await post('/v1/ui/restart', {}, { 'x-az-ui': '1' })).status).toBe(200)
     await new Promise((r) => setTimeout(r, 450))
     expect(restarted).toBe(true)
+  })
+
+  it('shutdown đòi header x-az-ui và Origin hợp lệ', async () => {
+    expect((await post('/v1/ui/shutdown', {})).status).toBe(403)
+    const evil = await post('/v1/ui/shutdown', {}, { 'x-az-ui': '1', origin: 'https://evil.test' })
+    expect(evil.status).toBe(403)
+    expect(shutDown).toBe(false)
+  })
+
+  it('shutdown hợp lệ gọi hook; hook lỗi thì trả 500 (không báo đã tắt)', async () => {
+    expect((await post('/v1/ui/shutdown', {}, { 'x-az-ui': '1' })).status).toBe(200)
+    expect(shutDown).toBe(true)
+    shutDown = false
+    failShutdown = true
+    expect((await post('/v1/ui/shutdown', {}, { 'x-az-ui': '1' })).status).toBe(500)
+    expect(shutDown).toBe(false)
+  })
+
+  it('GET shutdown không phải route hợp lệ (chỉ POST)', async () => {
+    expect((await fetch(`${base}/v1/ui/shutdown`)).status).toBe(404)
+    expect(shutDown).toBe(false)
   })
 
   it('log và update', async () => {

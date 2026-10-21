@@ -17,5 +17,13 @@ $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoi
 
 Register-ScheduledTask -TaskName $name -Action $action -Trigger $trigger -Principal $principal `
   -Settings $settings -Description 'AZ Sentinel Gateway (cau noi giua MT5 va cloud)' -Force | Out-Null
-Start-ScheduledTask -TaskName $name
-Write-Host "Da dang ky va khoi dong tac vu '$name'."
+
+# Nang cap khi nguoi dung dang de Gateway o trang thai TAT (bam "Tat hoan toan"): dang ky lai tac vu
+# nhung KHONG bat, de giu dung y nguoi dung. Bat lai bang shortcut "AZ Gateway".
+$dataDir = if ($env:AZ_GW_DATA) { $env:AZ_GW_DATA } else { Join-Path $env:ProgramData 'AZSentinel' }
+if (Test-Path -LiteralPath (Join-Path $dataDir 'disabled.flag')) {
+  Write-Host "Da dang ky tac vu '$name'. Gateway dang o trang thai tat nen khong khoi dong; bam shortcut AZ Gateway de bat."
+} else {
+  Start-ScheduledTask -TaskName $name
+  Write-Host "Da dang ky va khoi dong tac vu '$name'."
+}

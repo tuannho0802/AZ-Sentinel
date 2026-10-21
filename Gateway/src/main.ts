@@ -1,7 +1,7 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { CloudClient } from './cloud'
-import { defaultDataDir, loadConfig, saveEditableConfig } from './config'
+import { defaultDataDir, loadConfig, saveEditableConfig, writeOffFlag } from './config'
 import { GATEWAY_VERSION, Gateway } from './gateway'
 import { LocalServer, type UiHooks } from './local-server'
 import { createFileSink, createLogger } from './log'
@@ -48,6 +48,10 @@ async function main() {
     process.exit(code)
   }
 
+  // run-gateway.cmd đặt AZ_GW_SUPERVISED=1. Chạy tay hay `pnpm dev` thì không có người giám sát,
+  // nên không có "Tắt hoàn toàn" (Ctrl+C là đủ).
+  const supervised = process.env.AZ_GW_SUPERVISED === '1'
+
   const ui: UiHooks = {
     getConfig: () => ({
       vps: cfg.vps,
@@ -55,6 +59,7 @@ async function main() {
       idleFlushSec: cfg.idleFlushSec,
       tokenSet: cfg.cloudToken !== '',
       port: cfg.port,
+      supervised,
     }),
     saveConfig: (c) => saveEditableConfig(c),
     getUpdate: () => update,
@@ -65,6 +70,13 @@ async function main() {
     },
     // Thoát bình thường: run-gateway.cmd (người giám sát) sẽ bật lại với cấu hình mới.
     restart: () => void shutdown(0),
+    shutdown: () => {
+      if (!supervised) throw new Error('Gateway không chạy dưới run-gateway.cmd')
+      const flag = writeOffFlag(cfg.dataDir)
+      log.warn(`người dùng tắt hoàn toàn Gateway từ giao diện (cờ: ${flag}); sẽ không tự bật lại`)
+      // Chừa thời gian để trả lời HTTP 200 trước khi thoát.
+      setTimeout(() => void shutdown(0), 300)
+    },
   }
   const local = new LocalServer(gw, cfg.port, log, ui)
 

@@ -46,8 +46,11 @@ input:focus{outline:2px solid var(--pri);outline-offset:-1px}
 .hint{font-size:12px;color:var(--mut);margin-top:3px}
 .act{grid-column:1/-1;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
 button{font:inherit;padding:8px 14px;border-radius:8px;border:1px solid var(--line);background:var(--card);color:var(--fg);cursor:pointer}
+button.danger{color:var(--bad);border-color:var(--bad)}
 button.pri{background:var(--pri);border-color:var(--pri);color:#fff}
 button:disabled{opacity:.5;cursor:default}
+#off{display:none;position:fixed;inset:0;z-index:10;background:var(--bg);place-items:center;text-align:center;padding:24px}
+#off .box{max-width:440px}#off h2{margin:14px 0 6px;font-size:20px}#off p{margin:8px 0}
 #msg{font-size:13px}.ok-t{color:var(--ok)}.bad-t{color:var(--bad)}
 pre{margin:0;padding:12px 16px;max-height:280px;overflow:auto;background:var(--bg);white-space:pre-wrap;word-break:break-all}
 details>summary{cursor:pointer;padding:12px 16px;font-weight:600;list-style:none}
@@ -58,6 +61,7 @@ details>summary::before{content:"\\25B8  ";color:var(--mut)}details[open]>summar
   <div><h1>AZ Gateway <span id="ver" class="sub"></span></h1><div class="sub" id="host"></div></div>
   <div class="sp"></div>
   <button id="copy" type="button">Sao chép chẩn đoán</button>
+  <button id="stop" type="button" class="danger" hidden>Tắt hoàn toàn</button>
 </header>
 <main>
   <div class="banner" id="upd"></div>
@@ -95,13 +99,20 @@ details>summary::before{content:"\\25B8  ";color:var(--mut)}details[open]>summar
 
   <section><details id="logbox"><summary>Nhật ký (log)</summary><pre id="log">Đang tải...</pre></details></section>
 </main>
+<div id="off"><div class="box">
+  <div class="logo" style="margin:0 auto;width:56px;height:56px"><svg width="32" height="32" viewBox="0 0 32 32"><path d="M9 22V10l7 6 7-6v12" stroke="#fff" stroke-width="3" fill="none" stroke-linejoin="round"/></svg></div>
+  <h2>AZ Gateway đã tắt</h2>
+  <p>Gateway sẽ <b>không tự bật lại</b>, kể cả khi khởi động lại máy. EA vẫn chạy bình thường nhưng không gửi dữ liệu lên web.</p>
+  <p>Để bật lại, bấm shortcut <b>AZ Gateway</b> trên Desktop hoặc Start menu.</p>
+</div></div>
 <script>
 const $=id=>document.getElementById(id);
-let last=null,cfg=null,dirty=false;
+let last=null,cfg=null,dirty=false,stopped=false;
 function pill(td,text,cls){const s=document.createElement('span');s.className='pill'+(cls?' '+cls:'');s.textContent=text;td.appendChild(s)}
 function cell(tr,text,cls){const td=document.createElement('td');if(cls==null)td.textContent=text;else pill(td,text,cls);tr.appendChild(td)}
 function dur(s){const d=Math.floor(s/86400),h=Math.floor(s%86400/3600),m=Math.floor(s%3600/60);return d?d+'n '+h+'g':h?h+'g '+m+'p':m?m+'p':s+'s'}
 async function tick(){
+  if(stopped)return;
   try{
     const s=await (await fetch('/v1/status',{cache:'no-store'})).json();last=s;
     $('ver').textContent='v'+s.version;$('host').textContent=s.vps||'';
@@ -129,14 +140,16 @@ async function tick(){
 }
 async function loadCfg(){
   try{
-    cfg=await (await fetch('/v1/ui/config',{cache:'no-store'})).json();
+    const c=await (await fetch('/v1/ui/config',{cache:'no-store'})).json();
+    if(stopped)return;
+    cfg=c;$('stop').hidden=!cfg.supervised;
     if(dirty)return;
     $('f-vps').value=cfg.vps;$('f-url').value=cfg.cloudUrl;$('f-idle').value=cfg.idleFlushSec;
     $('tokhint').textContent=cfg.tokenSet?'Đã lưu một token. Để trống để giữ nguyên.':'Chưa có token.';
   }catch{}
 }
 async function loadLog(){
-  if(!$('logbox').open)return;
+  if(stopped||!$('logbox').open)return;
   try{const t=await (await fetch('/v1/ui/log',{cache:'no-store'})).text();const p=$('log');const stick=p.scrollTop+p.clientHeight>=p.scrollHeight-30;p.textContent=t||'(trống)';if(stick)p.scrollTop=p.scrollHeight}catch{}
 }
 async function loadUpd(){
@@ -159,6 +172,15 @@ $('cfg').addEventListener('submit',async e=>{
     dirty=false;$('f-tok').value='';
     setTimeout(()=>location.reload(),4000);
   }catch{m.className='bad-t';m.textContent='Không lưu được';$('save').disabled=false}
+});
+$('stop').addEventListener('click',async()=>{
+  if(!confirm('Tắt hoàn toàn AZ Gateway?\\n\\n- EA vẫn chạy bình thường nhưng ngừng gửi dữ liệu lên web.\\n- Gateway KHÔNG tự bật lại, kể cả khi khởi động lại máy.\\n- Muốn bật lại: bấm shortcut "AZ Gateway" trên Desktop hoặc Start menu.'))return;
+  $('stop').disabled=true;
+  try{
+    const r=await fetch('/v1/ui/shutdown',{method:'POST',headers:{'x-az-ui':'1'}});
+    if(!r.ok){alert('Không tắt được Gateway (mã '+r.status+'). Xem mục Nhật ký.');$('stop').disabled=false;return}
+    stopped=true;$('off').style.display='grid';
+  }catch{alert('Không tắt được Gateway.');$('stop').disabled=false}
 });
 $('copy').addEventListener('click',async()=>{
   let log='';try{log=await (await fetch('/v1/ui/log')).text()}catch{}

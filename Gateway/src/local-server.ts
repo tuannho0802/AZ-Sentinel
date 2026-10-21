@@ -22,13 +22,26 @@ type Handler = (body: unknown) => unknown
  */
 export type UiHooks = {
   /** Cấu hình hiện tại cho giao diện; KHÔNG chứa token, chỉ cờ `tokenSet`. */
-  getConfig: () => Omit<EditableConfig, 'cloudToken'> & { tokenSet: boolean; port: number }
+  getConfig: () => Omit<EditableConfig, 'cloudToken'> & {
+    tokenSet: boolean
+    port: number
+    /**
+     * Đang chạy dưới `run-gateway.cmd`. Chỉ khi đó "Tắt hoàn toàn" mới có nghĩa (có người giám sát
+     * để đọc cờ); chạy tay hoặc `pnpm dev` thì giao diện ẩn nút.
+     */
+    supervised: boolean
+  }
   saveConfig: (c: EditableConfig) => void
   getUpdate: () => UpdateInfo | null
   /** Vài trăm dòng log cuối, mới nhất ở cuối. */
   tailLog: (lines: number) => string
   /** Thoát tiến trình để trình giám sát (run-gateway.cmd) bật lại với cấu hình mới. */
   restart: () => void
+  /**
+   * Tắt hoàn toàn: ghi cờ `disabled.flag` rồi thoát. Ném lỗi nếu không ghi được cờ hoặc không chạy
+   * dưới người giám sát; khi đó route trả 500 và Gateway KHÔNG thoát.
+   */
+  shutdown: () => void
 }
 
 /**
@@ -206,7 +219,10 @@ export class LocalServer {
       res.end(ui.tailLog(200))
       return
     }
-    if (req.method !== 'POST' || (url !== '/v1/ui/config' && url !== '/v1/ui/restart')) {
+    if (
+      req.method !== 'POST' ||
+      (url !== '/v1/ui/config' && url !== '/v1/ui/restart' && url !== '/v1/ui/shutdown')
+    ) {
       send(res, fail(404, 'not_found'))
       return
     }
@@ -217,6 +233,18 @@ export class LocalServer {
       origin === `http://localhost:${this.listeningPort}`
     if (req.headers['x-az-ui'] !== '1' || !okOrigin) {
       send(res, fail(403, 'bad_origin'))
+      return
+    }
+    if (url === '/v1/ui/shutdown') {
+      // Ghi cờ TRƯỚC khi trả lời: nếu ghi lỗi thì báo 500 và Gateway vẫn chạy, không giả vờ đã tắt.
+      try {
+        ui.shutdown()
+      } catch (e) {
+        this.log.error(`không tắt được Gateway: ${e instanceof Error ? e.message : String(e)}`)
+        send(res, fail(500, 'shutdown_failed'))
+        return
+      }
+      send(res, { ok: true })
       return
     }
     if (url === '/v1/ui/restart') {

@@ -73,6 +73,21 @@ export const editableSchema = z.object({
 })
 export type EditableConfig = z.infer<typeof editableSchema>
 
+/**
+ * Tên file cờ "đã tắt hoàn toàn". Có file này thì `run-gateway.cmd` không bật Gateway lại (kể cả
+ * sau khi khởi động lại máy) cho đến khi người dùng bật bằng shortcut. `run-gateway.cmd`,
+ * `start-gateway.ps1` và `install-task.ps1` dùng đúng tên và thư mục này.
+ */
+export const OFF_FLAG_NAME = 'disabled.flag'
+
+/** Ghi cờ "đã tắt" vào `dataDir`. Ném lỗi nếu không ghi được (để không báo "đã tắt" khi chưa tắt). */
+export function writeOffFlag(dataDir: string): string {
+  const file = path.join(dataDir, OFF_FLAG_NAME)
+  mkdirSync(dataDir, { recursive: true })
+  writeFileSync(file, `${new Date().toISOString()}\n`, 'utf8')
+  return file
+}
+
 /** Đường dẫn file cấu hình đang dùng (cùng quy tắc với `loadConfig`). */
 export function configFilePath(env: NodeJS.ProcessEnv = process.env): string {
   const dataDir = env.AZ_GW_DATA ?? defaultDataDir()

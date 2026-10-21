@@ -1,3 +1,4 @@
 * text=auto eol=lf
 *.bat text eol=crlf
 *.ex5 binary
+*.cmd text eol=crlf

@@ -1,17 +1,30 @@
 name: Release Gateway
 
-# Đẩy tag dạng gateway-vX.Y.Z (vd gateway-v0.2.0) để build bộ cài trên Windows và tạo GitHub Release.
+# Chỉ build bộ cài (exe) khi COMMIT MỚI NHẤT của lần push lên main có chứa [release] trong message:
+#   git commit -m "feat(gateway): nut tat hoan toan [release]"
+# Không có [release] thì workflow bị bỏ qua (job "skipped"), không tốn phút build Windows.
+#
+# Phiên bản lấy từ Gateway/package.json, nên PHẢI tăng "version" trước khi release. Tag Git và GitHub
+# Release có tên gateway-v<version> (giao diện Gateway dựa vào tiền tố này để báo có bản mới). Nếu
+# release đó đã tồn tại thì workflow dừng ngay, không ghi đè bộ cài đã phát hành.
+#
 # Chạy tay (workflow_dispatch) chỉ build và đưa file vào Artifacts, không tạo Release.
 on:
   push:
-    tags: ['gateway-v*']
+    branches: [main]
   workflow_dispatch:
 
 permissions:
   contents: write
 
+# Hai lần release không chạy chồng nhau; lần sau xếp hàng chờ chứ không hủy lần đang chạy dở.
+concurrency:
+  group: release-gateway
+  cancel-in-progress: false
+
 jobs:
   build:
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[release]')
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -36,10 +49,24 @@ jobs:
         id: ver
         shell: pwsh
         run: |
-          if ($env:GITHUB_REF_TYPE -eq 'tag') { $v = $env:GITHUB_REF_NAME -replace '^gateway-v','' }
-          else { $v = (Get-Content Gateway/package.json -Raw | ConvertFrom-Json).version }
+          $v = (Get-Content Gateway/package.json -Raw | ConvertFrom-Json).version
+          if ($v -notmatch '^\d+\.\d+\.\d+$') { throw "Version khong hop le trong Gateway/package.json: '$v'" }
           "version=$v" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
           Write-Host "Phien ban: $v"
+
+      - name: Dừng sớm nếu phiên bản này đã được phát hành
+        if: github.event_name == 'push'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = 'gateway-v${{ steps.ver.outputs.version }}'
+          gh release view $tag *> $null
+          $exists = ($LASTEXITCODE -eq 0)
+          $global:LASTEXITCODE = 0   # lệnh gh "không tìm thấy" trả mã 1; đừng để bước này thất bại vì nó
+          if ($exists) {
+            throw "Release $tag da ton tai. Tang version trong Gateway/package.json roi commit lai voi [release]."
+          }
 
       - name: Build az-gateway.exe (esbuild + Node SEA)
         working-directory: Gateway
@@ -82,9 +109,11 @@ jobs:
             Gateway/dist/SHA256SUMS.txt
 
       - name: Tạo GitHub Release
-        if: github.ref_type == 'tag'
+        if: github.event_name == 'push'
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: gateway-v${{ steps.ver.outputs.version }}
+          target_commitish: ${{ github.sha }}
           name: AZ Gateway v${{ steps.ver.outputs.version }}
           generate_release_notes: true
           files: |

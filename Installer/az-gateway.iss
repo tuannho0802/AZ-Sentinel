@@ -24,6 +24,8 @@ OutputBaseFilename=AZSentinel-Gateway-Setup
 Compression=lzma2/ultra64
 SolidCompression=yes
 WizardStyle=modern
+SetupIconFile=az-gateway.ico
+UninstallDisplayIcon={app}\az-gateway.ico
 UninstallDisplayName={#MyAppName}
 VersionInfoVersion={#MyAppVersion}
 CloseApplications=no
@@ -35,16 +37,22 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 [Files]
 Source: "..\Gateway\dist\az-gateway.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "run-gateway.cmd"; DestDir: "{app}"; Flags: ignoreversion
+Source: "az-gateway.ico"; DestDir: "{app}"; Flags: ignoreversion
 Source: "scripts\*.ps1"; DestDir: "{app}\scripts"; Flags: ignoreversion
 Source: "ea\*.ex5"; DestDir: "{app}\ea"; Flags: ignoreversion skipifsourcedoesntexist
 
 [INI]
 Filename: "{app}\AZ Gateway.url"; Section: "InternetShortcut"; Key: "URL"; String: "http://127.0.0.1:47800/"
+Filename: "{app}\AZ Gateway.url"; Section: "InternetShortcut"; Key: "IconFile"; String: "{app}\az-gateway.ico"
+Filename: "{app}\AZ Gateway.url"; Section: "InternetShortcut"; Key: "IconIndex"; String: "0"
 
 [Icons]
-Name: "{autoprograms}\AZ Gateway\Mo giao dien AZ Gateway"; Filename: "{app}\AZ Gateway.url"
-Name: "{autoprograms}\AZ Gateway\Chep EA vao cac terminal"; Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\scripts\install-ea.ps1"" -Pause"
-Name: "{autodesktop}\AZ Gateway"; Filename: "{app}\AZ Gateway.url"
+; Hai shortcut mo giao dien chay start-gateway.ps1: Gateway dang chay thi chi mo trinh duyet; dang tat
+; (bam "Tat hoan toan" tren giao dien) thi xin quyen Administrator, xoa co va bat lai. Giu ten cu de ban
+; cai moi ghi de shortcut cu, khong sinh shortcut thua.
+Name: "{autoprograms}\AZ Gateway\Mo giao dien AZ Gateway"; Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File ""{app}\scripts\start-gateway.ps1"""; IconFilename: "{app}\az-gateway.ico"; Comment: "Mo giao dien AZ Gateway, bat lai Gateway neu dang tat"; Flags: runminimized
+Name: "{autoprograms}\AZ Gateway\Chep EA vao cac terminal"; Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\scripts\install-ea.ps1"" -Pause"; IconFilename: "{app}\az-gateway.ico"
+Name: "{autodesktop}\AZ Gateway"; Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File ""{app}\scripts\start-gateway.ps1"""; IconFilename: "{app}\az-gateway.ico"; Comment: "Mo giao dien AZ Gateway, bat lai Gateway neu dang tat"; Flags: runminimized
 
 [Run]
 Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\scripts\install-task.ps1"" -AppDir ""{app}"""; Flags: runhidden waituntilterminated; StatusMsg: "Dang ky tac vu tu khoi dong..."
@@ -57,6 +65,8 @@ Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -Fil
 [Code]
 var
   CfgPage: TInputQueryWizardPage;
+  { Da co ban cai truoc (nang cap) hay cai moi: cai moi thi xoa co "da tat" con sot. }
+  WasInstalled: Boolean;
 
 function ConfigPath: String;
 begin
@@ -117,6 +127,7 @@ function PrepareToInstall(var NeedsRestart: Boolean): String;
 var
   RC: Integer;
 begin
+  WasInstalled := FileExists(ExpandConstant('{app}\az-gateway.exe'));
   Exec(ExpandConstant('{sys}\schtasks.exe'), '/End /TN "AZ Gateway"', '', SW_HIDE, ewWaitUntilTerminated, RC);
   Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /IM az-gateway.exe', '', SW_HIDE, ewWaitUntilTerminated, RC);
   Sleep(800);
@@ -131,6 +142,9 @@ begin
   if CurStep = ssInstall then
   begin
     ForceDirectories(ExpandConstant('{#DataDir}'));
+    { Cai moi (khong phai nang cap) thi xoa co disabled.flag con sot tu lan go truoc, de Gateway tu chay.
+      Nang cap thi giu: nguoi dung da tat thi van tat cho den khi bam shortcut. }
+    if not WasInstalled then DeleteFile(ExpandConstant('{#DataDir}\disabled.flag'));
     if (not FileExists(ConfigPath)) or (ExpandConstant('{param:CLOUDURL|}') <> '') then
     begin
       Json := '{' + #13#10 +
