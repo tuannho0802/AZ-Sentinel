@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { strings } from '../../lib/strings'
-import { ingestUrl } from './ingest-url'
+import { GATEWAY_LOCAL_URL, gatewayCloudUrl } from './gateway-url'
 
 type Props = { apiKey: string; onClose: () => void; title?: string; warning?: string }
 
@@ -53,21 +53,21 @@ export function KeyDialog({
           </button>
         </div>
 
-        <label className="mt-3 block text-sm font-medium" htmlFor="ingest-url">
-          {strings.ingestUrlLabel}
+        <label className="mt-3 block text-sm font-medium" htmlFor="gateway-cloud-url">
+          {strings.gatewayCloudUrlLabel}
         </label>
         <div className="mt-1 flex gap-2">
           <input
-            id="ingest-url"
+            id="gateway-cloud-url"
             readOnly
-            value={ingestUrl()}
+            value={gatewayCloudUrl()}
             className="min-w-0 flex-1 rounded border px-2 py-1 font-mono text-sm"
             onFocus={(e) => e.currentTarget.select()}
           />
           <button
             type="button"
             className="rounded border px-3 py-1"
-            onClick={() => copy(ingestUrl())}
+            onClick={() => copy(gatewayCloudUrl())}
           >
             {strings.copyUrl}
           </button>
@@ -78,7 +78,7 @@ export function KeyDialog({
             {message}
           </p>
         )}
-        <p className="mt-3 text-sm text-gray-600">{strings.keyDialogSteps}</p>
+        <p className="mt-3 text-sm text-gray-600">{strings.keyDialogSteps(GATEWAY_LOCAL_URL)}</p>
 
         <div className="mt-4 text-right">
           <button

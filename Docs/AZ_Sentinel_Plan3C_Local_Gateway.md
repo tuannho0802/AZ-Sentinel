@@ -1,7 +1,7 @@
 # AZ Sentinel — Plan 3C: Cổng cục bộ (Gateway) trên mỗi VPS và EA tracking trong từng terminal
 
 > Bản v0.2 · 21/10/2026 · Thay thế phần "EA hỏi gate qua internet" của `AZ_Sentinel_Plan3B_Live_On_Demand.md`. Giữ nguyên phần viewer WebSocket, `LiveHub`, `useLiveLease` đã làm.
-> **Trạng thái v0.2:** patch 05 đến 07 và 09 đến 11 (một phần) đã có mã và test xanh: schema dùng chung, Gateway (Node/TypeScript), EA `AZ_Spike.mq5` v0.2.0, `fake-cloud`, `fake-ea`. **Còn thiếu:** đầu nối Gateway trong BE `LiveHub` (patch 08), thử EA trên MT5 thật (G0, A-01 đến A-07), bộ cài (12), FE (13). Xem bảng mục 11.
+> **Trạng thái v0.2:** patch 05 đến 07 và 09 đến 11 (một phần) đã có mã và test xanh: schema dùng chung, Gateway (Node/TypeScript), EA `AZ_Spike.mq5` v0.2.0, `fake-cloud`, `fake-ea`. **Còn thiếu:** (patch 08 BE và patch 09 FE đã có mã, chờ manual test) thử EA trên MT5 thật (G0, A-01 đến A-07), bộ cài (12), FE (13). Xem bảng mục 11.
 
 ## 0. Vì sao đổi hướng
 

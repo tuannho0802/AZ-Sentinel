@@ -42,7 +42,7 @@ export const strings = {
   linkCreateFailed: 'Không tạo được liên kết',
   refresh: 'Làm mới',
   liveRunning: (n: number) => `Đang chạy · ${n} giây`,
-  liveWaking: 'Đang đánh thức EA',
+  liveWaking: 'Đang chờ EA qua Gateway',
   liveConnecting: 'Đang kết nối...',
   livePaused: 'Tạm dừng',
   liveDisconnected: 'Mất kết nối',
@@ -84,7 +84,7 @@ export const strings = {
   keyDialogWarning:
     'Khóa này chỉ hiện một lần. Hãy sao chép ngay, đóng hộp thoại là không xem lại được.',
   keyLabel: 'API key',
-  ingestUrlLabel: 'URL (InpUrl)',
+  gatewayCloudUrlLabel: 'Địa chỉ cloud cho Gateway (cloudUrl)',
   copyKey: 'Sao chép khóa',
   copyUrl: 'Sao chép URL',
   copied: 'Đã sao chép',
@@ -97,8 +97,8 @@ export const strings = {
     'Khóa cũ đã ngừng hoạt động. Hãy sao chép khóa mới ngay (chỉ hiện một lần) và dán vào InpApiKey của EA; tài khoản đã gắn không đổi.',
   confirmRotate:
     'Cấp lại khóa? Khóa cũ ngừng hoạt động ngay: EA đang chạy bằng khóa cũ sẽ bị từ chối (401) cho đến khi bạn dán khóa mới vào InpApiKey. Tài khoản đã gắn vẫn giữ nguyên.',
-  keyDialogSteps:
-    'Trong MT5: Tools → Options → Expert Advisors → Allow WebRequest, thêm địa chỉ gốc của URL trên. Gắn AZ_Spike lên chart, điền InpUrl và InpApiKey.',
+  keyDialogSteps: (gatewayUrl: string) =>
+    `Trên máy có MT5: chạy Gateway với địa chỉ cloud ở trên. Trong MT5: Tools → Options → Expert Advisors → Allow WebRequest, thêm ${gatewayUrl}. Gắn AZ_Spike lên chart (một EA mỗi terminal), điền InpApiKey và giữ InpGateway mặc định.`,
   close: 'Đóng',
 
   detailBack: 'Về danh sách',

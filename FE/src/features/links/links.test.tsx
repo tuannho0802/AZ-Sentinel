@@ -141,8 +141,8 @@ describe('tạo liên kết', () => {
       created.api_key,
     )
     expect(
-      (within(dialog).getByLabelText(strings.ingestUrlLabel) as HTMLInputElement).value,
-    ).toContain('/api/ea/v1/ingest')
+      (within(dialog).getByLabelText(strings.gatewayCloudUrlLabel) as HTMLInputElement).value,
+    ).toContain('/api/gw/ws')
     fireEvent.click(within(dialog).getByRole('button', { name: strings.close }))
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
     expect(screen.queryByDisplayValue(created.api_key)).toBeNull()
