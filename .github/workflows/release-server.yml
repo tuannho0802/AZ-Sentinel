@@ -97,10 +97,18 @@ jobs:
             Write-Host 'OK: Server va giao dien dang chay'
           } finally { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue }
 
-      - name: Build bộ cài (Inno Setup)
+      - name: Build bộ cài Gateway để kèm vào bộ cài Server (Admin cài một lần)
         shell: pwsh
         run: |
           choco install innosetup -y --no-progress
+          pnpm build:gateway
+          $gv = (Get-Content Gateway/package.json -Raw | ConvertFrom-Json).version
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "/DMyAppVersion=$gv" Installer\az-gateway.iss
+          if ($LASTEXITCODE -ne 0) { throw 'ISCC (Gateway) loi' }
+
+      - name: Build bộ cài (Inno Setup)
+        shell: pwsh
+        run: |
           $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
           & $iscc "/DMyAppVersion=${{ steps.ver.outputs.version }}" Installer\az-server.iss
           if ($LASTEXITCODE -ne 0) { throw 'ISCC loi' }

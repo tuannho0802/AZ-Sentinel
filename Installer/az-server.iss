@@ -49,6 +49,8 @@ Type: filesandordirs; Name: "{app}\migrations"
 [Files]
 Source: "{#Src}\*"; DestDir: "{app}"; Excludes: "server.env"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "az-gateway.ico"; DestDir: "{app}"; DestName: "az-sentinel.ico"; Flags: ignoreversion
+; Bo cai Gateway (neu CI da build) de cai luon tren VPS chinh; chi duoc chay khi nguoi dung tick o "Cai luon AZ Gateway".
+Source: "..\Gateway\dist\AZSentinel-Gateway-Setup.exe"; DestDir: "{tmp}"; Flags: ignoreversion deleteafterinstall skipifsourcedoesntexist
 ; Dung ban cu truoc khi ghi de: chay tu thu muc tam vi thu muc cai dang bi khoa.
 Source: "{#Src}\stop-server.ps1"; Flags: dontcopy
 
@@ -154,6 +156,7 @@ begin
   SrvPage.Add('URL web du phong cho nguoi dung (https://..., tuy chon):', False);
   SrvPage.Add('Bi mat dong bo SYNC_TOKEN (>= 32 ky tu, trung voi Worker, tuy chon):', True);
   SrvPage.Add('URL cong khai cua VPS nay (https://..., de tao ma ket noi Gateway, tuy chon):', False);
+  SrvPage.Add('Token Cloudflare Tunnel (tuy chon, bo cai tu cai cloudflared de VPS co HTTPS cong khai):', True);
   SrvPage.Values[0] := ExpandConstant('{param:NAME|{computername}}');
   SrvPage.Values[1] := ExpandConstant('{param:LOCATION|}');
   SrvPage.Values[2] := ExpandConstant('{param:PORT|8080}');
@@ -161,6 +164,7 @@ begin
   SrvPage.Values[4] := ExpandConstant('{param:FALLBACKURL|}');
   SrvPage.Values[5] := ExpandConstant('{param:SYNCTOKEN|}');
   SrvPage.Values[6] := ExpandConstant('{param:PUBLICURL|}');
+  SrvPage.Values[7] := ExpandConstant('{param:TUNNELTOKEN|}');
 
   NetPage := CreateInputOptionPage(SrvPage.ID, 'Truy cap tu may khac',
     'Mac dinh Server chi nghe 127.0.0.1 (di qua Cloudflare Tunnel hoac reverse proxy)',
@@ -169,8 +173,10 @@ begin
     False, False);
   NetPage.Add('Cho phep may khac trong mang noi bo truy cap (AZ_HOST=0.0.0.0)');
   NetPage.Add('Mo cong nay tren Windows Firewall (chi mang Private/Domain)');
+  NetPage.Add('Cai luon AZ Gateway tren VPS nay (can tai khoan quan tri o buoc sau)');
   NetPage.Values[0] := ExpandConstant('{param:LAN|}') = '1';
   NetPage.Values[1] := ExpandConstant('{param:FIREWALL|}') = '1';
+  NetPage.Values[2] := ExpandConstant('{param:GATEWAY|1}') <> '0';
 
   AdmPage := CreateInputQueryPage(NetPage.ID, 'Tai khoan quan tri dau tien',
     'Dung tai khoan nay de dang nhap web sau khi cai xong',
@@ -335,6 +341,52 @@ begin
   DeleteFile(Tmp);
 end;
 
+{ Cai cloudflared thanh dich vu Windows tu token tunnel (tao o Cloudflare Zero Trust, hostname -> http://localhost:cong). }
+procedure SetupTunnel;
+var
+  RC: Integer;
+begin
+  if Trim(SrvPage.Values[7]) = '' then Exit;
+  Exec('powershell.exe',
+    '-NoProfile -ExecutionPolicy Bypass -File "' + ExpandConstant('{app}\setup-tunnel.ps1') + '" -AppDir "' +
+    ExpandConstant('{app}') + '" -TunnelToken "' + Trim(SrvPage.Values[7]) + '"', '', SW_HIDE, ewWaitUntilTerminated, RC);
+end;
+
+{ Cai luon Gateway cho Admin: cap token cho admin (id 1), cai im lang Gateway noi thang vao Server qua loopback,
+  Worker dung lam du phong. Bo qua im lang neu thieu bo cai Gateway hoac khong cap duoc token. }
+procedure InstallAdminGateway;
+var
+  RC: Integer;
+  Setup, Tmp, Tok, Fb, Args: String;
+  S: AnsiString;
+  P: Integer;
+begin
+  if not NetPage.Values[2] then Exit;
+  if Trim(AdmPage.Values[0]) = '' then Exit;
+  Setup := ExpandConstant('{tmp}\AZSentinel-Gateway-Setup.exe');
+  if not FileExists(Setup) then Exit;
+  Tmp := ExpandConstant('{tmp}\azgwtok.txt');
+  Exec(ExpandConstant('{cmd}'), '/S /C ""' + ExpandConstant('{app}\token.cmd') + '" issue 1 "Admin" > "' + Tmp + '""',
+    ExpandConstant('{app}'), SW_HIDE, ewWaitUntilTerminated, RC);
+  if not LoadStringFromFile(Tmp, S) then Exit;
+  DeleteFile(Tmp);
+  P := Pos('azt_', S);
+  if P = 0 then Exit;
+  Tok := Copy(S, P, 36);
+  Fb := Trim(SrvPage.Values[3]);
+  if Fb <> '' then
+  begin
+    StringChangeEx(Fb, 'https://', 'wss://', True);
+    StringChangeEx(Fb, 'http://', 'ws://', True);
+    if Copy(Fb, Length(Fb), 1) = '/' then Delete(Fb, Length(Fb), 1);
+    Fb := Fb + '/api/gw/ws';
+  end;
+  Args := '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /VPS="' + Trim(SrvPage.Values[0]) + '" /CLOUDURL=ws://127.0.0.1:' +
+    IntToStr(PortValue) + '/api/gw/ws /TOKEN=' + Tok + ' /SKIPTOKENCHECK=1';
+  if Fb <> '' then Args := Args + ' /FALLBACKURL=' + Fb;
+  Exec(Setup, Args, '', SW_HIDE, ewWaitUntilTerminated, RC);
+end;
+
 procedure CurStepChanged(CurStep: TSetupStep);
 var
   RC: Integer;
@@ -353,6 +405,11 @@ begin
     { server.env co SYNC_TOKEN: chi Administrators va SYSTEM duoc doc (thu muc Program Files cho Users doc). }
     Exec(ExpandConstant('{sys}\icacls.exe'),
       '"' + EnvPath + '" /inheritance:r /grant:r *S-1-5-18:F *S-1-5-32-544:F', '', SW_HIDE, ewWaitUntilTerminated, RC);
-    if WillWriteEnv then CreateAdmin;
+    if WillWriteEnv then
+    begin
+      CreateAdmin;
+      SetupTunnel;
+      InstallAdminGateway;
+    end;
   end;
 end;

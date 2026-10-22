@@ -8,7 +8,14 @@
 | User (VPS riêng có MT5) | Chỉ `AZSentinel-Gateway-Setup.exe` | Dán mã kết nối vào bộ cài, rồi đăng nhập web để xem dữ liệu của mình |
 | Cloudflare | Worker (BE dự phòng) | Ngủ cho đến khi VPS chính sập |
 
-## Admin: làm một lần
+## Admin: làm một lần (ngắn gọn)
+
+1. Trên máy dev: `.\Scripts\setup-cloudflare.ps1 -VpsUrl https://<hostname-vps> -WorkerUrl https://<worker>.workers.dev` rồi commit + push (đặt `SYNC_TOKEN`, ghi `VPS_ORIGIN`/`PRIMARY_URL`/`FALLBACK_URL`).
+2. Cloudflare Zero Trust: tạo Tunnel, hostname trỏ `http://localhost:8080`, chép token tunnel.
+3. Trên VPS: chạy `AZSentinel-Server-Setup.exe`, điền các ô (script ở bước 1 in sẵn giá trị), tài khoản admin và **Token Cloudflare Tunnel**; để nguyên ô **Cài luôn AZ Gateway**. Bộ cài tự cài Server, cloudflared, tạo admin, cấp token cho admin và cài Gateway nối loopback (dự phòng Worker). Cài im lặng thêm `/TUNNELTOKEN= /GATEWAY=0|1`.
+
+Chi tiết từng bước:
+
 
 1. Chạy `AZSentinel-Server-Setup.exe` trên VPS chính. Ở trang cấu hình, điền **URL công khai của VPS** (hostname Cloudflare Tunnel hoặc tên miền, `https://...`) và URL web dự phòng (Worker). Có thể sửa sau trong `server.env` (`AZ_PUBLIC_URL`, `AZ_FALLBACK_URL`).
 2. Tạo tài khoản admin đầu tiên: bộ cài có trang **Tài khoản quản trị đầu tiên** (email, tên, mật khẩu; cài im lặng: `/ADMINEMAIL= /ADMINNAME= /ADMINPASSWORD=`). Để trống thì tạo sau bằng `user.cmd create-admin <email> <tên>`.

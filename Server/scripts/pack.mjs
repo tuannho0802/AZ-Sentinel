@@ -28,6 +28,7 @@ for (const f of [
   'token-shell.ps1',
   'open-firewall.ps1',
   'check-server.ps1',
+  'setup-tunnel.ps1',
   'server.env.example',
 ]) {
   cpSync(here(`./${f}`), `${out}/${f}`)
