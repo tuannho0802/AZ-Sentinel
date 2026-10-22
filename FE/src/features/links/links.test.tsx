@@ -83,6 +83,17 @@ describe('danh sách liên kết', () => {
     expect(screen.getByText(strings.linksEmptyHint)).toBeTruthy()
   })
 
+  it('rỗng với User thường: hướng dẫn xin mã kết nối và cài Gateway, không bảo "Tạo liên kết"', async () => {
+    renderApp('/links', {
+      ...base,
+      'GET /api/me': () => json(200, { ...me, role: 'user' }),
+      'GET /api/links': () => json(200, { links: [] }),
+    })
+    expect(await screen.findByText(strings.userSetupTitle)).toBeTruthy()
+    expect(screen.getByText(strings.userSetupBody)).toBeTruthy()
+    expect(screen.queryByText(strings.linksEmptyHint)).toBeNull()
+  })
+
   it('hiện liên kết chưa gắn và đã gắn (online, equity, lãi/lỗ có dấu)', async () => {
     renderApp('/links', {
       ...base,

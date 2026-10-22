@@ -115,6 +115,75 @@ describe('trang Token Gateway (admin)', () => {
     expect(document.body.textContent).not.toContain(SECRET)
   })
 
+  it('cấp token có mã kết nối: hiện mã để gửi người dùng, sao chép mã và token riêng', async () => {
+    const CODE = 'azc1.eyJ2IjoxfQ'
+    const issue = vi.fn(() =>
+      json(201, {
+        token: SECRET,
+        connect_code: CODE,
+        summary: { ...active, id: 3, owner_id: 9, label: 'Dũng' },
+      }),
+    )
+    const writeText = vi.fn(async () => {})
+    Object.assign(navigator, { clipboard: { writeText } })
+    renderApp('/tokens', { ...base, 'POST /api/admin/gw-tokens': issue })
+
+    fireEvent.change(await screen.findByLabelText(strings.tokenPickUser), {
+      target: { value: '9' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: strings.tokenIssue }))
+    const dialog = await screen.findByRole('dialog')
+    expect(
+      (within(dialog).getByLabelText(strings.connectCodeLabel) as HTMLInputElement).value,
+    ).toBe(CODE)
+    expect(within(dialog).queryByText(strings.connectCodeUnavailable)).toBeNull()
+    fireEvent.click(within(dialog).getByRole('button', { name: strings.connectCodeCopy }))
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith(CODE))
+    fireEvent.click(within(dialog).getByRole('button', { name: strings.tokenCopy }))
+    await waitFor(() => expect(writeText).toHaveBeenLastCalledWith(SECRET))
+    fireEvent.click(within(dialog).getByRole('button', { name: strings.close }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    expect(document.body.textContent).not.toContain(CODE)
+  })
+
+  it('cấp token mà máy chủ chưa biết địa chỉ công khai: báo không có mã, vẫn có token', async () => {
+    renderApp('/tokens', {
+      ...base,
+      'POST /api/admin/gw-tokens': () =>
+        json(201, {
+          token: SECRET,
+          connect_code: null,
+          summary: { ...active, id: 3, owner_id: 9, label: 'Dũng' },
+        }),
+    })
+    fireEvent.change(await screen.findByLabelText(strings.tokenPickUser), {
+      target: { value: '9' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: strings.tokenIssue }))
+    const dialog = await screen.findByRole('dialog')
+    expect(within(dialog).getByText(strings.connectCodeUnavailable)).toBeTruthy()
+    expect(within(dialog).queryByLabelText(strings.connectCodeLabel)).toBeNull()
+    expect((within(dialog).getByLabelText(strings.tokenFieldLabel) as HTMLInputElement).value).toBe(
+      SECRET,
+    )
+  })
+
+  it('đặt lại token cũng trả mã kết nối mới', async () => {
+    const CODE = 'azc1.eyJ2IjoyfQ'
+    renderApp('/tokens', {
+      ...base,
+      'POST /api/admin/gw-tokens/1/reset': () =>
+        json(200, { token: SECRET, connect_code: CODE, summary: active }),
+    })
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    const row = (await screen.findByText(active.label)).closest('tr') as HTMLElement
+    fireEvent.click(within(row).getByRole('button', { name: strings.tokenReset }))
+    const dialog = await screen.findByRole('dialog')
+    expect(
+      (within(dialog).getByLabelText(strings.connectCodeLabel) as HTMLInputElement).value,
+    ).toBe(CODE)
+  })
+
   it('cấp trùng người dùng: báo đã có token đang hoạt động', async () => {
     renderApp('/tokens', {
       ...base,

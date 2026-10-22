@@ -74,7 +74,7 @@ describe('/api/links có phân quyền (Plan 4B)', () => {
       404,
     )
     expect((await call('POST', `/links/${la.id}/rotate-key`, b, {})).status).toBe(404)
-    expect((await call('DELETE', `/links/${la.id}`, b)).status).toBe(404)
+    expect((await call('DELETE', `/links/${la.id}`, b, {})).status).toBe(404)
     expect((await call('GET', `/links/${la.id}`, a)).status).toBe(200)
     expect((await call('GET', `/links/${la.id}`, root)).status).toBe(200)
 
@@ -98,7 +98,7 @@ describe('/api/links có phân quyền (Plan 4B)', () => {
     expect(JSON.stringify(await (await call('GET', '/links', a)).json())).not.toContain(
       body.api_key,
     )
-    expect((await call('DELETE', `/links/${body.link.id}`, a)).status).toBe(204)
+    expect((await call('DELETE', `/links/${body.link.id}`, a, {})).status).toBe(204)
   })
 
   it('giới hạn số liên kết của người dùng thường', async () => {

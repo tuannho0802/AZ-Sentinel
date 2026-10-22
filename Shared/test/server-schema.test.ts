@@ -74,6 +74,7 @@ describe('server-schema', () => {
 
   it('sync: lô rỗng có mặc định, quá 100 dòng bị từ chối', () => {
     expect(syncApplySchema.parse({})).toEqual({
+      users: [],
       tokens: [],
       links: [],
       links_deleted: [],

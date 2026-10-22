@@ -1,6 +1,7 @@
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { encodeConnectCode } from '@az-sentinel/shared'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   configFilePath,
@@ -166,6 +167,35 @@ describe('API giao diện /v1/ui/*', () => {
     expect(saved).toMatchObject({ vps: 'V', idleFlushSec: 10 })
     const bad = await post('/v1/ui/config', { ...good, cloudUrl: 'http://sai' }, { 'x-az-ui': '1' })
     expect(bad.status).toBe(400)
+  })
+
+  it('POST config có mã kết nối: lưu URL, dự phòng và token lấy từ mã, bỏ qua ô gõ tay', async () => {
+    const TOK = 'azt_dev0123456789abcdef0123456789ab'
+    const code = encodeConnectCode({
+      primaryUrl: 'wss://vps.example.com/api/gw/ws',
+      fallbackUrl: 'wss://az.workers.dev/api/gw/ws',
+      token: TOK,
+    })
+    const r = await post('/v1/ui/config', { ...good, connectCode: code }, { 'x-az-ui': '1' })
+    expect(r.status).toBe(200)
+    expect(saved).toMatchObject({
+      cloudUrl: 'wss://vps.example.com/api/gw/ws',
+      cloudFallbackUrl: 'wss://az.workers.dev/api/gw/ws',
+      cloudToken: TOK,
+      vps: 'V',
+    })
+  })
+
+  it('POST config có mã sai: 400 connect_code_invalid và không lưu', async () => {
+    const r = await post('/v1/ui/config', { ...good, connectCode: 'azc1.hong' }, { 'x-az-ui': '1' })
+    expect(r.status).toBe(400)
+    expect(JSON.stringify(await r.json())).toContain('connect_code_invalid')
+    expect(saved).toBeNull()
+  })
+
+  it('trang giao diện có ô dán mã kết nối', async () => {
+    const html = await (await fetch(`${base}/`)).text()
+    expect(html).toContain('id="f-code"')
   })
 
   it('restart chỉ chạy khi có header, và trả lời trước khi thoát', async () => {
