@@ -23,7 +23,7 @@
     "build:gateway": "pnpm --filter @az-sentinel/gateway build:exe",
     "build:web": "pnpm --filter @az-sentinel/web build",
     "build:server": "pnpm --filter @az-sentinel/server build",
-    "pack:server": "pnpm build:web && pnpm --filter @az-sentinel/server pack",
+    "pack:server": "pnpm build:web && pnpm --filter @az-sentinel/server run pack:release",
     "start:server": "pnpm --filter @az-sentinel/server start",
     "dev:raw": "pnpm --parallel --filter @az-sentinel/api --filter @az-sentinel/server --filter @az-sentinel/web --filter @az-sentinel/gateway dev"
   },

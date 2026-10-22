@@ -7,7 +7,7 @@
     "build": "node build.mjs",
     "start": "node dist/server.mjs",
     "dev": "node dev.mjs",
-    "pack": "node build.mjs && node scripts/pack.mjs",
+    "pack:release": "node build.mjs && node scripts/pack.mjs",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },
