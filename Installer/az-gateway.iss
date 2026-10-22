@@ -229,7 +229,7 @@ begin
     CfgPage.Edits[1].Enabled := False;
     CfgPage.Edits[2].Enabled := False;
     CfgPage.Edits[3].Enabled := False;
-    CfgPage.PageDescription := 'Doi sang token ca nhan';
+    CfgPage.Description := 'Doi sang token ca nhan';
     CfgPage.SubCaptionLabel.Caption :=
       'Khoa ket noi chung cu khong con dung duoc. Hay nhap token ca nhan azt_... do quan tri vien cap cho ban. ' +
       'Cac cai dat khac giu nguyen.';
