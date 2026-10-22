@@ -8,9 +8,6 @@ import { NotFoundPage } from './pages/NotFoundPage'
 import { TokensPage } from './pages/TokensPage'
 import { UsersPage } from './pages/UsersPage'
 
-/** Các trang liên kết EA chỉ có ở `pnpm dev` (API dev của BE); bản build không chứa chúng. */
-const showLinks = import.meta.env.DEV
-
 export function App() {
   return (
     <Switch>
@@ -20,20 +17,16 @@ export function App() {
           <DashboardPage />
         </RequireAuth>
       </Route>
-      {showLinks && (
-        <Route path="/links">
-          <RequireAuth>
-            <LinksPage />
-          </RequireAuth>
-        </Route>
-      )}
-      {showLinks && (
-        <Route path="/links/:id">
-          <RequireAuth>
-            <LinkDetailPage />
-          </RequireAuth>
-        </Route>
-      )}
+      <Route path="/links">
+        <RequireAuth>
+          <LinksPage />
+        </RequireAuth>
+      </Route>
+      <Route path="/links/:id">
+        <RequireAuth>
+          <LinkDetailPage />
+        </RequireAuth>
+      </Route>
       <Route path="/tokens">
         <RequireAuth>
           <TokensPage />

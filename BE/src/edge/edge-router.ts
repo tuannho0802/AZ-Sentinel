@@ -60,7 +60,10 @@ export function createEdgeRouter(opts: EdgeRouterOptions = {}): MiddlewareHandle
 
     c.set('mode', 'fallback')
     const writing = c.req.method !== 'GET' && c.req.method !== 'HEAD'
-    const guarded = path.startsWith('/api/dev/') || path.startsWith('/api/admin/')
+    const guarded =
+      path.startsWith('/api/dev/') ||
+      path.startsWith('/api/admin/') ||
+      path.startsWith('/api/links')
     if (writing && guarded && c.env.FALLBACK_WRITABLE !== '1') {
       throw new AppError(
         503,

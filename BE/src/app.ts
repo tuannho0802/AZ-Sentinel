@@ -12,6 +12,7 @@ import { createAuthRoutes } from './routes/auth'
 import { devLinks } from './routes/dev-links'
 import { createEaRoutes, defaultHub, type HubProvider } from './routes/ea'
 import { health } from './routes/health'
+import { createLinkRoutes } from './routes/links'
 import { createServerInfoRoutes } from './routes/server-info'
 import { spike } from './routes/spike'
 import { createSyncRoutes } from './routes/sync'
@@ -51,6 +52,7 @@ export function createApp(opts: AppOptions = {}) {
   // Plan 4B: người dùng, đăng nhập thật và quản lý người dùng.
   app.route('/api', createAuthRoutes(opts.viewerAuth ?? resolveViewer))
   app.route('/api/admin/users', createAdminUserRoutes(opts.viewerAuth ?? resolveViewer))
+  app.route('/api/links', createLinkRoutes(opts.viewerAuth ?? resolveViewer))
   // DEV Part 1: quản lý liên kết không cần đăng nhập, chỉ bật bằng DEV_LINKS_API. Xóa khi có Part 2/3.
   app.route('/api/dev', devLinks)
   // SPIKE (P1-19): xóa ở P1-31.

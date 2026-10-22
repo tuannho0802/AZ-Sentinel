@@ -78,7 +78,7 @@ const base = {
 
 describe('danh sách liên kết', () => {
   it('rỗng: giải thích và hướng dẫn bước tiếp theo', async () => {
-    renderApp('/links', { ...base, 'GET /api/dev/links': () => json(200, { links: [] }) })
+    renderApp('/links', { ...base, 'GET /api/links': () => json(200, { links: [] }) })
     expect(await screen.findByText(strings.linksEmpty)).toBeTruthy()
     expect(screen.getByText(strings.linksEmptyHint)).toBeTruthy()
   })
@@ -86,7 +86,7 @@ describe('danh sách liên kết', () => {
   it('hiện liên kết chưa gắn và đã gắn (online, equity, lãi/lỗ có dấu)', async () => {
     renderApp('/links', {
       ...base,
-      'GET /api/dev/links': () => json(200, { links: [bound, unbound] }),
+      'GET /api/links': () => json(200, { links: [bound, unbound] }),
     })
     expect(await screen.findByText('5550001')).toBeTruthy()
     expect(screen.getByText(strings.unbound)).toBeTruthy()
@@ -102,7 +102,7 @@ describe('danh sách liên kết', () => {
   it('API dev chưa bật (404): báo cách bật, không cho tạo', async () => {
     renderApp('/links', {
       ...base,
-      'GET /api/dev/links': () =>
+      'GET /api/links': () =>
         json(404, { error: { code: 'NOT_FOUND', message: 'Không tìm thấy' } }),
     })
     expect(await screen.findByText(strings.linksDevOff)).toBeTruthy()
@@ -115,7 +115,7 @@ describe('danh sách liên kết', () => {
     let ok = false
     renderApp('/links', {
       ...base,
-      'GET /api/dev/links': () =>
+      'GET /api/links': () =>
         ok ? json(200, { links: [] }) : json(500, { error: { code: 'INTERNAL', message: 'x' } }),
     })
     expect(await screen.findByText(strings.linksError)).toBeTruthy()
@@ -131,11 +131,11 @@ describe('tạo liên kết', () => {
     const created: CreateLinkResponse = { link: unbound, api_key: 'SECRET-KEY-VALUE-1234567890' }
     renderApp('/links', {
       ...base,
-      'GET /api/dev/links': () => {
+      'GET /api/links': () => {
         listed += 1
         return json(200, { links: listed > 1 ? [unbound] : [] })
       },
-      'POST /api/dev/links': () => json(201, created),
+      'POST /api/links': () => json(201, created),
     })
     fireEvent.click(await screen.findByRole('button', { name: strings.linkCreate }))
     const dialog = await screen.findByRole('dialog')
@@ -154,8 +154,8 @@ describe('tạo liên kết', () => {
   it('tạo lỗi thì báo lỗi, không hiện hộp thoại', async () => {
     renderApp('/links', {
       ...base,
-      'GET /api/dev/links': () => json(200, { links: [] }),
-      'POST /api/dev/links': () =>
+      'GET /api/links': () => json(200, { links: [] }),
+      'POST /api/links': () =>
         json(400, { error: { code: 'VALIDATION_FAILED', message: 'Đã đạt giới hạn 20 liên kết' } }),
     })
     fireEvent.click(await screen.findByRole('button', { name: strings.linkCreate }))
@@ -173,7 +173,7 @@ describe('tên VPS tự nhập', () => {
   }
 
   it('danh sách có cột VPS hiện tên đã nhập', async () => {
-    renderApp('/links', { ...base, 'GET /api/dev/links': () => json(200, { links: [bound] }) })
+    renderApp('/links', { ...base, 'GET /api/links': () => json(200, { links: [bound] }) })
     expect(await screen.findByText(strings.colVps)).toBeTruthy()
     expect(await screen.findByText('VPS-A01')).toBeTruthy()
   })
@@ -182,14 +182,14 @@ describe('tên VPS tự nhập', () => {
     const created: CreateLinkResponse = { link: unbound, api_key: 'SECRET-KEY-VALUE-1234567890' }
     const { fetchMock } = renderApp('/links', {
       ...base,
-      'GET /api/dev/links': () => json(200, { links: [] }),
-      'POST /api/dev/links': () => json(201, created),
+      'GET /api/links': () => json(200, { links: [] }),
+      'POST /api/links': () => json(201, created),
     })
     const input = (await screen.findByLabelText(strings.vpsNamePlaceholder)) as HTMLInputElement
     fireEvent.change(input, { target: { value: '  VPS   Hà Nội 01 ' } })
     fireEvent.click(screen.getByRole('button', { name: strings.linkCreate }))
     await screen.findByRole('dialog')
-    expect(bodyOf(fetchMock, 'POST', '/api/dev/links')).toEqual({ vps_name: 'VPS Hà Nội 01' })
+    expect(bodyOf(fetchMock, 'POST', '/api/links')).toEqual({ vps_name: 'VPS Hà Nội 01' })
     expect(input.value).toBe('')
   })
 
@@ -197,27 +197,27 @@ describe('tên VPS tự nhập', () => {
     const created: CreateLinkResponse = { link: unbound, api_key: 'SECRET-KEY-VALUE-1234567890' }
     const { fetchMock } = renderApp('/links', {
       ...base,
-      'GET /api/dev/links': () => json(200, { links: [] }),
-      'POST /api/dev/links': () => json(201, created),
+      'GET /api/links': () => json(200, { links: [] }),
+      'POST /api/links': () => json(201, created),
     })
     fireEvent.click(await screen.findByRole('button', { name: strings.linkCreate }))
     await screen.findByRole('dialog')
-    expect(bodyOf(fetchMock, 'POST', '/api/dev/links')).toEqual({})
+    expect(bodyOf(fetchMock, 'POST', '/api/links')).toEqual({})
   })
 
   it('sửa tên ngay trong danh sách: Lưu gửi tên mới; Hủy thì không gửi gì', async () => {
     let name: string | null = 'VPS-A01'
     const { fetchMock } = renderApp('/links', {
       ...base,
-      'GET /api/dev/links': () => json(200, { links: [{ ...bound, vps_name: name }] }),
-      'POST /api/dev/links/2/vps-name': () => json(200, { ...bound, vps_name: name }),
+      'GET /api/links': () => json(200, { links: [{ ...bound, vps_name: name }] }),
+      'POST /api/links/2/vps-name': () => json(200, { ...bound, vps_name: name }),
     })
     await screen.findByText('VPS-A01')
     fireEvent.click(
       screen.getByRole('button', { name: `${strings.vpsNameEdit} ${strings.fieldVpsName} #2` }),
     )
     fireEvent.click(screen.getByRole('button', { name: strings.vpsNameCancel }))
-    expect(bodyOf(fetchMock, 'POST', '/api/dev/links/2/vps-name')).toBeUndefined()
+    expect(bodyOf(fetchMock, 'POST', '/api/links/2/vps-name')).toBeUndefined()
 
     fireEvent.click(
       screen.getByRole('button', { name: `${strings.vpsNameEdit} ${strings.fieldVpsName} #2` }),
@@ -228,11 +228,11 @@ describe('tên VPS tự nhập', () => {
     name = 'VPS-B02'
     fireEvent.click(screen.getByRole('button', { name: strings.vpsNameSave }))
     expect(await screen.findByText('VPS-B02')).toBeTruthy()
-    expect(bodyOf(fetchMock, 'POST', '/api/dev/links/2/vps-name')).toEqual({ vps_name: 'VPS-B02' })
+    expect(bodyOf(fetchMock, 'POST', '/api/links/2/vps-name')).toEqual({ vps_name: 'VPS-B02' })
   })
 
   it('trang chi tiết hiện tên VPS ở thẻ Tài khoản', async () => {
-    renderApp('/links/2', { ...base, 'GET /api/dev/links/2': () => json(200, detail) })
+    renderApp('/links/2', { ...base, 'GET /api/links/2': () => json(200, detail) })
     expect(await screen.findByText(strings.fieldVpsName)).toBeTruthy()
     expect(screen.getByText('VPS-A01')).toBeTruthy()
   })
@@ -240,7 +240,7 @@ describe('tên VPS tự nhập', () => {
 
 describe('chi tiết liên kết', () => {
   it('hiện tài khoản, số liệu, lệnh đang mở, sự kiện; văn bản EA gửi không bị diễn giải thành HTML', async () => {
-    renderApp('/links/2', { ...base, 'GET /api/dev/links/2': () => json(200, detail) })
+    renderApp('/links/2', { ...base, 'GET /api/links/2': () => json(200, detail) })
     expect(await screen.findByText('Broker <b>X</b>')).toBeTruthy()
     expect(screen.getByText('XAUUSD')).toBeTruthy()
     expect(screen.getByText('−3.20 USD')).toBeTruthy()
@@ -258,7 +258,7 @@ describe('chi tiết liên kết', () => {
   it('chưa nhận dữ liệu: hướng dẫn gắn EA', async () => {
     renderApp('/links/1', {
       ...base,
-      'GET /api/dev/links/1': () => json(200, { ...unbound, positions: [], events: [] }),
+      'GET /api/links/1': () => json(200, { ...unbound, positions: [], events: [] }),
     })
     expect(await screen.findByText(strings.waitingFirst)).toBeTruthy()
     expect(screen.getByText(strings.positionsEmpty)).toBeTruthy()
@@ -268,7 +268,7 @@ describe('chi tiết liên kết', () => {
   it('không tìm thấy (404) và id sai định dạng', async () => {
     renderApp('/links/9', {
       ...base,
-      'GET /api/dev/links/9': () => json(404, { error: { code: 'NOT_FOUND', message: 'x' } }),
+      'GET /api/links/9': () => json(404, { error: { code: 'NOT_FOUND', message: 'x' } }),
     })
     expect(await screen.findByText(strings.detailNotFound)).toBeTruthy()
     cleanup()
@@ -280,9 +280,9 @@ describe('chi tiết liên kết', () => {
     const del = vi.fn(() => new Response(null, { status: 204 }))
     renderApp('/links/2', {
       ...base,
-      'GET /api/dev/links/2': () => json(200, detail),
-      'DELETE /api/dev/links/2': del,
-      'GET /api/dev/links': () => json(200, { links: [] }),
+      'GET /api/links/2': () => json(200, detail),
+      'DELETE /api/links/2': del,
+      'GET /api/links': () => json(200, { links: [] }),
     })
     const btn = await screen.findByRole('button', { name: strings.actDelete })
     const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
@@ -299,13 +299,13 @@ describe('chi tiết liên kết', () => {
     const setStatus = vi.fn(() => json(200, { ...bound, status: 'disabled' }))
     const { fetchMock } = renderApp('/links/2', {
       ...base,
-      'GET /api/dev/links/2': () => json(200, detail),
-      'POST /api/dev/links/2/status': setStatus,
+      'GET /api/links/2': () => json(200, detail),
+      'POST /api/links/2/status': setStatus,
     })
     vi.spyOn(window, 'confirm').mockReturnValue(true)
     fireEvent.click(await screen.findByRole('button', { name: strings.actDisable }))
     await waitFor(() => expect(setStatus).toHaveBeenCalledTimes(1))
-    const call = fetchMock.mock.calls.find(([url]) => url === '/api/dev/links/2/status')
+    const call = fetchMock.mock.calls.find(([url]) => url === '/api/links/2/status')
     expect(JSON.parse(String(call?.[1]?.body))).toEqual({ status: 'disabled' })
   })
 })
@@ -317,8 +317,8 @@ describe('cấp lại khóa', () => {
     )
     renderApp('/links', {
       ...base,
-      'GET /api/dev/links': () => json(200, { links: [bound] }),
-      'POST /api/dev/links/2/rotate-key': rotate,
+      'GET /api/links': () => json(200, { links: [bound] }),
+      'POST /api/links/2/rotate-key': rotate,
     })
     const btn = await screen.findByRole('button', { name: strings.rotateKey })
     const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
@@ -343,8 +343,8 @@ describe('cấp lại khóa', () => {
   it('có nút cấp lại khóa ở trang chi tiết; lỗi thì báo lỗi', async () => {
     renderApp('/links/2', {
       ...base,
-      'GET /api/dev/links/2': () => json(200, detail),
-      'POST /api/dev/links/2/rotate-key': () =>
+      'GET /api/links/2': () => json(200, detail),
+      'POST /api/links/2/rotate-key': () =>
         json(500, { error: { code: 'INTERNAL', message: 'x' } }),
     })
     vi.spyOn(window, 'confirm').mockReturnValue(true)
@@ -358,7 +358,7 @@ describe('cột và tự làm mới', () => {
   it('danh sách có cột Tên tài khoản và Balance riêng', async () => {
     renderApp('/links', {
       ...base,
-      'GET /api/dev/links': () => json(200, { links: [bound, unbound] }),
+      'GET /api/links': () => json(200, { links: [bound, unbound] }),
     })
     await screen.findByText('5550001')
     const headers = screen.getAllByRole('columnheader').map((h) => h.textContent)
@@ -373,7 +373,7 @@ describe('cột và tự làm mới', () => {
   })
 
   it('liên kết chưa gắn tài khoản: tên và balance hiện "—"', async () => {
-    renderApp('/links', { ...base, 'GET /api/dev/links': () => json(200, { links: [unbound] }) })
+    renderApp('/links', { ...base, 'GET /api/links': () => json(200, { links: [unbound] }) })
     const row = (await screen.findByText(strings.awaitingEa)).closest('tr') as HTMLElement
     const cells = within(row)
       .getAllByRole('cell')
@@ -385,7 +385,7 @@ describe('cột và tự làm mới', () => {
     let calls = 0
     renderApp('/links', {
       ...base,
-      'GET /api/dev/links': () => {
+      'GET /api/links': () => {
         calls += 1
         return json(200, { links: [bound] })
       },
@@ -401,7 +401,7 @@ describe('cột và tự làm mới', () => {
     let calls = 0
     renderApp('/links/2', {
       ...base,
-      'GET /api/dev/links/2': () => {
+      'GET /api/links/2': () => {
         calls += 1
         return json(200, detail)
       },
@@ -418,7 +418,7 @@ describe('cột và tự làm mới', () => {
 
 describe('điều hướng', () => {
   it('menu có mục Liên kết EA dẫn tới danh sách', async () => {
-    renderApp('/', { ...base, 'GET /api/dev/links': () => json(200, { links: [] }) })
+    renderApp('/', { ...base, 'GET /api/links': () => json(200, { links: [] }) })
     fireEvent.click(await screen.findByRole('link', { name: strings.navLinks }))
     expect(await screen.findByText(strings.linksEmpty)).toBeTruthy()
   })

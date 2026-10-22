@@ -66,7 +66,7 @@ const base = {
   'GET /api/health': () => json(200, { status: 'ok' }),
 }
 const open = (links: LinkSummary[]) =>
-  renderApp('/links', { ...base, 'GET /api/dev/links': () => json(200, { links }) })
+  renderApp('/links', { ...base, 'GET /api/links': () => json(200, { links }) })
 
 /** Số tài khoản (7 chữ số) theo thứ tự các dòng của bảng. */
 const order = () =>

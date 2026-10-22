@@ -1,13 +1,10 @@
 import {
   type CreateLinkResponse,
   createLinkRequestSchema,
-  LINK_ONLINE_THRESHOLD_SECONDS,
   LINK_STATUSES,
   type LinkDetail,
   type LinkEventView,
   type LinkListResponse,
-  type LinkStatus,
-  type LinkSummary,
   normalizeVpsName,
   positionSchema,
   setVpsNameSchema,
@@ -18,8 +15,17 @@ import { z } from 'zod'
 import { AppError, errorBody } from '../lib/app-error'
 import { generateApiKey } from '../lib/crypto'
 import { nowUnix } from '../lib/time'
-import { HUB_NAME } from '../live/routes/live-ws'
-import type { AppEnv, Bindings } from '../types'
+import {
+  gatewayOnline,
+  type LinkRow,
+  loadLink,
+  parseId,
+  revokeAtHub,
+  SELECT_LINK,
+  safeJson,
+  toSummary,
+} from '../services/link-view'
+import type { AppEnv } from '../types'
 
 /**
  * DEV (Part 1): quản lý liên kết EA để thử bằng giao diện, KHÔNG CÓ XÁC THỰC.
@@ -47,129 +53,6 @@ devLinks.use('*', async (c, next) => {
   }
   await next()
 })
-
-type LinkRow = {
-  id: number
-  key_prefix: string
-  status: LinkStatus
-  created_at: number
-  bound_at: number | null
-  vps_name: string | null
-  login: number | null
-  server: string | null
-  broker: string | null
-  name: string | null
-  currency: string | null
-  mode: string | null
-  balance: number | null
-  equity: number | null
-  margin: number | null
-  margin_free: number | null
-  margin_level: number | null
-  floating_pl: number | null
-  last_reason: string | null
-  last_seen_at: number | null
-  last_seq: number | null
-  ea_ver: string | null
-  vps_label: string | null
-  positions_count: number | null
-  presence: number | null
-}
-
-const SELECT_LINK = `
-  SELECT l.id, l.key_prefix, l.status, l.created_at, l.bound_at, l.vps_name,
-         l.login, l.server, l.broker, l.name, l.currency, l.mode,
-         s.balance, s.equity, s.margin, s.margin_free, s.margin_level, s.floating_pl,
-         s.last_reason, s.last_seen_at, s.last_seq, s.ea_ver, s.vps_label,
-         json_array_length(COALESCE(s.positions_json, '[]')) AS positions_count,
-         s.presence
-  FROM ea_links l LEFT JOIN link_state s ON s.link_id = l.id`
-
-/**
- * Liên kết đang online qua Gateway (hub biết từ WebSocket). Hub lỗi thì coi là rỗng: danh sách
- * vẫn hiển thị theo `last_seen_at` của đường trực tiếp.
- */
-async function gatewayOnline(env: Bindings): Promise<Set<number>> {
-  try {
-    const ids = await env.LIVE_HUB.getByName(HUB_NAME).onlineLinkIds(Date.now())
-    return new Set(ids)
-  } catch {
-    return new Set()
-  }
-}
-
-/** Báo hub thu hồi liên kết (khóa bị khóa, cấp lại, gỡ gắn, xóa). Lỗi hub không chặn thao tác. */
-async function revokeAtHub(env: Bindings, linkId: number): Promise<void> {
-  try {
-    await env.LIVE_HUB.getByName(HUB_NAME).revokeLink(linkId)
-  } catch {
-    // hub không sẵn sàng: Gateway sẽ bị từ chối ở lần bind kế tiếp
-  }
-}
-
-function toSummary(r: LinkRow, now: number, viaGateway: Set<number>): LinkSummary {
-  return {
-    id: r.id,
-    key_prefix: r.key_prefix,
-    status: r.status,
-    created_at: r.created_at,
-    bound_at: r.bound_at,
-    vps_name: r.vps_name,
-    account:
-      r.login !== null && r.server !== null
-        ? {
-            login: r.login,
-            server: r.server,
-            broker: r.broker,
-            name: r.name,
-            currency: r.currency,
-            mode: r.mode,
-          }
-        : null,
-    state:
-      r.last_seen_at === null
-        ? null
-        : {
-            balance: r.balance,
-            equity: r.equity,
-            margin: r.margin,
-            margin_free: r.margin_free,
-            margin_level: r.margin_level,
-            floating_pl: r.floating_pl,
-            last_reason: r.last_reason,
-            last_seen_at: r.last_seen_at,
-            last_seq: r.last_seq,
-            ea_ver: r.ea_ver,
-            vps_label: r.vps_label,
-            positions_count: r.positions_count ?? 0,
-            // Gateway: online theo WebSocket. Đường trực tiếp: theo last_seen_at, trừ khi đã
-            // bị đánh dấu offline (presence = 1).
-            online:
-              viaGateway.has(r.id) ||
-              (r.presence !== 1 && now - r.last_seen_at <= LINK_ONLINE_THRESHOLD_SECONDS),
-          },
-  }
-}
-
-function parseId(raw: string): number {
-  if (!/^[1-9][0-9]{0,9}$/.test(raw)) throw new AppError(404, 'NOT_FOUND', 'Không tìm thấy')
-  return Number(raw)
-}
-
-async function loadLink(env: Bindings, id: number): Promise<LinkSummary> {
-  const row = await env.DB.prepare(`${SELECT_LINK} WHERE l.id = ?`).bind(id).first<LinkRow>()
-  if (!row) throw new AppError(404, 'NOT_FOUND', 'Không tìm thấy liên kết')
-  return toSummary(row, nowUnix(), await gatewayOnline(env))
-}
-
-function safeJson(text: string | null): unknown {
-  if (text === null) return null
-  try {
-    return JSON.parse(text)
-  } catch {
-    return null
-  }
-}
 
 devLinks.get('/links', async (c) => {
   const { results } = await c.env.DB.prepare(

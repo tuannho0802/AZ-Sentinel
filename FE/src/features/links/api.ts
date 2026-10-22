@@ -8,7 +8,7 @@ import type {
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiDelete, apiGet, apiPost } from '../../lib/api-client'
 
-const BASE = '/api/dev/links'
+const BASE = '/api/links'
 export const LINKS_KEY = ['links'] as const
 export const linkKey = (id: number) => ['links', id] as const
 

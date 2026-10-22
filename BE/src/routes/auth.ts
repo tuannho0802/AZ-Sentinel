@@ -121,7 +121,7 @@ export function createAuthRoutes(viewerAuth: ViewerAuth = resolveViewer) {
     c.header('Cache-Control', 'no-store')
     const viewer = await viewerAuth(c)
     const user = viewer ? await getUserById(c.env.DB, viewer.userId) : null
-    if (!user || user.status !== 'active') {
+    if (user?.status !== 'active') {
       throw new AppError(401, 'UNAUTHENTICATED', 'Chưa đăng nhập')
     }
     return c.json(toMe(user))

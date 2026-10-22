@@ -52,6 +52,8 @@ export type LinkSummary = {
   account: LinkAccountView | null
   /** null = chưa nhận dữ liệu lần nào. */
   state: LinkStateView | null
+  /** Chủ sở hữu (chỉ có ở API có phân quyền; null = chưa gắn chủ). */
+  owner?: { id: number; name: string | null } | null
 }
 
 export type LinkEventView = {

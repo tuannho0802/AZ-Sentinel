@@ -25,6 +25,8 @@ const rowLook: Record<Health, { stripe: string; bg: string }> = {
 
 export function LinksTable({ rows }: { rows: LinkRow[] }) {
   const now = useNow()
+  // Cột chủ sở hữu chỉ có khi API trả `owner` (danh sách của quản trị viên).
+  const showOwner = rows.some((r) => r.link.owner !== undefined)
   return (
     <div className="overflow-x-auto rounded-lg border border-line bg-surface">
       <table className="w-full min-w-[56rem] border-collapse text-sm">
@@ -34,6 +36,7 @@ export function LinksTable({ rows }: { rows: LinkRow[] }) {
             <th className={th}>{strings.colAccount}</th>
             <th className={`${th} hidden xl:table-cell`}>{strings.colAccountName}</th>
             <th className={th}>{strings.colVps}</th>
+            {showOwner && <th className={th}>{strings.colOwner}</th>}
             <th className={thNum}>{strings.colBalance}</th>
             <th className={thNum}>{strings.colEquity}</th>
             <th className={thNum}>{strings.colPl}</th>
@@ -66,6 +69,15 @@ export function LinksTable({ rows }: { rows: LinkRow[] }) {
                 <td className={td}>
                   <VpsNameCell linkId={l.id} value={l.vps_name} />
                 </td>
+                {showOwner && (
+                  <td className={td}>
+                    {l.owner ? (
+                      (l.owner.name ?? `#${l.owner.id}`)
+                    ) : (
+                      <span className="text-muted">{strings.ownerNone}</span>
+                    )}
+                  </td>
+                )}
                 <td className={`${td} text-right whitespace-nowrap`}>
                   <Money value={l.state?.balance} currency={currency} />
                 </td>

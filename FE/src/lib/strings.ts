@@ -109,6 +109,8 @@ export const strings = {
   colPresence: 'Trạng thái',
   colAccountName: 'Tên tài khoản',
   colVps: 'VPS',
+  colOwner: 'Chủ sở hữu',
+  ownerNone: 'Chưa gắn chủ',
   colBalance: 'Balance',
   colEquity: 'Equity',
   colPl: 'Lãi/lỗ đang mở',

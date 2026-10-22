@@ -63,11 +63,11 @@ let listCalls = 0
 const handlers = () => ({
   'GET /api/me': () => json(200, me),
   'GET /api/health': () => json(200, { status: 'ok' }),
-  'GET /api/dev/links': () => {
+  'GET /api/links': () => {
     listCalls += 1
     return json(200, { links: [link] })
   },
-  'GET /api/dev/links/2': () => json(200, { ...link, positions: [], events: [] }),
+  'GET /api/links/2': () => json(200, { ...link, positions: [], events: [] }),
 })
 
 const sock = () => FakeWebSocket.instances.at(-1) as FakeWebSocket
@@ -123,7 +123,7 @@ describe('mở/đóng kết nối (F-01..F-08, F-16, F-19)', () => {
     let detailCalls = 0
     renderApp('/links/2', {
       ...handlers(),
-      'GET /api/dev/links/2': () => {
+      'GET /api/links/2': () => {
         detailCalls += 1
         return json(200, {
           ...link,

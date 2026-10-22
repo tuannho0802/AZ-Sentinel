@@ -177,6 +177,23 @@ describe('bộ định tuyến biên (Plan 3E)', () => {
     expect(read.status).toBe(200)
   })
 
+  it('dự phòng: chặn ghi liên kết có phân quyền (/api/links), vẫn cho đọc', async () => {
+    const vps = fakeVps(() => {
+      throw new Error('down')
+    })
+    const app = makeApp(vps.fetchFn)
+    const dev = { ...withVps, DEV_LINKS_API: '1' }
+    const admin = { Cookie: 'az_mock_session=admin@az.local', 'Content-Type': 'application/json' }
+    const post = await app.fetch(
+      new Request('http://az.test/api/links', { method: 'POST', headers: admin, body: '{}' }),
+      dev,
+    )
+    expect(post.status).toBe(503)
+    expect(await post.json()).toMatchObject({ error: { code: 'READ_ONLY_FALLBACK' } })
+    const read = await app.fetch(new Request('http://az.test/api/links', { headers: admin }), dev)
+    expect(read.status).toBe(200)
+  })
+
   it('dự phòng: chặn cấp/đặt lại/thu hồi token (/api/admin) nhưng vẫn cho đọc', async () => {
     const vps = fakeVps(() => {
       throw new Error('down')

@@ -8,7 +8,7 @@ afterEach(cleanup)
 const handlers = {
   'GET /api/me': () => json(200, me),
   'GET /api/health': () => json(200, { status: 'ok' }),
-  'GET /api/dev/links': () => json(200, { links: [] }),
+  'GET /api/links': () => json(200, { links: [] }),
 }
 
 describe('AppShell', () => {
