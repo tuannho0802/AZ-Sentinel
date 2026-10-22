@@ -1,5 +1,6 @@
 import { DurableObject } from 'cloudflare:workers'
 import {
+  AUTO_KEY,
   type ClientMessage,
   clientMessageSchema,
   GW,
@@ -20,6 +21,7 @@ import { sha256Hex } from '../lib/crypto'
 import { m5Slot } from '../lib/time'
 import {
   bindTerminal,
+  bindTerminalAuto,
   eventStatements,
   liveWriteStatements,
   presenceStatements,
@@ -683,7 +685,9 @@ export class LiveHub extends DurableObject<Bindings> {
     const gw = this.readGw(ws)
     if (!gw) return
     const res = await this.withDb((db) =>
-      bindTerminal(db, msg, keyHash, Math.floor(nowMs / 1000), gw.tokenOwnerId),
+      msg.key === AUTO_KEY
+        ? bindTerminalAuto(db, msg, Math.floor(nowMs / 1000), gw.tokenOwnerId)
+        : bindTerminal(db, msg, keyHash, Math.floor(nowMs / 1000), gw.tokenOwnerId),
     )
     if (res === null) return // D1 lỗi: im lặng; Gateway giữ "pending" và bind lại khi nối lại
     if (!res.ok) {

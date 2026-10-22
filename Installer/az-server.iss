@@ -77,6 +77,7 @@ Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -Fil
 var
   SrvPage: TInputQueryWizardPage;
   NetPage: TInputOptionWizardPage;
+  AdmPage: TInputQueryWizardPage;
 
 function EnvPath: String;
 begin
@@ -170,12 +171,25 @@ begin
   NetPage.Add('Mo cong nay tren Windows Firewall (chi mang Private/Domain)');
   NetPage.Values[0] := ExpandConstant('{param:LAN|}') = '1';
   NetPage.Values[1] := ExpandConstant('{param:FIREWALL|}') = '1';
+
+  AdmPage := CreateInputQueryPage(NetPage.ID, 'Tai khoan quan tri dau tien',
+    'Dung tai khoan nay de dang nhap web sau khi cai xong',
+    'Dien du thong tin de bo cai tao luon quan tri vien goc. De trong email thi bo qua; ' +
+    'khi do tao sau bang shortcut hoac user.cmd create-admin.');
+  AdmPage.Add('Email dang nhap:', False);
+  AdmPage.Add('Ten hien thi:', False);
+  AdmPage.Add('Mat khau (toi thieu 10 ky tu):', True);
+  AdmPage.Add('Nhap lai mat khau:', True);
+  AdmPage.Values[0] := ExpandConstant('{param:ADMINEMAIL|}');
+  AdmPage.Values[1] := ExpandConstant('{param:ADMINNAME|}');
+  AdmPage.Values[2] := ExpandConstant('{param:ADMINPASSWORD|}');
+  AdmPage.Values[3] := ExpandConstant('{param:ADMINPASSWORD|}');
 end;
 
 function ShouldSkipPage(PageID: Integer): Boolean;
 begin
   Result := False;
-  if ((PageID = SrvPage.ID) or (PageID = NetPage.ID)) and (not WillWriteEnv) then Result := True;
+  if ((PageID = SrvPage.ID) or (PageID = NetPage.ID) or (PageID = AdmPage.ID)) and (not WillWriteEnv) then Result := True;
 end;
 
 function NextButtonClick(CurPageID: Integer): Boolean;
@@ -188,6 +202,34 @@ begin
   begin
     { Firewall chi co nghia khi mo cho LAN. }
     if (not NetPage.Values[0]) then NetPage.Values[1] := False;
+    Exit;
+  end;
+  if CurPageID = AdmPage.ID then
+  begin
+    if Trim(AdmPage.Values[0]) = '' then Exit; { bo qua: tao admin sau }
+    if (Pos('@', AdmPage.Values[0]) < 2) or (Pos('.', AdmPage.Values[0]) = 0) or (Pos(' ', Trim(AdmPage.Values[0])) > 0) then
+    begin
+      MsgBox('Email khong hop le.', mbError, MB_OK);
+      Result := False;
+      Exit;
+    end;
+    if Trim(AdmPage.Values[1]) = '' then
+    begin
+      MsgBox('Hay nhap ten hien thi.', mbError, MB_OK);
+      Result := False;
+      Exit;
+    end;
+    if (Length(AdmPage.Values[2]) < 10) or (Length(AdmPage.Values[2]) > 128) then
+    begin
+      MsgBox('Mat khau phai tu 10 den 128 ky tu.', mbError, MB_OK);
+      Result := False;
+      Exit;
+    end;
+    if AdmPage.Values[2] <> AdmPage.Values[3] then
+    begin
+      MsgBox('Hai lan nhap mat khau khong khop.', mbError, MB_OK);
+      Result := False;
+    end;
     Exit;
   end;
   if CurPageID <> SrvPage.ID then Exit;
@@ -275,6 +317,24 @@ begin
   SaveStringToFile(EnvPath, Env, False);
 end;
 
+{ Tao quan tri vien goc bang user.cmd (mat khau qua tep tam doc stdin, khong nam tren dong lenh). }
+procedure CreateAdmin;
+var
+  RC: Integer;
+  Tmp, Cmd: String;
+begin
+  if Trim(AdmPage.Values[0]) = '' then Exit;
+  Tmp := ExpandConstant('{tmp}\azadm.txt');
+  SaveStringToFile(Tmp, AdmPage.Values[2] + #13#10, False);
+  Cmd := '/S /C ""' + ExpandConstant('{app}\user.cmd') + '" create-admin "' + Trim(AdmPage.Values[0]) +
+    '" "' + Trim(AdmPage.Values[1]) + '" --password-stdin < "' + Tmp + '""';
+  if (not Exec(ExpandConstant('{cmd}'), Cmd, ExpandConstant('{app}'), SW_HIDE, ewWaitUntilTerminated, RC)) or (RC <> 0) then
+    SuppressibleMsgBox('Khong tao duoc tai khoan quan tri (ma ' + IntToStr(RC) + '). ' +
+      'Sau khi cai xong, mo PowerShell Administrator trong thu muc cai va chay: user.cmd create-admin <email> <ten>',
+      mbError, MB_OK, IDOK);
+  DeleteFile(Tmp);
+end;
+
 procedure CurStepChanged(CurStep: TSetupStep);
 var
   RC: Integer;
@@ -293,5 +353,6 @@ begin
     { server.env co SYNC_TOKEN: chi Administrators va SYSTEM duoc doc (thu muc Program Files cho Users doc). }
     Exec(ExpandConstant('{sys}\icacls.exe'),
       '"' + EnvPath + '" /inheritance:r /grant:r *S-1-5-18:F *S-1-5-32-544:F', '', SW_HIDE, ewWaitUntilTerminated, RC);
+    if WillWriteEnv then CreateAdmin;
   end;
 end;

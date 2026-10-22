@@ -11,7 +11,7 @@
 ## Admin: làm một lần
 
 1. Chạy `AZSentinel-Server-Setup.exe` trên VPS chính. Ở trang cấu hình, điền **URL công khai của VPS** (hostname Cloudflare Tunnel hoặc tên miền, `https://...`) và URL web dự phòng (Worker). Có thể sửa sau trong `server.env` (`AZ_PUBLIC_URL`, `AZ_FALLBACK_URL`).
-2. Tạo tài khoản admin đầu tiên: `user.cmd create-admin <email> <tên>`.
+2. Tạo tài khoản admin đầu tiên: bộ cài có trang **Tài khoản quản trị đầu tiên** (email, tên, mật khẩu; cài im lặng: `/ADMINEMAIL= /ADMINNAME= /ADMINPASSWORD=`). Để trống thì tạo sau bằng `user.cmd create-admin <email> <tên>`.
 3. Đăng nhập web bằng URL công khai. Vào **Người dùng** để thêm/duyệt User.
 
 ## Admin: cấp cho từng User
@@ -25,6 +25,8 @@
 1. Cài `AZSentinel-Gateway-Setup.exe` trên VPS có MT5.
 2. Ở trang **Kết nối cloud**, dán mã kết nối vào ô đầu tiên, bấm Tiếp. Bộ cài tự kiểm mã và chép EA vào các terminal MT5.
 3. Mở web (URL admin cung cấp), đăng nhập. Tài khoản MT5 hiện ra sau khi EA nối vào.
+   - **Không cần API key**: để trống `InpApiKey` trong EA, EA gửi khóa `auto` và BE tự tạo liên kết cho (server, login) dưới chủ token (tối đa 100 liên kết tự tạo mỗi người; liên kết của người khác bị từ chối). Vẫn dùng được khóa riêng như cũ.
+   - Cần biên dịch lại EA (`ea/AZ_Spike.mq5` -> `Installer/ea/*.ex5`) để bản cài có hành vi này.
 
 Quên dán lúc cài, hoặc nhận mã mới: mở giao diện Gateway (shortcut **AZ Gateway** trên Desktop), mục **Cài đặt**, dán mã vào ô "Mã kết nối", bấm **Lưu và khởi động lại**.
 

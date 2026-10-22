@@ -13,6 +13,7 @@ import {
   upsertSnapStateStmt,
   upsertTradeStmt,
 } from '../db/sql'
+import { generateApiKey } from '../lib/crypto'
 import { m5Slot } from '../lib/time'
 import { isUniqueViolation } from './ingest-service'
 
@@ -82,6 +83,65 @@ export async function bindTerminal(
     throw error
   }
   await claim()
+  return { ok: true, linkId: link.id, ownerId: tokenOwnerId }
+}
+
+/** Mỗi chủ token tự tạo tối đa chừng này liên kết bằng đường tự động (chặn lạm dụng). */
+export const MAX_AUTO_LINKS_PER_OWNER = 100
+
+/**
+ * `bind` với khóa `auto` (EA không có API key riêng): tìm liên kết của (server, login); chưa có thì
+ * TẠO mới cho chủ token. Liên kết đã thuộc người khác hoặc bị khóa thì 403, liên kết chưa có chủ được
+ * gán cho chủ token. Quá `MAX_AUTO_LINKS_PER_OWNER` thì 429-tương-đương (409). Khóa API sinh ngẫu nhiên và
+ * không hiển thị; cần khóa thủ công thì đặt lại ở trang Liên kết.
+ */
+export async function bindTerminalAuto(
+  db: D1Database,
+  msg: BindMsg,
+  now: number,
+  tokenOwnerId: number,
+): Promise<BindResult> {
+  const find = () =>
+    db
+      .prepare('SELECT id, status, owner_id FROM ea_links WHERE server = ? AND login = ?')
+      .bind(msg.server, msg.login)
+      .first<{ id: number; status: string; owner_id: number | null }>()
+  let link = await find()
+  if (!link) {
+    const count = await db
+      .prepare('SELECT COUNT(*) AS n FROM ea_links WHERE owner_id = ?')
+      .bind(tokenOwnerId)
+      .first<{ n: number }>()
+    if ((count?.n ?? 0) >= MAX_AUTO_LINKS_PER_OWNER) return { ok: false, code: 409 }
+    const gen = await generateApiKey()
+    try {
+      link = await db
+        .prepare(
+          `INSERT INTO ea_links (owner_id, login, server, broker, name, mode, key_hash, key_prefix, status, bound_at, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?) RETURNING id, status, owner_id`,
+        )
+        .bind(
+          tokenOwnerId,
+          msg.login,
+          msg.server,
+          msg.broker ?? null,
+          msg.name ?? null,
+          msg.mode,
+          gen.keyHash,
+          gen.keyPrefix,
+          now,
+          now,
+        )
+        .first<{ id: number; status: string; owner_id: number | null }>()
+    } catch (error) {
+      if (!isUniqueViolation(error)) throw error
+      link = await find() // hai bind cùng lúc: dùng bản vừa được tạo
+    }
+    if (!link) return { ok: false, code: 409 }
+  }
+  if (link.status !== 'active') return { ok: false, code: 403 }
+  if (link.owner_id !== null && link.owner_id !== tokenOwnerId) return { ok: false, code: 403 }
+  if (link.owner_id === null) await claimLinkOwnerStmt(db, link.id, tokenOwnerId).run()
   return { ok: true, linkId: link.id, ownerId: tokenOwnerId }
 }
 

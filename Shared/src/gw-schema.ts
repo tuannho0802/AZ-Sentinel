@@ -14,6 +14,13 @@ import {
  * Giao thức Gateway (Plan 3C mục 3 và 4). Hằng số dùng chung Gateway, BE, test; EA (MQL5) chép
  * giá trị mặc định vào input và luôn ưu tiên giá trị Gateway trả về.
  */
+/**
+ * Khóa đặc biệt: EA không có API key riêng (để trống `InpApiKey`) thì gửi giá trị này. Gateway chuyển
+ * nguyên sang cloud; BE thấy khóa này thì tự tìm hoặc tạo liên kết cho (server, login) dưới chủ của
+ * token Gateway đang dùng (xem `bindTerminalAuto`). Khóa cũ vẫn dùng được như trước.
+ */
+export const AUTO_KEY = 'auto'
+
 export const GW = {
   defaultPort: 47800,
   /** EA ping Gateway mỗi chừng này giây (sàn 2). */

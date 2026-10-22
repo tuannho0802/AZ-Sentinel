@@ -20,7 +20,7 @@
 #define EVENTS_PER_REQUEST 50
 
 input string InpGateway = "http://127.0.0.1:47800"; // Gateway cuc bo (phai nam trong Allow WebRequest)
-input string InpApiKey = "";                        // API key cua lien ket. Khong chia se, khong commit
+input string InpApiKey = "";            // De trong = tu dong theo token ca nhan cua Gateway. Neu nhap: API key cua lien ket, khong chia se
 input int InpPingSec = 5;                           // Nhip ping Gateway (giay, toi thieu 2)
 input int InpTimeoutMs = 1000;                      // Timeout WebRequest (ms). Gateway tra loi duoi 50 ms
 input double InpMarginLevelAlert = 0.0;             // Canh bao khi margin level (%) xuong duoi muc nay. 0 = tat
@@ -228,7 +228,7 @@ bool IdentityReady()
 
 string Ident()
 {
-   return "\"v\":1,\"sid\":" + Q(g_sid) + ",\"key\":" + Q(InpApiKey) +
+   return "\"v\":1,\"sid\":" + Q(g_sid) + ",\"key\":" + Q(ApiKeyOrAuto()) +
           ",\"login\":" + IntegerToString(AccountInfoInteger(ACCOUNT_LOGIN)) +
           ",\"server\":" + Q(AccountInfoString(ACCOUNT_SERVER));
 }
@@ -904,17 +904,18 @@ bool AnotherInstanceRunning()
    return false;
 }
 
+string ApiKeyOrAuto()
+{
+   // De trong InpApiKey: gui "auto", Gateway/cloud tu gan lien ket theo token ca nhan.
+   return (StringLen(InpApiKey) == 0 ? "auto" : InpApiKey);
+}
+
 int OnInit()
 {
    if (MQLInfoInteger(MQL_TESTER))
    {
       Print("AZ: Strategy Tester khong dung duoc WebRequest, khong gui.");
       return (INIT_SUCCEEDED);
-   }
-   if (StringLen(InpApiKey) == 0)
-   {
-      Print("AZ: thieu InpApiKey.");
-      return (INIT_PARAMETERS_INCORRECT);
    }
    if (AnotherInstanceRunning())
    {
