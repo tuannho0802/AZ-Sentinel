@@ -80,6 +80,37 @@ export const strings = {
     'Người dùng cài Gateway rồi dán đúng mã này là xong: địa chỉ máy chủ, địa chỉ dự phòng và token đã gói sẵn. Mã chứa token nên hãy gửi riêng, không đăng nơi công khai.',
   connectCodeUnavailable:
     'Chưa tạo được mã kết nối vì máy chủ chưa biết địa chỉ công khai của mình (đang truy cập bằng localhost). Đặt AZ_PUBLIC_URL trong server.env, hoặc mở trang này bằng địa chỉ công khai rồi đặt lại token. Có thể gửi token bên dưới và nhờ người dùng nhập tay.',
+  inviteCopy: 'Sao chép lời mời',
+  inviteHint:
+    'Một tin nhắn có sẵn hướng dẫn 3 bước và mã kết nối: dán thẳng vào Zalo, Telegram hoặc email gửi cho người dùng.',
+  inviteMessage: (code: string, webUrl: string, downloadUrl: string) =>
+    [
+      'Chào bạn, đây là cách kết nối tài khoản MT5 vào AZ Sentinel (mất khoảng 2 phút):',
+      '',
+      `1. Tải và cài AZ Gateway trên VPS có MT5: ${downloadUrl}`,
+      '2. Khi bộ cài hỏi "Mã kết nối", dán mã này rồi bấm Next (không cần nhập gì thêm):',
+      code,
+      `3. Đăng nhập xem số liệu tại: ${webUrl}`,
+      '',
+      'Mã này dành riêng cho bạn, vui lòng không chia sẻ.',
+    ].join('\n'),
+  quickTitle: 'Bắt đầu nhanh',
+  quickIntro: 'Làm lần lượt các bước dưới đây để người dùng đầu tiên xem được số liệu.',
+  quickDone: 'Đã xong',
+  quickAllDone: 'Hệ thống đã sẵn sàng: có người dùng, Gateway đang nối và đã có tài khoản MT5.',
+  quickHide: 'Ẩn hướng dẫn',
+  quickStepUser: 'Thêm người dùng',
+  quickStepUserHint: 'Tạo tài khoản hoặc duyệt người đăng ký.',
+  quickStepUserGo: 'Mở Người dùng',
+  quickStepToken: 'Cấp mã kết nối',
+  quickStepTokenHint: 'Mỗi người một mã. Bấm "Sao chép lời mời" rồi gửi cho họ.',
+  quickStepTokenGo: 'Mở Token Gateway',
+  quickStepGateway: 'Gateway nối vào',
+  quickStepGatewayHint: 'Người dùng cài AZ Gateway, dán mã. Bước này tự xanh khi Gateway kết nối.',
+  quickStepAccount: 'Tài khoản MT5 xuất hiện',
+  quickStepAccountHint:
+    'Gắn EA lên MT5 (bộ cài Gateway đã chép sẵn EA); tài khoản hiện sau vài giây.',
+  quickStepAccountGo: 'Mở Liên kết EA',
   userSetupTitle: 'Bắt đầu theo dõi tài khoản của bạn',
   userSetupBody:
     'Chưa có dữ liệu nào. Hãy xin quản trị viên một mã kết nối (azc1...), cài AZ Gateway trên VPS có MT5 của bạn, dán mã vào bộ cài. Gateway kết nối xong, tài khoản của bạn sẽ hiện ở đây.',

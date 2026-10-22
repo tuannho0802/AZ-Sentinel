@@ -3,6 +3,7 @@ import { Button } from '../../components/Button'
 import { Dialog } from '../../components/Dialog'
 import { Icon } from '../../components/Icon'
 import { inputClass } from '../../components/styles'
+import { buildInvite } from '../../lib/invite'
 import { strings } from '../../lib/strings'
 
 /** Hiện token đúng một lần; token chỉ nằm trong state của hộp thoại này và có nút sao chép. */
@@ -65,6 +66,13 @@ export function TokenSecretDialog({
             </Button>
           </div>
           <p className="mt-1 text-sm text-muted">{strings.connectCodeHint}</p>
+          <div className="mt-3 rounded-md border border-line bg-raised p-3">
+            <Button onClick={() => copy(buildInvite(connectCode))}>
+              <Icon name="copy" size={14} />
+              {strings.inviteCopy}
+            </Button>
+            <p className="mt-1.5 text-sm text-muted">{strings.inviteHint}</p>
+          </div>
         </div>
       )}
       {!connectCode && <p className="mt-3 text-sm text-muted">{strings.connectCodeUnavailable}</p>}

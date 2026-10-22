@@ -1,4 +1,4 @@
-; Bo cai AZ Server (may chu chinh tren VPS Windows): gom Server (Node + BE) va giao dien web (FE/dist) trong mot file.
+﻿; Bo cai AZ Server (may chu chinh tren VPS Windows): gom Server (Node + BE) va giao dien web (FE/dist) trong mot file.
 ; Build: pnpm pack:server, chep node.exe vao Server\release\az-server, roi
 ;   ISCC /DMyAppVersion=0.1.0 Installer\az-server.iss      (CI: .github/workflows/release-server.yml lam het)
 ; Dau vao: Server\release\az-server\ (server.mjs, node.exe, migrations\, web\, *.ps1, *.cmd, server.env.example).
@@ -22,7 +22,8 @@ AppVersion={#MyAppVersion}
 AppPublisher=AZ Sentinel
 DefaultDirName={autopf}\AZSentinel\Server
 DisableProgramGroupPage=yes
-DisableReadyPage=no
+DisableDirPage=yes
+DisableReadyPage=yes
 PrivilegesRequired=admin
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
@@ -77,6 +78,8 @@ Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -Fil
 
 [Code]
 var
+  ModePage: TInputOptionWizardPage;
+  FreshInstall: Boolean;
   SrvPage: TInputQueryWizardPage;
   NetPage: TInputOptionWizardPage;
   AdmPage: TInputQueryWizardPage;
@@ -109,6 +112,12 @@ begin
   if E = 0 then E := Pos(#10, Text);
   if E > 0 then Text := Copy(Text, 1, E - 1);
   Result := StrToIntDef(Trim(Text), 0);
+end;
+
+{ Cài nhanh (mặc định) chỉ hỏi tài khoản quản trị; các ô kỹ thuật chỉ hiện khi chọn Tùy chỉnh nâng cao. }
+function WantAdvanced: Boolean;
+begin
+  Result := ModePage.Values[1] or (ExpandConstant('{param:ADVANCED|}') = '1');
 end;
 
 function PortValue: Integer;
@@ -145,10 +154,32 @@ end;
 
 procedure InitializeWizard;
 begin
-  SrvPage := CreateInputQueryPage(wpSelectDir, 'Cau hinh AZ Server',
+  FreshInstall := WillWriteEnv;
+  ModePage := CreateInputOptionPage(wpWelcome, 'Chọn cách cài đặt',
+    'Bạn muốn cài AZ Server theo cách nào?',
+    'Nếu chưa chắc, cứ chọn "Cài nhanh": chỉ cần tạo tài khoản quản trị, mọi thứ còn lại bộ cài tự lo. ' +
+    'Có thể đổi các thiết lập nâng cao sau trong tệp server.env.',
+    True, False);
+  ModePage.Add('Cài nhanh (khuyên dùng): tạo tài khoản quản trị, tự cài luôn AZ Gateway trên máy này.');
+  ModePage.Add('Tùy chỉnh nâng cao: tên máy chủ, cổng, địa chỉ công khai (Cloudflare Tunnel), dự phòng Cloudflare, mạng nội bộ.');
+  ModePage.Values[0] := True;
+
+  AdmPage := CreateInputQueryPage(ModePage.ID, 'Tài khoản quản trị',
+    'Dùng tài khoản này để đăng nhập web sau khi cài xong',
+    'Điền email, tên và mật khẩu (tối thiểu 10 ký tự). Đây là tài khoản quản trị gốc, giữ mật khẩu cẩn thận.');
+  AdmPage.Add('Email đăng nhập:', False);
+  AdmPage.Add('Tên hiển thị:', False);
+  AdmPage.Add('Mật khẩu (tối thiểu 10 ký tự):', True);
+  AdmPage.Add('Nhập lại mật khẩu:', True);
+  AdmPage.Values[0] := ExpandConstant('{param:ADMINEMAIL|}');
+  AdmPage.Values[1] := ExpandConstant('{param:ADMINNAME|}');
+  AdmPage.Values[2] := ExpandConstant('{param:ADMINPASSWORD|}');
+  AdmPage.Values[3] := ExpandConstant('{param:ADMINPASSWORD|}');
+
+  SrvPage := CreateInputQueryPage(AdmPage.ID, 'Cau hinh AZ Server',
     'May chu chinh tren VPS: phuc vu giao dien web va nhan du lieu tu Gateway',
-    'Cloud URL va dong bo la tuy chon: de trong thi Server chay mot minh, khong co ban du phong tren Cloudflare. ' +
-    'Co the sua sau trong server.env (thu muc cai).');
+    'Chỉ dành cho người đã quen Cloudflare. Cloud URL và đồng bộ là tùy chọn: để trống thì Server chạy một mình, không có bản dự phòng. ' +
+    'Có thể sửa sau trong server.env (thư mục cài).');
   SrvPage.Add('Ten may chu (hien tren web):', False);
   SrvPage.Add('Vi tri (tuy chon, vi du Singapore):', False);
   SrvPage.Add('Cong HTTP:', False);
@@ -177,25 +208,13 @@ begin
   NetPage.Values[0] := ExpandConstant('{param:LAN|}') = '1';
   NetPage.Values[1] := ExpandConstant('{param:FIREWALL|}') = '1';
   NetPage.Values[2] := ExpandConstant('{param:GATEWAY|1}') <> '0';
-
-  AdmPage := CreateInputQueryPage(NetPage.ID, 'Tai khoan quan tri dau tien',
-    'Dung tai khoan nay de dang nhap web sau khi cai xong',
-    'Dien du thong tin de bo cai tao luon quan tri vien goc. De trong email thi bo qua; ' +
-    'khi do tao sau bang shortcut hoac user.cmd create-admin.');
-  AdmPage.Add('Email dang nhap:', False);
-  AdmPage.Add('Ten hien thi:', False);
-  AdmPage.Add('Mat khau (toi thieu 10 ky tu):', True);
-  AdmPage.Add('Nhap lai mat khau:', True);
-  AdmPage.Values[0] := ExpandConstant('{param:ADMINEMAIL|}');
-  AdmPage.Values[1] := ExpandConstant('{param:ADMINNAME|}');
-  AdmPage.Values[2] := ExpandConstant('{param:ADMINPASSWORD|}');
-  AdmPage.Values[3] := ExpandConstant('{param:ADMINPASSWORD|}');
 end;
 
 function ShouldSkipPage(PageID: Integer): Boolean;
 begin
   Result := False;
-  if ((PageID = SrvPage.ID) or (PageID = NetPage.ID) or (PageID = AdmPage.ID)) and (not WillWriteEnv) then Result := True;
+  if ((PageID = ModePage.ID) or (PageID = AdmPage.ID)) and (not WillWriteEnv) then Result := True;
+  if ((PageID = SrvPage.ID) or (PageID = NetPage.ID)) and ((not WillWriteEnv) or (not WantAdvanced)) then Result := True;
 end;
 
 function NextButtonClick(CurPageID: Integer): Boolean;
@@ -212,28 +231,33 @@ begin
   end;
   if CurPageID = AdmPage.ID then
   begin
-    if Trim(AdmPage.Values[0]) = '' then Exit; { bo qua: tao admin sau }
+    if Trim(AdmPage.Values[0]) = '' then
+    begin
+      MsgBox('Hãy nhập email để tạo tài khoản quản trị. Không có tài khoản này bạn sẽ không đăng nhập được.', mbError, MB_OK);
+      Result := False;
+      Exit;
+    end;
     if (Pos('@', AdmPage.Values[0]) < 2) or (Pos('.', AdmPage.Values[0]) = 0) or (Pos(' ', Trim(AdmPage.Values[0])) > 0) then
     begin
-      MsgBox('Email khong hop le.', mbError, MB_OK);
+      MsgBox('Email không hợp lệ.', mbError, MB_OK);
       Result := False;
       Exit;
     end;
     if Trim(AdmPage.Values[1]) = '' then
     begin
-      MsgBox('Hay nhap ten hien thi.', mbError, MB_OK);
+      MsgBox('Hãy nhập tên hiển thị.', mbError, MB_OK);
       Result := False;
       Exit;
     end;
     if (Length(AdmPage.Values[2]) < 10) or (Length(AdmPage.Values[2]) > 128) then
     begin
-      MsgBox('Mat khau phai tu 10 den 128 ky tu.', mbError, MB_OK);
+      MsgBox('Mật khẩu phải từ 10 đến 128 ký tự.', mbError, MB_OK);
       Result := False;
       Exit;
     end;
     if AdmPage.Values[2] <> AdmPage.Values[3] then
     begin
-      MsgBox('Hai lan nhap mat khau khong khop.', mbError, MB_OK);
+      MsgBox('Hai lần nhập mật khẩu không khớp.', mbError, MB_OK);
       Result := False;
     end;
     Exit;
@@ -411,5 +435,20 @@ begin
       SetupTunnel;
       InstallAdminGateway;
     end;
+  end;
+end;
+
+{ Trang kết thúc: nói rõ địa chỉ và tài khoản để người dùng không phải đoán bước tiếp theo. }
+procedure CurPageChanged(CurPageID: Integer);
+var
+  Text: String;
+begin
+  if (CurPageID = wpFinished) and FreshInstall and (not WizardSilent) then
+  begin
+    Text := 'AZ Sentinel đã sẵn sàng và tự chạy mỗi khi máy khởi động.' + #13#10#13#10 +
+      'Địa chỉ: http://127.0.0.1:' + IntToStr(PortValue) + '/' + #13#10 +
+      'Đăng nhập bằng: ' + Trim(AdmPage.Values[0]) + #13#10#13#10 +
+      'Bước tiếp theo: đăng nhập, mở mục Bắt đầu nhanh trên trang Tổng quan, cấp mã kết nối cho người dùng rồi bấm "Sao chép lời mời" để gửi cho họ.';
+    WizardForm.FinishedLabel.Caption := Text;
   end;
 end;

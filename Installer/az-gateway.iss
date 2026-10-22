@@ -1,4 +1,4 @@
-; Bo cai AZ Gateway cho Windows Server VPS. Build: ISCC /DMyAppVersion=0.2.0 Installer\az-gateway.iss
+﻿; Bo cai AZ Gateway cho Windows Server VPS. Build: ISCC /DMyAppVersion=0.2.0 Installer\az-gateway.iss
 ; Dau vao: Gateway\dist\az-gateway.exe (pnpm --filter @az-sentinel/gateway build:exe).
 ; Cai dat don gian nhat: dan "ma ket noi" azc1... (do quan tri vien gui) vao trang Ket noi cloud, hoac im lang:
 ;   AZSentinel-Gateway-Setup.exe /VERYSILENT /VPS=VPS-01 /CODE=azc1.... [/SKIPTOKENCHECK=1]
@@ -19,7 +19,8 @@ AppVersion={#MyAppVersion}
 AppPublisher=AZ Sentinel
 DefaultDirName={autopf}\AZSentinel\Gateway
 DisableProgramGroupPage=yes
-DisableReadyPage=no
+DisableDirPage=yes
+DisableReadyPage=yes
 PrivilegesRequired=admin
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
@@ -71,6 +72,7 @@ Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -Fil
 [Code]
 var
   CfgPage: TInputQueryWizardPage;
+  ManualChk: TNewCheckBox;
   { Da co ban cai truoc (nang cap) hay cai moi: cai moi thi xoa co "da tat" con sot. }
   WasInstalled: Boolean;
   { Nang cap tu ban dung khoa chung cu: config con token khong phai azt_..., phai nhap token ca nhan. }
@@ -200,25 +202,55 @@ begin
   end;
 end;
 
+{ Các ô kỹ thuật (URL, token) chỉ hiện khi chọn "Tôi không có mã kết nối"; người dùng thường chỉ thấy 2 ô. }
+procedure ShowManualFields(Show: Boolean);
+var
+  I: Integer;
+begin
+  for I := 2 to 4 do
+  begin
+    CfgPage.PromptLabels[I].Visible := Show;
+    CfgPage.Edits[I].Visible := Show;
+  end;
+  if Show then
+    ManualChk.Top := CfgPage.Edits[4].Top + CfgPage.Edits[4].Height + ScaleY(10)
+  else
+    ManualChk.Top := CfgPage.Edits[1].Top + CfgPage.Edits[1].Height + ScaleY(14);
+end;
+
+procedure ManualChkClick(Sender: TObject);
+begin
+  ShowManualFields(ManualChk.Checked);
+end;
+
 procedure InitializeWizard;
 var
   Json: String;
 begin
   MigrateMode := NeedsTokenMigration;
-  CfgPage := CreateInputQueryPage(wpSelectDir, 'Ket noi cloud',
-    'Thong tin de Gateway gui du lieu len he thong AZ Sentinel',
-    'Dan "Ma ket noi" (azc1...) do quan tri vien gui cho ban la xong, khong can go gi them. ' +
-    'Cac o con lai chi can khi khong co ma. Co the de trong het de chay cuc bo truoc, cau hinh sau tren giao dien web cua Gateway.');
-  CfgPage.Add('Ma ket noi (dan ma azc1... vao day):', False);
-  CfgPage.Add('Ten VPS (hien tren web):', False);
-  CfgPage.Add('Cloud URL (vi du wss://ten.workers.dev/api/gw/ws):', False);
-  CfgPage.Add('Cloud URL du phong (tuy chon):', False);
-  CfgPage.Add('Token ca nhan (azt_..., do quan tri vien cap):', True);
+  CfgPage := CreateInputQueryPage(wpWelcome, 'Kết nối với AZ Sentinel',
+    'Chỉ cần dán mã kết nối do quản trị viên gửi cho bạn',
+    'Dán mã kết nối (bắt đầu bằng azc1...) vào ô đầu tiên rồi bấm Next. Địa chỉ máy chủ, dự phòng và token đã nằm sẵn trong mã. ' +
+    'Chưa có mã? Cứ bấm Next để cài trước, sau đó dán mã trong giao diện AZ Gateway.');
+  CfgPage.Add('Mã kết nối (dán mã azc1... vào đây):', False);
+  CfgPage.Add('Tên VPS (hiện trên web, có thể giữ nguyên):', False);
+  CfgPage.Add('Cloud URL (ví dụ wss://ten.workers.dev/api/gw/ws):', False);
+  CfgPage.Add('Cloud URL dự phòng (tùy chọn):', False);
+  CfgPage.Add('Token cá nhân (azt_..., do quản trị viên cấp):', True);
   CfgPage.Values[0] := ExpandConstant('{param:CODE|}');
   CfgPage.Values[1] := ExpandConstant('{param:VPS|{computername}}');
   CfgPage.Values[2] := ExpandConstant('{param:CLOUDURL|}');
   CfgPage.Values[3] := ExpandConstant('{param:FALLBACKURL|}');
   CfgPage.Values[4] := ExpandConstant('{param:TOKEN|}');
+  ManualChk := TNewCheckBox.Create(CfgPage);
+  ManualChk.Parent := CfgPage.Surface;
+  ManualChk.Left := 0;
+  ManualChk.Width := CfgPage.SurfaceWidth;
+  ManualChk.Caption := 'Tôi không có mã kết nối (nhập địa chỉ và token thủ công)';
+  ManualChk.OnClick := @ManualChkClick;
+  { Hiện sẵn ô thủ công khi cài tự động có /CLOUDURL, /TOKEN hoặc đang nâng cấp từ khóa chung cũ. }
+  ManualChk.Checked := (ExpandConstant('{param:CLOUDURL|}') <> '') or (ExpandConstant('{param:TOKEN|}') <> '') or MigrateMode;
+  ShowManualFields(ManualChk.Checked);
   if MigrateMode then
   begin
     { Giu nguyen ten VPS va dia chi cu, chi doi token (cac khoa khac trong config.json khong bi dong vao). }
