@@ -20,8 +20,13 @@ cpSync(here('../dist/migrations'), `${out}/migrations`, { recursive: true })
 cpSync(web, `${out}/web`, { recursive: true })
 for (const f of [
   'run-server.cmd',
+  'token.cmd',
   'install-task.ps1',
   'uninstall-task.ps1',
+  'stop-server.ps1',
+  'token-shell.ps1',
+  'open-firewall.ps1',
+  'check-server.ps1',
   'server.env.example',
 ]) {
   cpSync(here(`./${f}`), `${out}/${f}`)

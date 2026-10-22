@@ -92,7 +92,7 @@ details>summary::before{content:"\\25B8  ";color:var(--mut)}details[open]>summar
       <div><label for="f-vps">Tên VPS (hiện trên web)</label><input id="f-vps" maxlength="64" required></div>
       <div><label for="f-url">Cloud URL</label><input id="f-url" placeholder="wss://ten.workers.dev/api/gw/ws"><div class="hint">Để trống = chỉ chạy cục bộ, không có live. Nên trỏ vào VPS chính (qua tunnel).</div></div>
       <div><label for="f-fb">Cloud URL dự phòng</label><input id="f-fb" placeholder="wss://ten.workers.dev/api/gw/ws"><div class="hint">Dùng khi VPS chính không nối được; tự quay về khi VPS sống lại. Có thể để trống.</div></div>
-      <div><label for="f-tok">Token kết nối</label><input id="f-tok" type="password" placeholder="" autocomplete="new-password"><div class="hint" id="tokhint"></div></div>
+      <div><label for="f-tok">Token cá nhân (azt_...)</label><input id="f-tok" type="password" placeholder="azt_..." autocomplete="new-password"><div class="hint" id="tokhint"></div></div>
       <div><label for="f-idle">Giữ sự kiện khi không ai xem (giây)</label><input id="f-idle" type="number" min="0" max="86400"><div class="hint">0 = gửi ngay.</div></div>
       <div class="act"><button class="pri" id="save" type="submit">Lưu và khởi động lại</button><span id="msg"></span></div>
     </form>
@@ -146,7 +146,7 @@ async function loadCfg(){
     cfg=c;$('stop').hidden=!cfg.supervised;
     if(dirty)return;
     $('f-vps').value=cfg.vps;$('f-url').value=cfg.cloudUrl;$('f-fb').value=cfg.cloudFallbackUrl||'';$('f-idle').value=cfg.idleFlushSec;
-    $('tokhint').textContent=cfg.tokenSet?'Đã lưu một token. Để trống để giữ nguyên.':'Chưa có token.';
+    $('tokhint').textContent=cfg.tokenSet?'Đã lưu một token. Để trống để giữ nguyên.':'Chưa có token: xin quản trị viên cấp token cá nhân (azt_...).';
   }catch{}
 }
 async function loadLog(){

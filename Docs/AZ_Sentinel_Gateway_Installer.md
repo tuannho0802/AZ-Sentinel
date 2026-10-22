@@ -8,10 +8,17 @@
 Một file `AZSentinel-Gateway-Setup.exe` (khoảng 30-40 MB sau nén, **không cần cài Node.js, Git hay pnpm trên VPS**):
 
 1. Chép `az-gateway.exe` (Node SEA, một file) vào `C:\Program Files\AZSentinel\Gateway`.
-2. Hỏi 3 thông tin: tên VPS, Cloud URL, token kết nối. Ghi vào `C:\ProgramData\AZSentinel\config.json` (chỉ Administrators và SYSTEM đọc được). Có thể để trống rồi nhập sau trên giao diện web.
+2. Hỏi: tên VPS, Cloud URL, Cloud URL dự phòng (tùy chọn) và **token cá nhân `azt_...`** (quản trị viên cấp riêng cho từng người, xem `AZ_Sentinel_Gateway_Token.md`). Token được kiểm ngay trên trang nhập (xem mục 1a). Ghi vào `C:\ProgramData\AZSentinel\config.json` (chỉ Administrators và SYSTEM đọc được). Có thể để trống rồi nhập sau trên giao diện web.
 3. Đăng ký tác vụ **AZ Gateway** trong Task Scheduler: chạy lúc khởi động máy bằng tài khoản SYSTEM, không cần đăng nhập RDP, tự bật lại nếu thoát. Nhẹ hơn Windows Service dựng bằng thư viện ngoài và không cần tải thêm gì.
 4. Tìm các terminal MT5 **đang chạy** và chép EA (`*.ex5` trong `Installer\ea`) vào `MQL5\Experts\AZ` của từng terminal.
 5. Tạo shortcut Start menu và Desktop mở giao diện `http://127.0.0.1:47800/`.
+
+### 1a. Kiểm token lúc cài
+- Sai hình dạng (không phải `azt_...`, kể cả khóa chung cũ): báo lỗi, không cho đi tiếp.
+- Bộ cài gọi `az-gateway.exe check-token <url> <token>` (Gateway gọi `GET /api/gw/check`). Mã thoát: `0` hợp lệ, `1` cloud từ chối (sai, đã thu hồi hoặc đã đặt lại) thì chặn, `2` không hỏi được cloud (mạng, địa chỉ sai) thì hỏi có tiếp tục không, `3` đầu vào sai.
+- Cài im lặng (`/VERYSILENT`) cũng kiểm ở bước chuẩn bị: bị từ chối (mã 1) thì dừng cài. Muốn cài bất chấp (cloud chưa sẵn sàng) thêm `/SKIPTOKENCHECK=1`.
+- Không nhập token hoặc không nhập Cloud URL vẫn cài được (chạy cục bộ), nhập sau trên giao diện web; ô token trên giao diện cũng chỉ nhận `azt_...`.
+- **Nâng cấp từ bản dùng khóa chung cũ**: nếu `config.json` có Cloud URL mà token không phải `azt_...`, bộ cài hiện lại trang nhập, khóa các ô khác và chỉ đòi token cá nhân mới; chỉ thay giá trị `cloudToken`, các khóa khác (cổng, thời gian giữ sự kiện...) giữ nguyên.
 
 Cài đè lên bản cũ được: bộ cài tự dừng bản đang chạy, giữ nguyên `config.json` và hàng đợi, rồi chạy lại.
 
@@ -84,7 +91,7 @@ gh release create gateway-v0.2.0 Gateway\dist\AZSentinel-Gateway-Setup.exe --tit
 
 1. Vào trang *Releases* của repo, tải `AZSentinel-Gateway-Setup.exe` bản mới nhất (kiểm SHA256 nếu muốn: `Get-FileHash .\AZSentinel-Gateway-Setup.exe`).
 2. Kéo vào VPS, chạy. Cấu hình cũ giữ nguyên, không bị hỏi lại.
-3. Cài im lặng cho nhiều VPS: `AZSentinel-Gateway-Setup.exe /VERYSILENT /VPS=VPS-05 /CLOUDURL=wss://... /TOKEN=...`
+3. Cài im lặng cho nhiều VPS: `AZSentinel-Gateway-Setup.exe /VERYSILENT /VPS=VPS-05 /CLOUDURL=wss://... /TOKEN=azt_... [/FALLBACKURL=wss://...] [/SKIPTOKENCHECK=1]`. Mỗi người một token riêng: đừng dùng chung một token cho nhiều người.
 
 Repo public nên link tải dạng `https://github.com/tuannho0802/AZ-Sentinel/releases/latest` dùng được ngay, và biểu ngữ "có bản mới" trên giao diện hoạt động. Nếu sau này chuyển repo sang private, biểu ngữ sẽ không hiện (không có token); lúc đó phải đổi cách phân phối.
 
@@ -105,7 +112,7 @@ Các mục chưa thể kiểm trên Linux:
 | Triệu chứng | Kiểm |
 |---|---|
 | Giao diện không mở | Task Scheduler: *AZ Gateway* có chạy không. Xem `C:\ProgramData\AZSentinel\startup-error.txt` (lỗi cấu hình, cổng 47800 bị chiếm) |
-| "Mất kết nối" cloud | Cloud URL/token trong *Cài đặt*; xem mục Nhật ký |
+| "Mất kết nối" cloud | Cloud URL/token trong *Cài đặt*; xem mục Nhật ký. Log ghi "token Gateway đã bị thu hồi hoặc đặt lại" thì xin quản trị viên token mới và nhập vào *Cài đặt* |
 | Terminal không xuất hiện | Allow WebRequest chưa thêm URL, hoặc EA chưa gắn chart / chưa bật Algo Trading |
 | Biểu ngữ báo bản mới nhưng không muốn nâng | Bỏ qua, không ảnh hưởng chạy |
 
@@ -114,7 +121,8 @@ Các mục chưa thể kiểm trên Linux:
 | Đường dẫn | Việc |
 |---|---|
 | `Gateway/packaging/bundle.mjs`, `sea.mjs` | Gom một file `.cjs` bằng esbuild, đóng gói thành `az-gateway.exe` bằng Node SEA |
-| `Installer/az-gateway.iss` | Script Inno Setup (trang nhập cấu hình, nâng cấp tại chỗ, cài im lặng) |
+| `Installer/az-gateway.iss` | Script Inno Setup (trang nhập cấu hình, kiểm token, nâng cấp tại chỗ, cài im lặng) |
+| `Gateway/src/check-token.ts` | Lệnh `az-gateway.exe check-token` mà bộ cài gọi |
 | `Installer/run-gateway.cmd` | Vòng lặp giám sát, bật lại Gateway khi thoát |
 | `Installer/scripts/*.ps1` | Đăng ký/gỡ tác vụ, phát hiện terminal và chép EA |
 | `.github/workflows/release-gateway.yml` | Build và phát hành tự động theo tag `gateway-v*` |

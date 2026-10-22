@@ -28,7 +28,11 @@ Bảng `gw_tokens` (migration `0004`) nằm ở cả hai nơi. VPS là nguồn g
 ## Dev
 `pnpm dev`: Server dev tự tạo token cố định `azt_dev0123456789abcdef0123456789ab` cho người dùng dev (id 1) qua `AZ_DEV_GW_TOKEN`; Gateway dev dùng đúng token đó. Không có biến này ở bản thật.
 
+## Bộ cài
+- **Gateway** (`Installer/az-gateway.iss`): hỏi token cá nhân `azt_...`, kiểm hình dạng rồi gọi `az-gateway.exe check-token <url> <token>` (tức `GET /api/gw/check`); 401 thì chặn, không hỏi được cloud thì cho chọn tiếp tục. Cài im lặng: `/TOKEN=azt_...`, bỏ kiểm bằng `/SKIPTOKENCHECK=1`. Nâng cấp từ khóa chung cũ: bắt nhập token mới, chỉ đổi `cloudToken`. Chi tiết: `AZ_Sentinel_Gateway_Installer.md`.
+- **Server + giao diện web** (`Installer/az-server.iss`): không hỏi token Gateway (token do quản trị viên cấp sau khi cài, bằng `token.cmd` hoặc trang `/tokens`). Chi tiết: `AZ_Sentinel_Server_Installer.md`.
+- Giao diện Gateway chỉ nhận token `azt_...` ở ô Cài đặt (khóa chung cũ bị từ chối ngay khi lưu).
+
 ## Còn lại
-- Bộ cài (Installer) chưa sửa: vẫn hỏi "token kết nối" kiểu cũ; cần đổi sang nhập token cá nhân và gọi `/api/gw/check`.
 - Đăng nhập thật (Part 2): khi có, thay `resolveViewer` thì trang `/tokens` và API `/api/admin/gw-tokens` dùng được ở bản thật.
 - Xóa biến `GW_CONNECT_TOKEN` khỏi Worker đã deploy: `wrangler secret delete GW_CONNECT_TOKEN`.

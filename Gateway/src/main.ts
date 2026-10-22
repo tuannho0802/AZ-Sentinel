@@ -1,5 +1,6 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs'
 import path from 'node:path'
+import { runCheckToken } from './check-token'
 import { CloudClient } from './cloud'
 import { defaultDataDir, loadConfig, saveEditableConfig, writeOffFlag } from './config'
 import { GATEWAY_VERSION, Gateway } from './gateway'
@@ -106,7 +107,7 @@ async function main() {
   process.on('SIGTERM', () => void shutdown())
 }
 
-main().catch((e) => {
+function fatal(e: unknown) {
   const msg = e instanceof Error ? e.message : String(e)
   console.error(msg)
   // Chạy nền không có console: ghi lỗi khởi động ra file để còn biết vì sao dừng (cấu hình hỏng, cổng bận...).
@@ -118,4 +119,11 @@ main().catch((e) => {
     // bỏ qua
   }
   process.exit(1)
-})
+}
+
+// Bộ cài gọi `az-gateway.exe check-token <url> <token>` để kiểm token rồi thoát (không mở Gateway).
+if (process.argv[2] === 'check-token') {
+  runCheckToken(process.argv.slice(3)).then((code) => process.exit(code), fatal)
+} else {
+  main().catch(fatal)
+}

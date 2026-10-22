@@ -1,0 +1,127 @@
+name: Release Server
+
+# Build bộ cài AZ Server (Server + giao diện web + node.exe) khi COMMIT MỚI NHẤT của lần push lên main có
+# chứa [release-server] trong message (khác [release] của Gateway, hai workflow không kích hoạt nhầm nhau):
+#   git commit -m "feat(server): xxx [release-server]"
+# Không có dấu hiệu này thì workflow bị bỏ qua, không tốn phút build Windows.
+#
+# Phiên bản lấy từ Server/package.json, nên PHẢI tăng "version" trước khi release. Tag Git và GitHub Release
+# có tên server-v<version>. Release đó đã tồn tại thì workflow dừng ngay, không ghi đè bộ cài đã phát hành.
+# Chạy tay (workflow_dispatch) chỉ build và đưa file vào Artifacts, không tạo Release.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-server
+  cancel-in-progress: false
+
+jobs:
+  build:
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[release-server]')
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: latest
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Typecheck và test Server
+        run: |
+          pnpm --filter @az-sentinel/server typecheck
+          pnpm --filter @az-sentinel/server test
+
+      - name: Xác định phiên bản
+        id: ver
+        shell: pwsh
+        run: |
+          $v = (Get-Content Server/package.json -Raw | ConvertFrom-Json).version
+          if ($v -notmatch '^\d+\.\d+\.\d+$') { throw "Version khong hop le trong Server/package.json: '$v'" }
+          "version=$v" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          Write-Host "Phien ban: $v"
+
+      - name: Dừng sớm nếu phiên bản này đã được phát hành
+        if: github.event_name == 'push'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = 'server-v${{ steps.ver.outputs.version }}'
+          gh release view $tag *> $null
+          $exists = ($LASTEXITCODE -eq 0)
+          $global:LASTEXITCODE = 0
+          if ($exists) {
+            throw "Release $tag da ton tai. Tang version trong Server/package.json roi commit lai voi [release-server]."
+          }
+
+      - name: Build giao diện và gói Server (FE/dist + server.mjs)
+        run: pnpm pack:server
+
+      - name: Kèm node.exe (VPS không cần cài Node.js)
+        shell: pwsh
+        run: Copy-Item (Get-Command node).Source Server/release/az-server/node.exe
+
+      - name: Chạy thử gói (smoke test)
+        shell: pwsh
+        run: |
+          $dir = Join-Path $env:RUNNER_TEMP 'azsrv'
+          New-Item -ItemType Directory -Force $dir | Out-Null
+          $env:AZ_DATA = $dir
+          $env:AZ_PORT = '18080'
+          $env:AZ_ENV_FILE = Join-Path $dir 'none.env'
+          $p = Start-Process -FilePath Server/release/az-server/node.exe `
+            -ArgumentList '--disable-warning=ExperimentalWarning', 'Server/release/az-server/server.mjs' `
+            -PassThru -WindowStyle Hidden
+          try {
+            $ok = $false
+            for ($i = 0; $i -lt 30 -and -not $ok; $i++) {
+              Start-Sleep -Milliseconds 500
+              try { $ok = ((Invoke-RestMethod http://127.0.0.1:18080/api/health).status -eq 'ok') } catch {}
+            }
+            if (-not $ok) { throw 'Server khong tra loi /api/health' }
+            $html = (Invoke-WebRequest http://127.0.0.1:18080/ -UseBasicParsing).Content
+            if ($html -notmatch '<div id="root"') { throw 'Server khong phuc vu giao dien web (thieu web/index.html)' }
+            Write-Host 'OK: Server va giao dien dang chay'
+          } finally { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue }
+
+      - name: Build bộ cài (Inno Setup)
+        shell: pwsh
+        run: |
+          choco install innosetup -y --no-progress
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          & $iscc "/DMyAppVersion=${{ steps.ver.outputs.version }}" Installer\az-server.iss
+          if ($LASTEXITCODE -ne 0) { throw 'ISCC loi' }
+          $f = 'Server\release\AZSentinel-Server-Setup.exe'
+          $h = (Get-FileHash $f -Algorithm SHA256).Hash.ToLower()
+          "$h  AZSentinel-Server-Setup.exe" | Out-File Server\release\SHA256SUMS.txt -Encoding ascii
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AZSentinel-Server-${{ steps.ver.outputs.version }}
+          path: |
+            Server/release/AZSentinel-Server-Setup.exe
+            Server/release/SHA256SUMS.txt
+
+      - name: Tạo GitHub Release
+        if: github.event_name == 'push'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: server-v${{ steps.ver.outputs.version }}
+          target_commitish: ${{ github.sha }}
+          name: AZ Server v${{ steps.ver.outputs.version }}
+          generate_release_notes: true
+          files: |
+            Server/release/AZSentinel-Server-Setup.exe
+            Server/release/SHA256SUMS.txt

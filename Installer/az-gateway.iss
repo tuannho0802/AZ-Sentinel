@@ -1,6 +1,8 @@
 ; Bo cai AZ Gateway cho Windows Server VPS. Build: ISCC /DMyAppVersion=0.2.0 Installer\az-gateway.iss
 ; Dau vao: Gateway\dist\az-gateway.exe (pnpm --filter @az-sentinel/gateway build:exe).
-; Cai dat im lang: AZSentinel-Gateway-Setup.exe /VERYSILENT /VPS=VPS-01 /CLOUDURL=wss://... /TOKEN=...
+; Cai dat im lang: AZSentinel-Gateway-Setup.exe /VERYSILENT /VPS=VPS-01 /CLOUDURL=wss://... /TOKEN=azt_... [/FALLBACKURL=wss://...] [/SKIPTOKENCHECK=1]
+; TOKEN la token ca nhan azt_... do quan tri vien cap rieng cho tung nguoi (khong con khoa chung GW_CONNECT_TOKEN).
+; Bo cai goi "az-gateway.exe check-token <url> <token>" (GET /api/gw/check) de kiem token: 401 thi dung cai.
 
 #ifndef MyAppVersion
   #define MyAppVersion "0.1.0"
@@ -36,6 +38,8 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Files]
 Source: "..\Gateway\dist\az-gateway.exe"; DestDir: "{app}"; Flags: ignoreversion
+; Ban tam de kiem token ngay tren trang nhap (cung noi dung voi dong tren, Inno chi luu mot ban).
+Source: "..\Gateway\dist\az-gateway.exe"; Flags: dontcopy
 Source: "run-gateway.cmd"; DestDir: "{app}"; Flags: ignoreversion
 Source: "az-gateway.ico"; DestDir: "{app}"; Flags: ignoreversion
 Source: "scripts\*.ps1"; DestDir: "{app}\scripts"; Flags: ignoreversion
@@ -67,6 +71,8 @@ var
   CfgPage: TInputQueryWizardPage;
   { Da co ban cai truoc (nang cap) hay cai moi: cai moi thi xoa co "da tat" con sot. }
   WasInstalled: Boolean;
+  { Nang cap tu ban dung khoa chung cu: config con token khong phai azt_..., phai nhap token ca nhan. }
+  MigrateMode: Boolean;
 
 function ConfigPath: String;
 begin
@@ -80,58 +86,248 @@ begin
   StringChangeEx(Result, '"', '\"', True);
 end;
 
-procedure InitializeWizard;
+function ReadConfig: String;
+var
+  Raw: AnsiString;
 begin
+  Result := '';
+  if LoadStringFromFile(ConfigPath, Raw) then Result := String(Raw);
+end;
+
+{ Doc gia tri chuoi cua mot khoa trong config.json (ghi theo dang "khoa": "gia tri"). Khong xu ly ky tu thoat. }
+function JsonGetString(const Json, Key: String): String;
+var
+  P, Q: Integer;
+  Rest: String;
+begin
+  Result := '';
+  P := Pos('"' + Key + '": "', Json);
+  if P = 0 then Exit;
+  Rest := Copy(Json, P + Length(Key) + 5, MaxInt);
+  Q := Pos('"', Rest);
+  if Q = 0 then Exit;
+  Result := Copy(Rest, 1, Q - 1);
+end;
+
+{ Khop Shared/src/token-schema.ts (looksLikeGwToken): azt_ + ky tu A-Z a-z 0-9 _ -, dai 20..128. }
+function IsTokenShape(const T: String): Boolean;
+var
+  I: Integer;
+  C: Char;
+begin
+  Result := False;
+  if (Length(T) < 20) or (Length(T) > 128) then Exit;
+  if Copy(T, 1, 4) <> 'azt_' then Exit;
+  for I := 1 to Length(T) do
+  begin
+    C := T[I];
+    if not (((C >= 'a') and (C <= 'z')) or ((C >= 'A') and (C <= 'Z')) or
+            ((C >= '0') and (C <= '9')) or (C = '_') or (C = '-')) then Exit;
+  end;
+  Result := True;
+end;
+
+function IsWsUrl(const U: String): Boolean;
+begin
+  Result := ((Pos('wss://', Lowercase(U)) = 1) or (Pos('ws://', Lowercase(U)) = 1)) and (Pos('"', U) = 0);
+end;
+
+function SkipTokenCheck: Boolean;
+begin
+  Result := ExpandConstant('{param:SKIPTOKENCHECK|}') <> '';
+end;
+
+{ Cai moi, hoac chay lai voi /CLOUDURL=...: ghi lai toan bo config.json. }
+function WillWriteFresh: Boolean;
+begin
+  Result := (not FileExists(ConfigPath)) or (ExpandConstant('{param:CLOUDURL|}') <> '');
+end;
+
+{ Co config.json noi cloud ma token thieu hoac con la khoa chung cu (khong phai azt_...). }
+function NeedsTokenMigration: Boolean;
+var
+  Json: String;
+begin
+  Result := False;
+  if WillWriteFresh then Exit;
+  Json := ReadConfig;
+  if JsonGetString(Json, 'cloudUrl') = '' then Exit;
+  Result := not IsTokenShape(JsonGetString(Json, 'cloudToken'));
+end;
+
+{ Chay "az-gateway.exe check-token <url> <token>". Tra ma thoat: 0 hop le, 1 bi tu choi, 2 khong hoi duoc cloud,
+  3 dau vao sai; -1 neu khong chay duoc exe (khi do coi nhu chua ket luan). }
+function CheckTokenOnline(const Url, Tok: String): Integer;
+var
+  RC: Integer;
+begin
+  Result := -1;
+  try
+    ExtractTemporaryFile('az-gateway.exe');
+    if Exec(ExpandConstant('{tmp}\az-gateway.exe'), 'check-token "' + Url + '" "' + Tok + '"', '',
+            SW_HIDE, ewWaitUntilTerminated, RC) then
+      Result := RC;
+  except
+    Result := -1;
+  end;
+end;
+
+procedure InitializeWizard;
+var
+  Json: String;
+begin
+  MigrateMode := NeedsTokenMigration;
   CfgPage := CreateInputQueryPage(wpSelectDir, 'Ket noi cloud',
     'Thong tin de Gateway gui du lieu len he thong AZ Sentinel',
+    'Token ca nhan (azt_...) do quan tri vien cap rieng cho ban, moi nguoi mot token. ' +
     'Co the de trong Cloud URL va token de chay cuc bo truoc, cau hinh sau tren giao dien web cua Gateway.');
   CfgPage.Add('Ten VPS (hien tren web):', False);
   CfgPage.Add('Cloud URL (vi du wss://ten.workers.dev/api/gw/ws):', False);
-  CfgPage.Add('Token ket noi (GW_CONNECT_TOKEN):', True);
+  CfgPage.Add('Cloud URL du phong (tuy chon):', False);
+  CfgPage.Add('Token ca nhan (azt_..., do quan tri vien cap):', True);
   CfgPage.Values[0] := ExpandConstant('{param:VPS|{computername}}');
   CfgPage.Values[1] := ExpandConstant('{param:CLOUDURL|}');
-  CfgPage.Values[2] := ExpandConstant('{param:TOKEN|}');
+  CfgPage.Values[2] := ExpandConstant('{param:FALLBACKURL|}');
+  CfgPage.Values[3] := ExpandConstant('{param:TOKEN|}');
+  if MigrateMode then
+  begin
+    { Giu nguyen ten VPS va dia chi cu, chi doi token (cac khoa khac trong config.json khong bi dong vao). }
+    Json := ReadConfig;
+    CfgPage.Values[0] := JsonGetString(Json, 'vps');
+    CfgPage.Values[1] := JsonGetString(Json, 'cloudUrl');
+    CfgPage.Values[2] := JsonGetString(Json, 'cloudFallbackUrl');
+    CfgPage.Edits[0].Enabled := False;
+    CfgPage.Edits[1].Enabled := False;
+    CfgPage.Edits[2].Enabled := False;
+    CfgPage.PageDescription := 'Doi sang token ca nhan';
+    CfgPage.SubCaptionLabel.Caption :=
+      'Khoa ket noi chung cu khong con dung duoc. Hay nhap token ca nhan azt_... do quan tri vien cap cho ban. ' +
+      'Cac cai dat khac giu nguyen.';
+  end;
 end;
 
-{ Nang cap: da co config.json thi khong hoi lai (giu nguyen), tru khi truyen /CLOUDURL=... }
+{ Nang cap: da co config.json (va token da dung dang azt_...) thi khong hoi lai, tru khi truyen /CLOUDURL=... }
 function ShouldSkipPage(PageID: Integer): Boolean;
 begin
   Result := False;
-  if (PageID = CfgPage.ID) and FileExists(ConfigPath) and (ExpandConstant('{param:CLOUDURL|}') = '') then
+  if (PageID = CfgPage.ID) and FileExists(ConfigPath) and (not MigrateMode) and
+     (ExpandConstant('{param:CLOUDURL|}') = '') then
     Result := True;
 end;
 
 function NextButtonClick(CurPageID: Integer): Boolean;
 var
-  Url: String;
+  Url, Fb, Tok: String;
+  Code: Integer;
 begin
   Result := True;
-  if CurPageID = CfgPage.ID then
+  if CurPageID <> CfgPage.ID then Exit;
+  Url := Trim(CfgPage.Values[1]);
+  Fb := Trim(CfgPage.Values[2]);
+  Tok := Trim(CfgPage.Values[3]);
+
+  if Trim(CfgPage.Values[0]) = '' then
   begin
-    Url := Trim(CfgPage.Values[1]);
-    if (Url <> '') and (Pos('wss://', Lowercase(Url)) <> 1) and (Pos('ws://', Lowercase(Url)) <> 1) then
+    MsgBox('Hay nhap ten VPS.', mbError, MB_OK);
+    Result := False;
+    Exit;
+  end;
+  if (Url <> '') and (not IsWsUrl(Url)) then
+  begin
+    MsgBox('Cloud URL phai bat dau bang wss:// (hoac ws://).', mbError, MB_OK);
+    Result := False;
+    Exit;
+  end;
+  if (Fb <> '') and (not IsWsUrl(Fb)) then
+  begin
+    MsgBox('Cloud URL du phong phai bat dau bang wss:// (hoac ws://).', mbError, MB_OK);
+    Result := False;
+    Exit;
+  end;
+  if (Tok <> '') and (not IsTokenShape(Tok)) then
+  begin
+    MsgBox('Token phai la token ca nhan dang azt_... (do quan tri vien cap). Khoa ket noi chung cu khong con dung.',
+      mbError, MB_OK);
+    Result := False;
+    Exit;
+  end;
+  if MigrateMode and (Tok = '') then
+  begin
+    MsgBox('Hay nhap token ca nhan azt_... de tiep tuc.', mbError, MB_OK);
+    Result := False;
+    Exit;
+  end;
+  if (Url <> '') and (Tok = '') then
+  begin
+    if MsgBox('Chua nhap token: Gateway se khong ket noi duoc cloud cho den khi ban nhap token trong phan Cai dat.' +
+              #13#10 + 'Tiep tuc cai dat?', mbConfirmation, MB_YESNO) = IDNO then
+      Result := False;
+    Exit;
+  end;
+  if (Url <> '') and (Tok <> '') and (not SkipTokenCheck) then
+  begin
+    Code := CheckTokenOnline(Url, Tok);
+    if Code = 1 then
     begin
-      MsgBox('Cloud URL phai bat dau bang wss:// (hoac ws://).', mbError, MB_OK);
+      MsgBox('Cloud tu choi token nay: sai, da bi thu hoi hoac da dat lai. Hay xin quan tri vien token moi.',
+        mbError, MB_OK);
       Result := False;
     end
-    else if Trim(CfgPage.Values[0]) = '' then
+    else if Code = 2 then
     begin
-      MsgBox('Hay nhap ten VPS.', mbError, MB_OK);
-      Result := False;
+      if MsgBox('Khong hoi duoc cloud nen chua kiem tra duoc token (mang hoac dia chi sai).' + #13#10 +
+                'Van tiep tuc cai dat?', mbConfirmation, MB_YESNO) = IDNO then
+        Result := False;
     end;
   end;
 end;
 
-{ Dung ban dang chay truoc khi ghi de file (cap nhat tai cho). Dung tac vu truoc, roi moi diet exe. }
+{ Dung ban dang chay truoc khi ghi de file (cap nhat tai cho). Dung tac vu truoc, roi moi diet exe.
+  Cai im lang khong qua trang nhap, nen kiem token o day: bi tu choi (401) thi dung cai de khoi trien khai sai hang loat. }
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 var
-  RC: Integer;
+  RC, Code: Integer;
+  Url, Tok: String;
 begin
+  Result := '';
+  if WizardSilent and (not SkipTokenCheck) and (WillWriteFresh or MigrateMode) then
+  begin
+    Url := Trim(CfgPage.Values[1]);
+    Tok := Trim(CfgPage.Values[3]);
+    if (Url <> '') and (Tok <> '') then
+    begin
+      if not IsTokenShape(Tok) then
+      begin
+        Result := 'Tham so /TOKEN phai la token ca nhan dang azt_... (khoa chung cu khong con dung).';
+        Exit;
+      end;
+      Code := CheckTokenOnline(Url, Tok);
+      if Code = 1 then
+      begin
+        Result := 'Cloud tu choi token (sai, da thu hoi hoac da dat lai). Dung /SKIPTOKENCHECK=1 neu van muon cai.';
+        Exit;
+      end;
+    end;
+  end;
   WasInstalled := FileExists(ExpandConstant('{app}\az-gateway.exe'));
   Exec(ExpandConstant('{sys}\schtasks.exe'), '/End /TN "AZ Gateway"', '', SW_HIDE, ewWaitUntilTerminated, RC);
   Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /IM az-gateway.exe', '', SW_HIDE, ewWaitUntilTerminated, RC);
   Sleep(800);
-  Result := '';
+end;
+
+{ Nang cap tu khoa chung cu: chi thay gia tri cloudToken trong config.json, giu nguyen cac khoa khac. }
+procedure MigrateToken(const NewTok: String);
+var
+  Json, Old: String;
+begin
+  if NewTok = '' then Exit;
+  Json := ReadConfig;
+  Old := JsonGetString(Json, 'cloudToken');
+  if Pos('"cloudToken": "', Json) > 0 then
+    StringChangeEx(Json, '"cloudToken": "' + Old + '"', '"cloudToken": "' + JsonEscape(NewTok) + '"', True)
+  else
+    StringChangeEx(Json, '{', '{' + #13#10 + '  "cloudToken": "' + JsonEscape(NewTok) + '",', False);
+  SaveStringToFile(ConfigPath, Json, False);
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
@@ -145,14 +341,17 @@ begin
     { Cai moi (khong phai nang cap) thi xoa co disabled.flag con sot tu lan go truoc, de Gateway tu chay.
       Nang cap thi giu: nguoi dung da tat thi van tat cho den khi bam shortcut. }
     if not WasInstalled then DeleteFile(ExpandConstant('{#DataDir}\disabled.flag'));
-    if (not FileExists(ConfigPath)) or (ExpandConstant('{param:CLOUDURL|}') <> '') then
+    if WillWriteFresh then
     begin
       Json := '{' + #13#10 +
         '  "vps": "' + JsonEscape(Trim(CfgPage.Values[0])) + '",' + #13#10 +
         '  "cloudUrl": "' + JsonEscape(Trim(CfgPage.Values[1])) + '",' + #13#10 +
-        '  "cloudToken": "' + JsonEscape(Trim(CfgPage.Values[2])) + '"' + #13#10 + '}' + #13#10;
+        '  "cloudFallbackUrl": "' + JsonEscape(Trim(CfgPage.Values[2])) + '",' + #13#10 +
+        '  "cloudToken": "' + JsonEscape(Trim(CfgPage.Values[3])) + '"' + #13#10 + '}' + #13#10;
       SaveStringToFile(ConfigPath, Json, False);
-    end;
+    end
+    else if MigrateMode then
+      MigrateToken(Trim(CfgPage.Values[3]));
     { Token nam trong config.json: chi Administrators va SYSTEM duoc doc. }
     Exec(ExpandConstant('{sys}\icacls.exe'),
       ExpandConstant('"{#DataDir}" /inheritance:r /grant:r *S-1-5-18:(OI)(CI)F *S-1-5-32-544:(OI)(CI)F'),

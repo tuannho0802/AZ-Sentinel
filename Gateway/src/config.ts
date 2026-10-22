@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { GW } from '@az-sentinel/shared'
+import { GW, looksLikeGwToken } from '@az-sentinel/shared'
 import { z } from 'zod'
 
 const configSchema = z.object({
@@ -79,7 +79,14 @@ export const editableSchema = z.object({
     .refine((v) => v === '' || /^wss?:\/\/[^\s]+$/i.test(v), 'phải bắt đầu bằng wss:// hoặc ws://')
     .optional(),
   /** Chuỗi rỗng = giữ token cũ (giao diện không bao giờ nhận lại token). */
-  cloudToken: z.string().trim().max(512),
+  cloudToken: z
+    .string()
+    .trim()
+    .max(512)
+    .refine(
+      (v) => v === '' || looksLikeGwToken(v),
+      'phải là token cá nhân dạng azt_... do quản trị viên cấp',
+    ),
   vps: z.string().trim().min(1).max(64),
   idleFlushSec: z.number().int().min(0).max(86400),
 })
