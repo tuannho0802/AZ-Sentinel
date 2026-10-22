@@ -60,11 +60,12 @@ export function createEdgeRouter(opts: EdgeRouterOptions = {}): MiddlewareHandle
 
     c.set('mode', 'fallback')
     const writing = c.req.method !== 'GET' && c.req.method !== 'HEAD'
-    if (writing && path.startsWith('/api/dev/') && c.env.FALLBACK_WRITABLE !== '1') {
+    const guarded = path.startsWith('/api/dev/') || path.startsWith('/api/admin/')
+    if (writing && guarded && c.env.FALLBACK_WRITABLE !== '1') {
       throw new AppError(
         503,
         'READ_ONLY_FALLBACK',
-        'Đang chạy dự phòng trên Cloudflare: tạm thời chỉ cho xem, chưa cho đổi liên kết',
+        'Đang chạy dự phòng trên Cloudflare: tạm thời chỉ cho xem, chưa cho đổi liên kết hay token',
       )
     }
     return next()

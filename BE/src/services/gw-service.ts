@@ -1,6 +1,7 @@
 import type { GwClientMessage, Position, Sample } from '@az-sentinel/shared'
 import {
   bindLinkAccountStmt,
+  claimLinkOwnerStmt,
   findLinkByKeyHash,
   insertAuthFailEventStmt,
   insertEquityM5Stmt,
@@ -19,12 +20,14 @@ type BindMsg = Extract<GwClientMessage, { t: 'bind' }>
 type EventMsg = Extract<GwClientMessage, { t: 'event' }>
 
 export type BindResult =
-  | { ok: true; linkId: number; ownerId: number | null }
+  | { ok: true; linkId: number; ownerId: number }
   | { ok: false; code: 401 | 403 | 409 }
 
 /**
  * `bind` của Gateway (Plan 3C mục 4): tra khóa (đọc ~3 dòng), kiểm tra trạng thái và tài khoản,
- * gắn lần đầu nếu chưa gắn. Cùng luật với đường ingest cũ: 401 khóa sai, 403 bị khóa, 409 khóa
+ * gắn lần đầu nếu chưa gắn. Plan 4: kết nối đã xác thực bằng token cá nhân của `tokenOwnerId`, nên
+ * liên kết đã có chủ khác bị 403 (khóa EA của người khác không bind được qua token của bạn), còn
+ * liên kết chưa có chủ được gán cho chủ token ở lần bind đầu. Cùng luật với đường ingest cũ: 401 khóa sai, 403 bị khóa, 409 khóa
  * đã gắn tài khoản khác hoặc tài khoản đã thuộc khóa khác. Ghi: 0 dòng; 1 dòng khi gắn lần đầu;
  * tối đa 1 sự kiện auth_fail mỗi 5 phút khi 409.
  */
@@ -33,10 +36,12 @@ export async function bindTerminal(
   msg: BindMsg,
   keyHash: string,
   now: number,
+  tokenOwnerId: number,
 ): Promise<BindResult> {
   const link: LinkRow | null = await findLinkByKeyHash(db, keyHash)
   if (!link) return { ok: false, code: 401 }
   if (link.status !== 'active') return { ok: false, code: 403 }
+  if (link.owner_id !== null && link.owner_id !== tokenOwnerId) return { ok: false, code: 403 }
 
   const failAuth = async (reason: string): Promise<BindResult> => {
     try {
@@ -51,9 +56,13 @@ export async function bindTerminal(
     return { ok: false, code: 409 }
   }
 
+  const claim = async (): Promise<void> => {
+    if (link.owner_id === null) await claimLinkOwnerStmt(db, link.id, tokenOwnerId).run()
+  }
   if (link.login !== null) {
     if (link.login !== msg.login || link.server !== msg.server) return failAuth('account_mismatch')
-    return { ok: true, linkId: link.id, ownerId: link.owner_id }
+    await claim()
+    return { ok: true, linkId: link.id, ownerId: tokenOwnerId }
   }
   try {
     await bindLinkAccountStmt(
@@ -72,7 +81,8 @@ export async function bindTerminal(
     if (isUniqueViolation(error)) return failAuth('bound_elsewhere')
     throw error
   }
-  return { ok: true, linkId: link.id, ownerId: link.owner_id }
+  await claim()
+  return { ok: true, linkId: link.id, ownerId: tokenOwnerId }
 }
 
 type Snap = NonNullable<EventMsg['snap']>

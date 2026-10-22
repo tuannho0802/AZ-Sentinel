@@ -1,7 +1,7 @@
 import {
-    createGwTokenRequestSchema,
-    type GwTokenListResponse,
-    type GwTokenSecretResponse,
+  createGwTokenRequestSchema,
+  type GwTokenListResponse,
+  type GwTokenSecretResponse,
 } from '@az-sentinel/shared'
 import { zValidator } from '@hono/zod-validator'
 import { Hono } from 'hono'
@@ -10,28 +10,29 @@ import { nowUnix } from '../lib/time'
 import { HUB_NAME } from '../live/routes/live-ws'
 import type { ViewerAuth } from '../live/viewer-auth'
 import {
-    createToken,
-    type GwTokenRow,
-    listTokens,
-    resetToken,
-    revokeToken,
-    toSummary,
+  createToken,
+  type GwTokenRow,
+  listTokens,
+  resetToken,
+  revokeToken,
+  toSummary,
 } from '../services/gw-token-service'
 import type { AppEnv, Bindings } from '../types'
 
 /** Báo hub đá Gateway đang dùng token vừa đổi/thu hồi. Hub lỗi không chặn thao tác (token đã chết ở D1). */
 export async function dropTokenAtHub(env: Bindings, row: GwTokenRow): Promise<void> {
-    try {
-        await env.LIVE_HUB.getByName(HUB_NAME).syncToken(row.id, row.status, row.token_hash)
-    } catch {
-        // Gateway sẽ bị từ chối ở lần nối lại kế tiếp
-    }
+  try {
+    await env.LIVE_HUB.getByName(HUB_NAME).dropToken(row.id)
+  } catch {
+    // Gateway sẽ bị từ chối ở lần nối lại kế tiếp
+  }
 }
 
 const parseId = (raw: string): number => {
-    const id = Number(raw)
-    if (!Number.isInteger(id) || id <= 0) throw new AppError(400, 'VALIDATION_FAILED', 'id không hợp lệ')
-    return id
+  const id = Number(raw)
+  if (!Number.isInteger(id) || id <= 0)
+    throw new AppError(400, 'VALIDATION_FAILED', 'id không hợp lệ')
+  return id
 }
 
 /**
@@ -44,61 +45,61 @@ const parseId = (raw: string): number => {
  * không kích hoạt được qua form. Đáp `no-store` vì phản hồi có thể chứa token.
  */
 export function createAdminTokenRoutes(viewerAuth: ViewerAuth) {
-    const routes = new Hono<AppEnv>()
+  const routes = new Hono<AppEnv>()
 
-    routes.use('*', async (c, next) => {
-        const viewer = await viewerAuth(c)
-        if (!viewer) throw new AppError(401, 'UNAUTHENTICATED', 'Chưa đăng nhập')
-        if (viewer.role !== 'admin' && viewer.role !== 'root_admin') {
-            throw new AppError(403, 'FORBIDDEN', 'Chỉ quản trị viên được quản lý token')
-        }
-        const method = c.req.method
-        if (method !== 'GET' && method !== 'HEAD') {
-            const type = c.req.header('Content-Type') ?? ''
-            if (!type.toLowerCase().includes('application/json')) {
-                throw new AppError(400, 'VALIDATION_FAILED', 'Cần Content-Type: application/json')
-            }
-        }
-        c.header('Cache-Control', 'no-store')
-        await next()
-    })
+  routes.use('*', async (c, next) => {
+    const viewer = await viewerAuth(c)
+    if (!viewer) throw new AppError(401, 'UNAUTHENTICATED', 'Chưa đăng nhập')
+    if (viewer.role !== 'admin' && viewer.role !== 'root_admin') {
+      throw new AppError(403, 'FORBIDDEN', 'Chỉ quản trị viên được quản lý token')
+    }
+    const method = c.req.method
+    if (method !== 'GET' && method !== 'HEAD') {
+      const type = c.req.header('Content-Type') ?? ''
+      if (!type.toLowerCase().includes('application/json')) {
+        throw new AppError(400, 'VALIDATION_FAILED', 'Cần Content-Type: application/json')
+      }
+    }
+    c.header('Cache-Control', 'no-store')
+    await next()
+  })
 
-    routes.get('/', async (c) => {
-        const rows = await listTokens(c.env.DB)
-        return c.json({ tokens: rows.map(toSummary) } satisfies GwTokenListResponse)
-    })
+  routes.get('/', async (c) => {
+    const rows = await listTokens(c.env.DB)
+    return c.json({ tokens: rows.map(toSummary) } satisfies GwTokenListResponse)
+  })
 
-    routes.post(
-        '/',
-        zValidator('json', createGwTokenRequestSchema, (result, c) => {
-            if (!result.success) {
-                return c.json(errorBody('VALIDATION_FAILED', 'Dữ liệu không hợp lệ'), 400)
-            }
-        }),
-        async (c) => {
-            const body = c.req.valid('json')
-            const { token, row } = await createToken(
-                c.env.DB,
-                { ownerId: body.owner_id, label: body.label },
-                nowUnix(),
-            )
-            return c.json({ token, summary: toSummary(row) } satisfies GwTokenSecretResponse, 201)
-        },
-    )
+  routes.post(
+    '/',
+    zValidator('json', createGwTokenRequestSchema, (result, c) => {
+      if (!result.success) {
+        return c.json(errorBody('VALIDATION_FAILED', 'Dữ liệu không hợp lệ'), 400)
+      }
+    }),
+    async (c) => {
+      const body = c.req.valid('json')
+      const { token, row } = await createToken(
+        c.env.DB,
+        { ownerId: body.owner_id, label: body.label },
+        nowUnix(),
+      )
+      return c.json({ token, summary: toSummary(row) } satisfies GwTokenSecretResponse, 201)
+    },
+  )
 
-    routes.post('/:id/reset', async (c) => {
-        const out = await resetToken(c.env.DB, parseId(c.req.param('id')))
-        if (!out) throw new AppError(404, 'NOT_FOUND', 'Không tìm thấy token')
-        await dropTokenAtHub(c.env, out.row)
-        return c.json({ token: out.token, summary: toSummary(out.row) } satisfies GwTokenSecretResponse)
-    })
+  routes.post('/:id/reset', async (c) => {
+    const out = await resetToken(c.env.DB, parseId(c.req.param('id')))
+    if (!out) throw new AppError(404, 'NOT_FOUND', 'Không tìm thấy token')
+    await dropTokenAtHub(c.env, out.row)
+    return c.json({ token: out.token, summary: toSummary(out.row) } satisfies GwTokenSecretResponse)
+  })
 
-    routes.post('/:id/revoke', async (c) => {
-        const row = await revokeToken(c.env.DB, parseId(c.req.param('id')), nowUnix())
-        if (!row) throw new AppError(404, 'NOT_FOUND', 'Không tìm thấy token')
-        await dropTokenAtHub(c.env, row)
-        return c.json({ summary: toSummary(row) })
-    })
+  routes.post('/:id/revoke', async (c) => {
+    const row = await revokeToken(c.env.DB, parseId(c.req.param('id')), nowUnix())
+    if (!row) throw new AppError(404, 'NOT_FOUND', 'Không tìm thấy token')
+    await dropTokenAtHub(c.env, row)
+    return c.json({ summary: toSummary(row) })
+  })
 
-    return routes
+  return routes
 }

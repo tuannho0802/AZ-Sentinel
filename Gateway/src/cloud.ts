@@ -11,7 +11,7 @@ export type CloudOptions = {
   fallbackUrl?: string
   /** Chu kỳ thử quay về địa chỉ chính khi đang dùng dự phòng (ms). Mặc định 60 giây. */
   primaryRetryMs?: number
-  /** Bí mật chung gửi bằng `Authorization: Bearer`; rỗng = không gửi (chỉ dùng khi chạy dev). */
+  /** Token Gateway cá nhân `azt_...` (quản trị viên cấp riêng cho từng người), gửi bằng `Authorization: Bearer`. */
   token?: string
   log?: Logger
   /** Chỉ để kiểm thử: nhân bản bộ ngẫu nhiên cho jitter. */
@@ -128,7 +128,16 @@ export class CloudClient {
       else this.log.warn('bỏ qua tin cloud không hợp lệ')
     })
 
-    ws.addEventListener('close', () => this.onClosed(ws, opened))
+    ws.addEventListener('close', (ev) => {
+      if (ev.code === 4003) {
+        this.log.warn(
+          'token Gateway đã bị thu hồi hoặc đặt lại: xin quản trị viên token mới rồi nhập vào Cài đặt',
+        )
+      } else if (!opened) {
+        this.log.warn('không nối được cloud (sai địa chỉ, mạng, hoặc token bị từ chối/thu hồi)')
+      }
+      this.onClosed(ws, opened)
+    })
     ws.addEventListener('error', () => {
       // `close` luôn theo sau `error`; xử lý ở đó để không lên lịch nối lại hai lần.
     })

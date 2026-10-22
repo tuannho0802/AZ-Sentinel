@@ -12,6 +12,7 @@ export async function resetDb(): Promise<void> {
     env.DB.prepare('DELETE FROM equity_m5'),
     env.DB.prepare('DELETE FROM link_state'),
     env.DB.prepare('DELETE FROM ea_links'),
+    env.DB.prepare('DELETE FROM gw_tokens'),
   ])
 }
 
@@ -104,4 +105,11 @@ export function tradeEvent(over: Record<string, unknown>) {
 /** Gán chủ sở hữu cho liên kết (test phạm vi xem). */
 export async function setOwner(linkId: number, ownerId: number): Promise<void> {
   await env.DB.prepare('UPDATE ea_links SET owner_id = ? WHERE id = ?').bind(ownerId, linkId).run()
+}
+
+/** Cấp token Gateway cho một người (qua service, không qua HTTP). */
+export async function seedToken(ownerId: number, label = `user-${ownerId}`) {
+  const { createToken } = await import('../src/services/gw-token-service')
+  const { token, row } = await createToken(env.DB, { ownerId, label }, 1_000)
+  return { token, id: row.id }
 }

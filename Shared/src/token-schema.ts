@@ -15,32 +15,32 @@ export type GwTokenStatus = (typeof GW_TOKEN_STATUSES)[number]
 
 /** Kiểm tra hình dạng token trước khi tra DB (request lạ không tốn truy vấn). */
 export function looksLikeGwToken(value: string): boolean {
-    return (
-        value.startsWith(GW_TOKEN_PREFIX) &&
-        value.length >= GW_TOKEN_PREFIX.length + 16 &&
-        value.length <= 128 &&
-        /^[A-Za-z0-9_-]+$/.test(value)
-    )
+  return (
+    value.startsWith(GW_TOKEN_PREFIX) &&
+    value.length >= GW_TOKEN_PREFIX.length + 16 &&
+    value.length <= 128 &&
+    /^[A-Za-z0-9_-]+$/.test(value)
+  )
 }
 
 export const createGwTokenRequestSchema = z.object({
-    /** Người dùng nhận token (id người dùng). */
-    owner_id: z.number().int().positive(),
-    /** Tên hiển thị của người nhận (email hoặc tên), để quản trị viên dễ nhận ra. */
-    label: z.string().trim().min(1).max(64),
+  /** Người dùng nhận token (id người dùng). */
+  owner_id: z.number().int().positive(),
+  /** Tên hiển thị của người nhận (email hoặc tên), để quản trị viên dễ nhận ra. */
+  label: z.string().trim().min(1).max(64),
 })
 export type CreateGwTokenRequest = z.infer<typeof createGwTokenRequestSchema>
 
 /** Một token trong danh sách: KHÔNG có token thô. */
 export type GwTokenSummary = {
-    id: number
-    owner_id: number
-    label: string
-    prefix: string
-    status: GwTokenStatus
-    created_at: number
-    last_used_at: number | null
-    revoked_at: number | null
+  id: number
+  owner_id: number
+  label: string
+  prefix: string
+  status: GwTokenStatus
+  created_at: number
+  last_used_at: number | null
+  revoked_at: number | null
 }
 
 export type GwTokenListResponse = { tokens: GwTokenSummary[] }
@@ -52,13 +52,13 @@ const hex64 = z.string().regex(/^[0-9a-f]{64}$/)
 
 /** Dòng `gw_tokens` đồng bộ VPS -> Cloudflare (không gồm `last_used_at`: mỗi nơi tự ghi). */
 export const syncTokenRowSchema = z.object({
-    id: z.number().int().positive(),
-    owner_id: z.number().int().positive(),
-    label: z.string().max(64),
-    token_hash: hex64,
-    token_prefix: z.string().max(16),
-    status: z.enum(GW_TOKEN_STATUSES),
-    created_at: z.number().int(),
-    revoked_at: z.number().int().nullable(),
+  id: z.number().int().positive(),
+  owner_id: z.number().int().positive(),
+  label: z.string().max(64),
+  token_hash: hex64,
+  token_prefix: z.string().max(16),
+  status: z.enum(GW_TOKEN_STATUSES),
+  created_at: z.number().int(),
+  revoked_at: z.number().int().nullable(),
 })
 export type SyncTokenRow = z.infer<typeof syncTokenRowSchema>

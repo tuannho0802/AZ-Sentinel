@@ -1,4 +1,4 @@
-import type { SyncApply, SyncLinkRow, SyncTradeRow } from '@az-sentinel/shared'
+import type { SyncApply, SyncLinkRow, SyncTokenRow, SyncTradeRow } from '@az-sentinel/shared'
 
 export const LINK_COLS = [
   'id',
@@ -36,10 +36,27 @@ export const TRADE_COLS = [
   'magic',
 ] as const satisfies readonly (keyof SyncTradeRow)[]
 
+export const TOKEN_COLS = [
+  'id',
+  'owner_id',
+  'label',
+  'token_hash',
+  'token_prefix',
+  'status',
+  'created_at',
+  'revoked_at',
+] as const satisfies readonly (keyof SyncTokenRow)[]
+
 const placeholders = (n: number) => Array(n).fill('?').join(', ')
 
 const LINK_UPSERT = `INSERT INTO ea_links (${LINK_COLS.join(', ')}) VALUES (${placeholders(LINK_COLS.length)})
   ON CONFLICT(id) DO UPDATE SET ${LINK_COLS.filter((c) => c !== 'id')
+    .map((c) => `${c} = excluded.${c}`)
+    .join(', ')}`
+
+/** `last_used_at` không nằm trong TOKEN_COLS nên upsert không bao giờ ghi đè nó. */
+const TOKEN_UPSERT = `INSERT INTO gw_tokens (${TOKEN_COLS.join(', ')}) VALUES (${placeholders(TOKEN_COLS.length)})
+  ON CONFLICT(id) DO UPDATE SET ${TOKEN_COLS.filter((c) => c !== 'id')
     .map((c) => `${c} = excluded.${c}`)
     .join(', ')}`
 
@@ -68,6 +85,26 @@ export async function applySync(db: D1Database, payload: SyncApply): Promise<num
       db.prepare('DELETE FROM trades WHERE link_id = ? AND ticket = ?').bind(t.link_id, t.ticket),
     )
   }
+  for (const row of payload.tokens) {
+    // Mỗi người một token đang hoạt động: token cũ cùng chủ (id khác) bị thu hồi trước khi upsert dòng mới,
+    // và dòng khác đang giữ cùng băm bị xóa để không vướng ràng buộc duy nhất.
+    if (row.status === 'active') {
+      stmts.push(
+        db
+          .prepare(
+            `UPDATE gw_tokens SET status = 'revoked', revoked_at = ?
+             WHERE owner_id = ? AND status = 'active' AND id <> ?`,
+          )
+          .bind(row.created_at, row.owner_id, row.id),
+      )
+    }
+    stmts.push(
+      db
+        .prepare('DELETE FROM gw_tokens WHERE token_hash = ? AND id <> ?')
+        .bind(row.token_hash, row.id),
+    )
+    stmts.push(db.prepare(TOKEN_UPSERT).bind(...TOKEN_COLS.map((c) => row[c])))
+  }
   for (const row of payload.links) {
     stmts.push(db.prepare(LINK_UPSERT).bind(...LINK_COLS.map((c) => row[c])))
   }
@@ -79,6 +116,7 @@ export async function applySync(db: D1Database, payload: SyncApply): Promise<num
   return (
     payload.links.length +
     payload.links_deleted.length +
+    payload.tokens.length +
     payload.trades.length +
     payload.trades_deleted.length
   )
@@ -127,4 +165,20 @@ export async function readLinksAfter(
   const page = more ? results.slice(0, limit) : results
   const last = page.at(-1)
   return { links: page, next: more && last ? last.id : null }
+}
+
+/** Một trang `gw_tokens` theo `id` tăng dần (VPS kéo lần khởi động đầu, và CF nhận lại sau khi sống lại). */
+export async function readTokensAfter(
+  db: D1Database,
+  after: number,
+  limit: number,
+): Promise<{ tokens: SyncTokenRow[]; next: number | null }> {
+  const { results } = await db
+    .prepare(`SELECT ${TOKEN_COLS.join(', ')} FROM gw_tokens WHERE id > ? ORDER BY id LIMIT ?`)
+    .bind(after, limit + 1)
+    .all<SyncTokenRow>()
+  const more = results.length > limit
+  const page = more ? results.slice(0, limit) : results
+  const last = page.at(-1)
+  return { tokens: page, next: more && last ? last.id : null }
 }

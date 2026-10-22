@@ -294,6 +294,17 @@ export function bindLinkAccountStmt(
     .bind(a.login, a.server, a.broker ?? null, a.name ?? null, a.mode, now, linkId)
 }
 
+/** Gán chủ cho liên kết chưa có chủ (lần bind đầu qua token cá nhân). Chỉ ghi khi `owner_id` còn null. */
+export function claimLinkOwnerStmt(
+  db: D1Database,
+  linkId: number,
+  ownerId: number,
+): D1PreparedStatement {
+  return db
+    .prepare('UPDATE ea_links SET owner_id = ? WHERE id = ? AND owner_id IS NULL')
+    .bind(ownerId, linkId)
+}
+
 /**
  * Sự kiện online/offline CHỈ chèn khi chuyển trạng thái so với `presence` đang lưu (so sánh ngay
  * trong SQL nên `state` lặp lại không ghi gì). Phải chạy TRƯỚC câu cập nhật presence trong batch.

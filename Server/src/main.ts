@@ -1,6 +1,7 @@
 import { mkdirSync } from 'node:fs'
 import { createApp } from '../../BE/src/app'
 import { LiveHub } from '../../BE/src/live/live-hub'
+import { ensureDevToken } from '../../BE/src/services/gw-token-service'
 import type { Bindings } from '../../BE/src/types'
 import { loadConfig } from './config'
 import { CpuMeter, createHostHooks, describeNode } from './host'
@@ -11,6 +12,7 @@ import { ShimState } from './shim/cloudflare-workers'
 import { openDatabase } from './shim/d1'
 import { createStaticHandler } from './static'
 import { SyncAgent } from './sync-agent'
+import { runTokenCli } from './token-cli'
 
 /**
  * Máy chủ VPS (Plan 3E): chạy NGUYÊN BE (Hono) và `LiveHub` trên Node với SQLite thay D1, đồng thời phục
@@ -18,6 +20,10 @@ import { SyncAgent } from './sync-agent'
  */
 async function main() {
   const cfg = loadConfig()
+  // `node server.mjs token <lệnh>`: quản lý token Gateway bằng dòng lệnh rồi thoát (không mở server).
+  if (process.argv[2] === 'token') {
+    process.exit(await runTokenCli(cfg, process.argv.slice(3)))
+  }
   mkdirSync(cfg.dataDir, { recursive: true })
   const log = createLogger(cfg.logLevel, `${cfg.dataDir}/logs`)
   log.info(`AZ Server v${process.env.AZ_SERVER_VERSION ?? 'dev'} khởi động (${cfg.name})`)
@@ -25,6 +31,17 @@ async function main() {
   const db = openDatabase(cfg.dbFile)
   const applied = runMigrations(db, cfg.migrationsDir)
   if (applied.length > 0) log.info(`đã áp migration: ${applied.join(', ')}`)
+
+  // Dev: bảo đảm Gateway dev có token cá nhân cố định (người dùng dev id 1). Bản thật không có cờ này.
+  if (cfg.devLinksApi === '1' && cfg.devGwToken !== '') {
+    await ensureDevToken(
+      db as unknown as D1Database,
+      cfg.devGwToken,
+      1,
+      'dev@az.local',
+      Math.floor(Date.now() / 1000),
+    )
+  }
 
   const cpu = new CpuMeter()
   cpu.start()
@@ -48,7 +65,6 @@ async function main() {
   const env: Bindings = {
     DB: db as unknown as D1Database,
     LIVE_HUB: { getByName: () => hub } as unknown as Bindings['LIVE_HUB'],
-    GW_CONNECT_TOKEN: cfg.gwConnectToken || undefined,
     SYNC_TOKEN: cfg.syncToken || undefined,
     LIVE_ALLOWED_ORIGINS: cfg.liveAllowedOrigins || undefined,
     DEV_LINKS_API: cfg.devLinksApi || undefined,

@@ -13,13 +13,6 @@ export type Bindings = {
   LIVE_ALLOWED_ORIGINS?: string
   /** "1" = trả meta rows_written/rows_read trong phản hồi ingest (chỉ dev/spike). */
   INGEST_DEBUG_META?: string
-  /**
-   * Bí mật chung giữa Worker và mọi Gateway: Gateway gửi `Authorization: Bearer <token>` khi mở
-   * `/api/gw/ws`. Thiếu hoặc sai thì Worker từ chối TRƯỚC khi đụng tới hub, nên request lạ không
-   * đánh thức Durable Object. Đặt bằng `wrangler secret put GW_CONNECT_TOKEN`. Không đặt thì chỉ
-   * cho phép khi chạy dev (DEV_LINKS_API=1).
-   */
-  GW_CONNECT_TOKEN?: string
   /** "1" = bật /api/dev/* (quản lý liên kết không cần đăng nhập). Chỉ truyền bằng `wrangler dev --var`, KHÔNG đặt trong wrangler.jsonc. */
   DEV_LINKS_API?: string
   /** Plan 3E: địa chỉ gốc (https) của VPS chính (thường là hostname Cloudflare Tunnel). Rỗng = chỉ chạy Cloudflare. */

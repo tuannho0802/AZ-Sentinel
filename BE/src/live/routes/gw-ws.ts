@@ -1,36 +1,49 @@
+import { looksLikeGwToken } from '@az-sentinel/shared'
 import { type Context, Hono } from 'hono'
 import { AppError } from '../../lib/app-error'
 import { sha256Hex } from '../../lib/crypto'
+import { nowUnix } from '../../lib/time'
+import {
+  findActiveTokenByHash,
+  type GwTokenRow,
+  touchTokenUsed,
+} from '../../services/gw-token-service'
 import type { AppEnv } from '../../types'
-import { GW_HEADER } from '../gw-header'
+import { encodeGwToken, GW_HEADER, GW_TOKEN_HEADER } from '../gw-header'
 import { VIEWER_HEADER } from '../viewer-header'
 import { HUB_NAME } from './live-ws'
 
 /**
- * Xác thực mức kết nối của Gateway (Plan 3D): bí mật chung `GW_CONNECT_TOKEN`. Quyền xem dữ liệu
- * của từng liên kết vẫn đi qua khóa trong tin `bind`; token này chỉ để request lạ (bot, quét cổng)
- * không đánh thức hub và không tốn request Durable Object. So sánh bằng băm để không lộ độ dài/khớp
- * từng ký tự.
+ * Xác thực mức kết nối của Gateway (Plan 4): token cá nhân `azt_...` do quản trị viên cấp, mỗi token
+ * chỉ thuộc một người. Kiểm hình dạng trước (request lạ không tốn truy vấn), rồi tra băm trong D1
+ * (1 dòng đọc). Token sai, đã thu hồi hoặc đã đặt lại đều 401 và không bao giờ tới hub.
  */
-async function checkGatewayToken(c: Context<AppEnv>): Promise<void> {
-  const expected = c.env.GW_CONNECT_TOKEN
-  if (!expected) {
-    if (c.env.DEV_LINKS_API === '1') return
-    throw new AppError(503, 'SERVICE_UNAVAILABLE', 'Chưa cấu hình GW_CONNECT_TOKEN')
-  }
+async function authenticateGatewayToken(c: Context<AppEnv>): Promise<GwTokenRow> {
   const header = c.req.header('Authorization') ?? ''
-  const given = header.startsWith('Bearer ') ? header.slice(7) : ''
-  const [a, b] = await Promise.all([sha256Hex(given), sha256Hex(expected)])
-  if (a !== b) throw new AppError(401, 'UNAUTHENTICATED', 'Token Gateway không hợp lệ')
+  const given = header.startsWith('Bearer ') ? header.slice(7).trim() : ''
+  if (!looksLikeGwToken(given)) {
+    throw new AppError(401, 'UNAUTHENTICATED', 'Token Gateway không hợp lệ')
+  }
+  const row = await findActiveTokenByHash(c.env.DB, await sha256Hex(given))
+  if (!row)
+    throw new AppError(401, 'UNAUTHENTICATED', 'Token Gateway không hợp lệ hoặc đã bị thu hồi')
+  return row
 }
 
 /**
- * `GET /api/gw/ws`: Gateway của VPS giữ một WebSocket tới đây (Plan 3C mục 4). Mức kết nối dùng
- * `GW_CONNECT_TOKEN`; mọi quyền dữ liệu đi qua khóa của từng liên kết trong tin `bind`, hub kiểm lại
- * bằng D1. Trình duyệt luôn gửi `Origin`; Gateway thì không, nên có `Origin` là bị từ chối.
+ * - `GET /api/gw/check`: bộ cài/Gateway hỏi nhanh token còn dùng được không (200 hoặc 401).
+ * - `GET /api/gw/ws`: Gateway giữ một WebSocket tới đây (Plan 3C mục 4). Mức kết nối dùng token cá
+ *   nhân; quyền dữ liệu từng liên kết vẫn đi qua khóa trong tin `bind`, hub kiểm lại bằng D1 và đòi
+ *   liên kết phải thuộc chủ của token. Trình duyệt luôn gửi `Origin`; Gateway thì không.
  */
 export function createGwWsRoutes() {
   const routes = new Hono<AppEnv>()
+
+  routes.get('/check', async (c) => {
+    const row = await authenticateGatewayToken(c)
+    c.header('Cache-Control', 'no-store')
+    return c.json({ ok: true, owner_id: row.owner_id })
+  })
 
   routes.get('/ws', async (c) => {
     if (c.req.header('Upgrade')?.toLowerCase() !== 'websocket') {
@@ -39,11 +52,17 @@ export function createGwWsRoutes() {
     if (c.req.header('Origin')) {
       throw new AppError(403, 'FORBIDDEN', 'Nguồn kết nối không được phép')
     }
-    await checkGatewayToken(c)
+    const token = await authenticateGatewayToken(c)
+    try {
+      await touchTokenUsed(c.env.DB, token, nowUnix())
+    } catch {
+      // last_used_at chỉ để hiển thị; lỗi ghi không chặn kết nối
+    }
     const headers = new Headers(c.req.raw.headers)
     headers.delete('Authorization')
     headers.delete(VIEWER_HEADER)
     headers.set(GW_HEADER, '1')
+    headers.set(GW_TOKEN_HEADER, encodeGwToken(token.id, token.owner_id))
     try {
       const stub = c.env.LIVE_HUB.getByName(HUB_NAME)
       return await stub.fetch(new Request(c.req.url, { method: 'GET', headers }))

@@ -28,6 +28,47 @@ export const strings = {
 
   navOverview: 'Tổng quan',
   navLinks: 'Liên kết EA',
+  navTokens: 'Token Gateway',
+
+  tokensTitle: 'Token Gateway',
+  tokensHint:
+    'Mỗi người một token cá nhân (azt_...), chỉ có tác dụng với đúng người đó. Người nhận nhập token vào Gateway; từ đó mới thêm được tài khoản và EA qua Gateway.',
+  tokensLoading: 'Đang tải danh sách token...',
+  tokensError: 'Không tải được danh sách token',
+  tokensEmpty: 'Chưa cấp token nào.',
+  tokensForbidden: 'Chỉ quản trị viên được quản lý token Gateway.',
+  tokenIssueTitle: 'Cấp token mới',
+  tokenOwnerId: 'ID người dùng',
+  tokenLabel: 'Tên người nhận',
+  tokenIssue: 'Cấp token',
+  tokenIssuing: 'Đang cấp...',
+  tokenOwnerInvalid: 'ID người dùng phải là số nguyên dương',
+  tokenLabelRequired: 'Nhập tên người nhận (email hoặc tên)',
+  tokenIssueConflict:
+    'Người dùng này đã có token đang hoạt động. Hãy đặt lại hoặc thu hồi token cũ trước.',
+  tokenIssueFailed: 'Không cấp được token. Hãy thử lại.',
+  tokenActionFailed: 'Thao tác không thành công. Hãy thử lại.',
+  tokenColOwner: 'Người dùng',
+  tokenColPrefix: 'Token',
+  tokenColStatus: 'Trạng thái',
+  tokenColCreated: 'Cấp lúc',
+  tokenColLastUsed: 'Dùng lần cuối',
+  tokenColActions: 'Thao tác',
+  tokenNeverUsed: 'Chưa dùng',
+  tokenStatusActive: 'Đang hoạt động',
+  tokenStatusRevoked: 'Đã thu hồi',
+  tokenReset: 'Đặt lại',
+  tokenRevoke: 'Thu hồi',
+  tokenConfirmReset:
+    'Đặt lại token? Token cũ ngừng hoạt động ngay và Gateway đang dùng nó bị ngắt cho tới khi nhập token mới.',
+  tokenConfirmRevoke:
+    'Thu hồi token? Gateway đang dùng nó bị ngắt ngay và không dùng lại được (muốn dùng lại phải cấp token mới).',
+  tokenDialogIssue: 'Token Gateway mới',
+  tokenDialogReset: 'Token Gateway đã đặt lại',
+  tokenDialogWarning:
+    'Sao chép token ngay và gửi riêng cho đúng người đó: token chỉ hiện một lần, đóng hộp thoại là không xem lại được.',
+  tokenFieldLabel: 'Token',
+  tokenCopy: 'Sao chép token',
 
   linksPageTitle: 'Liên kết EA',
   linksDevBanner:

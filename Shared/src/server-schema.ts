@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { syncTokenRowSchema } from './token-schema'
 
 /**
  * Plan 3E: VPS là máy chủ chính, Cloudflare là dự phòng. Mọi hằng số và schema dùng chung giữa
@@ -160,6 +161,7 @@ const SYNC_MAX_ROWS = 100
 
 /** `POST /api/sync/apply`: một lô thay đổi; upsert theo khóa nên gửi lại bao nhiêu lần cũng không hại. */
 export const syncApplySchema = z.object({
+  tokens: z.array(syncTokenRowSchema).max(SYNC_MAX_ROWS).default([]),
   links: z.array(syncLinkRowSchema).max(SYNC_MAX_ROWS).default([]),
   links_deleted: z.array(z.number().int().positive()).max(SYNC_MAX_ROWS).default([]),
   trades: z.array(syncTradeRowSchema).max(SYNC_MAX_ROWS).default([]),
@@ -183,6 +185,13 @@ export const syncLinksPageSchema = z.object({
   next: z.number().int().nullable(),
 })
 export type SyncLinksPage = z.infer<typeof syncLinksPageSchema>
+
+/** `GET /api/sync/tokens`: trang `gw_tokens` (VPS kéo lần khởi động đầu để nhận token cấp từ Cloudflare). */
+export const syncTokensPageSchema = z.object({
+  tokens: z.array(syncTokenRowSchema),
+  next: z.number().int().nullable(),
+})
+export type SyncTokensPage = z.infer<typeof syncTokensPageSchema>
 
 /** `GET /api/sync/trades`: trang các lệnh Cloudflare đã ghi (VPS kéo về sau khi sống lại). */
 export const syncTradesPageSchema = z.object({

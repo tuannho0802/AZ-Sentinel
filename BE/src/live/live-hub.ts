@@ -26,7 +26,13 @@ import {
 } from '../services/gw-service'
 import { normalizeSamples, sameSample } from '../services/live-service'
 import type { Bindings } from '../types'
-import { GW_HEADER, MAX_GW_TERMS } from './gw-header'
+import {
+  decodeGwToken,
+  GW_CLOSE_TOKEN_REVOKED,
+  GW_HEADER,
+  GW_TOKEN_HEADER,
+  MAX_GW_TERMS,
+} from './gw-header'
 import type {
   ConnAttachment,
   GwAttachment,
@@ -120,7 +126,11 @@ export class LiveHub extends DurableObject<Bindings> {
     if (request.headers.get('Upgrade')?.toLowerCase() !== 'websocket') {
       return new Response('Expected WebSocket', { status: 426 })
     }
-    if (request.headers.get(GW_HEADER) === '1') return this.acceptGateway()
+    if (request.headers.get(GW_HEADER) === '1') {
+      const token = decodeGwToken(request.headers.get(GW_TOKEN_HEADER))
+      if (!token) return new Response('Bad gateway token', { status: 400 })
+      return this.acceptGateway(token)
+    }
     const viewer = decodeViewer(request.headers.get(VIEWER_HEADER))
     if (!viewer) return new Response('Bad viewer', { status: 400 })
 
@@ -150,7 +160,7 @@ export class LiveHub extends DurableObject<Bindings> {
    * đòi `bind` hợp lệ: Gateway chưa có EA nào (hoặc khóa bị từ chối) vẫn phải giữ kết nối,
    * nếu không nó sẽ nối lại liên tục.
    */
-  private acceptGateway(): Response {
+  private acceptGateway(token: { tokenId: number; ownerId: number }): Response {
     const pair = new WebSocketPair()
     const client = pair[0]
     const server = pair[1]
@@ -162,6 +172,8 @@ export class LiveHub extends DurableObject<Bindings> {
       lastBeatAt: now,
       hello: false,
       vps: null,
+      tokenId: token.tokenId,
+      tokenOwnerId: token.ownerId,
     }
     server.serializeAttachment(att)
     // setTimeout giữ hub thức tối đa 10 giây mỗi lần Gateway nối: chấp nhận được.
@@ -379,6 +391,27 @@ export class LiveHub extends DurableObject<Bindings> {
       for (const t of this.loadTerms(att.connId)) if (t.online) ids.add(t.linkId)
     }
     return [...ids]
+  }
+
+  /**
+   * Token Gateway vừa bị thu hồi hoặc đặt lại (Plan 4): đá mọi kết nối đang mở bằng token đó (mã đóng
+   * 4003 `token_revoked`). Đặt lại giữ nguyên `tokenId` nhưng đổi băm, nên kết nối cũ cũng phải ngắt;
+   * Gateway nối lại bằng token mới đi qua kiểm tra D1 ở Worker, còn token cũ bị 401. Trả số kết nối đã đá.
+   */
+  async dropToken(tokenId: number): Promise<number> {
+    this.rpcCalls += 1
+    let n = 0
+    for (const ws of this.ctx.getWebSockets(GW_TAG)) {
+      const att = this.readGw(ws)
+      if (att?.tokenId !== tokenId) continue
+      try {
+        ws.close(GW_CLOSE_TOKEN_REVOKED, 'token_revoked')
+      } catch {
+        // đã đóng
+      }
+      n += 1
+    }
+    return n
   }
 
   /** Khóa bị khóa, cấp lại hoặc gỡ gắn (B-38): bảo Gateway bỏ terminal và ngừng phát. */
@@ -647,7 +680,11 @@ export class LiveHub extends DurableObject<Bindings> {
       return
     }
     const keyHash = await sha256Hex(msg.key)
-    const res = await this.withDb((db) => bindTerminal(db, msg, keyHash, Math.floor(nowMs / 1000)))
+    const gw = this.readGw(ws)
+    if (!gw) return
+    const res = await this.withDb((db) =>
+      bindTerminal(db, msg, keyHash, Math.floor(nowMs / 1000), gw.tokenOwnerId),
+    )
     if (res === null) return // D1 lỗi: im lặng; Gateway giữ "pending" và bind lại khi nối lại
     if (!res.ok) {
       this.sendGw(ws, { t: 'reject', tid: msg.tid, code: res.code })

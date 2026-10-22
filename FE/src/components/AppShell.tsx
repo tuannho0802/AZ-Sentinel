@@ -48,6 +48,9 @@ export function AppShell({ children }: { children: ReactNode }) {
             <nav aria-label={strings.mainNav} className="flex items-center gap-5">
               <NavLink href="/">{strings.navOverview}</NavLink>
               {import.meta.env.DEV && <NavLink href="/links">{strings.navLinks}</NavLink>}
+              {(me.data?.role === 'admin' || me.data?.role === 'root_admin') && (
+                <NavLink href="/tokens">{strings.navTokens}</NavLink>
+              )}
             </nav>
           </div>
           <div className="flex shrink-0 items-center gap-1.5">

@@ -14,7 +14,7 @@ const configSchema = z.object({
    * quay về `cloudUrl` khi VPS sống lại. Rỗng = không có dự phòng.
    */
   cloudFallbackUrl: z.string().default(''),
-  /** Bí mật chung với Worker (`GW_CONNECT_TOKEN`), gửi trong header Authorization khi nối cloud. */
+  /** Token Gateway cá nhân `azt_...` do quản trị viên cấp riêng cho bạn; gửi trong header Authorization khi nối cloud. */
   cloudToken: z.string().default(''),
   /** Giữ `event` khi không ai xem trong chừng này giây (0 = gửi ngay). */
   idleFlushSec: z.number().int().min(0).max(86400).default(GW.idleFlushSec),

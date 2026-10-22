@@ -7,7 +7,8 @@ export {}
  */
 process.env.AZ_GW_CLOUD_URL ??= 'ws://127.0.0.1:8080/api/gw/ws'
 process.env.AZ_GW_CLOUD_FALLBACK_URL ??= 'ws://127.0.0.1:8787/api/gw/ws'
-process.env.AZ_GW_TOKEN ??= 'dev-gw-token-0123456789abcdef'
+// Token cá nhân dev: Server dev (AZ_DEV_GW_TOKEN) tự tạo đúng token này cho người dùng dev (id 1).
+process.env.AZ_GW_TOKEN ??= 'azt_dev0123456789abcdef0123456789ab'
 // `pnpm dev` chạy qua pipe (không phải TTY) nên phải bật log ra console thì mới thấy "đã nối cloud".
 process.env.AZ_GW_CONSOLE ??= '1'
 await import('../src/main')

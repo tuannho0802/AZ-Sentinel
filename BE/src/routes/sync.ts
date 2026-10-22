@@ -7,7 +7,12 @@ import { AppError, errorBody } from '../lib/app-error'
 import { requireServiceToken } from '../lib/service-auth'
 import { nowUnix } from '../lib/time'
 import { saveHeartbeat } from '../services/server-info-service'
-import { applySync, readLinksAfter, readTradesSince } from '../services/sync-service'
+import {
+  applySync,
+  readLinksAfter,
+  readTokensAfter,
+  readTradesSince,
+} from '../services/sync-service'
 import type { AppEnv } from '../types'
 
 const MAX_SYNC_BODY_BYTES = 256 * 1024
@@ -51,6 +56,7 @@ const invalid = (result: { success: boolean; error?: unknown }, c: Context) => {
  * - `POST /heartbeat`: VPS báo còn sống, kèm thông tin máy (để giao diện dự phòng hiện VPS lần cuối).
  * - `POST /apply`: VPS đẩy thay đổi `ea_links` và `trades` để Cloudflare luôn sẵn sàng thay thế.
  * - `GET /links`: VPS kéo toàn bộ liên kết lần khởi động đầu (nhận dữ liệu cũ của Cloudflare).
+ * - `GET /tokens`: VPS kéo token Gateway lần khởi động đầu (Plan 4).
  * - `GET /trades`: VPS kéo các lệnh Cloudflare đã ghi trong lúc dự phòng.
  */
 export function createSyncRoutes() {
@@ -86,6 +92,11 @@ export function createSyncRoutes() {
   routes.get('/links', zValidator('query', linksQuerySchema, invalid), async (c) => {
     const q = c.req.valid('query')
     return c.json(await readLinksAfter(c.env.DB, q.after, q.limit))
+  })
+
+  routes.get('/tokens', zValidator('query', linksQuerySchema, invalid), async (c) => {
+    const q = c.req.valid('query')
+    return c.json(await readTokensAfter(c.env.DB, q.after, q.limit))
   })
 
   routes.get('/trades', zValidator('query', tradesQuerySchema, invalid), async (c) => {

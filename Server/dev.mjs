@@ -10,7 +10,7 @@ const defaults = {
   AZ_HOST: '127.0.0.1',
   AZ_SRV_NAME: 'VPS-LOCAL',
   AZ_SRV_LOCATION: 'May dev',
-  AZ_GW_CONNECT_TOKEN: 'dev-gw-token-0123456789abcdef',
+  AZ_DEV_GW_TOKEN: 'azt_dev0123456789abcdef0123456789ab',
   AZ_SYNC_TOKEN: 'dev-sync-token-0123456789abcdef',
   AZ_CLOUD_URL: 'http://127.0.0.1:8787',
   AZ_FALLBACK_URL: 'http://127.0.0.1:8787',

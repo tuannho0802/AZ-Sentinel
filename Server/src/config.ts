@@ -19,8 +19,8 @@ const schema = z.object({
   migrationsDir: z.string(),
   name: z.string().max(64),
   location: z.string().max(64).default(''),
-  /** Bí mật Gateway dùng nối `/api/gw/ws` (cùng giá trị `cloudToken` của Gateway). */
-  gwConnectToken: z.string().default(''),
+  /** Chỉ dev: token Gateway cố định cho người dùng dev (id 1), tự tạo khi `devLinksApi` bật. */
+  devGwToken: z.string().default(''),
   /** Bí mật dịch vụ giữa VPS và Worker (cùng giá trị `SYNC_TOKEN` của Worker). */
   syncToken: z.string().default(''),
   /** Địa chỉ Worker API dự phòng, ví dụ https://az-sentinel-api.xxx.workers.dev. Rỗng = tắt đồng bộ. */
@@ -75,7 +75,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
     migrationsDir: merged.AZ_MIGRATIONS_DIR ?? path.join(here, 'migrations'),
     name: (merged.AZ_SRV_NAME || os.hostname()).slice(0, 64),
     location: merged.AZ_SRV_LOCATION || undefined,
-    gwConnectToken: merged.AZ_GW_CONNECT_TOKEN || undefined,
+    devGwToken: merged.AZ_DEV_GW_TOKEN || undefined,
     syncToken: merged.AZ_SYNC_TOKEN || undefined,
     cloudUrl: merged.AZ_CLOUD_URL || undefined,
     fallbackUrl: merged.AZ_FALLBACK_URL || undefined,

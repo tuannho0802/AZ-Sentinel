@@ -4,15 +4,17 @@ import {
   type StandbyStatus,
   type SyncApply,
   type SyncLinkRow,
+  type SyncTokenRow,
   type SyncTradeRow,
   syncLinksPageSchema,
+  syncTokensPageSchema,
   syncTradesPageSchema,
 } from '@az-sentinel/shared'
-import { LINK_COLS, TRADE_COLS } from '../../BE/src/services/sync-service'
+import { LINK_COLS, TOKEN_COLS, TRADE_COLS } from '../../BE/src/services/sync-service'
 import type { Logger } from './log'
 import type { ShimD1 } from './shim/d1'
 
-type OutboxRow = { seq: number; kind: 'link' | 'trade'; a: number; b: number }
+type OutboxRow = { seq: number; kind: 'link' | 'trade' | 'token'; a: number; b: number }
 type Reply = { ok: boolean; status: number; json: unknown }
 
 const placeholders = (n: number) => Array(n).fill('?').join(', ')
@@ -20,6 +22,8 @@ const nowSec = () => Math.floor(Date.now() / 1000)
 const NUDGE_MIN_GAP_SEC = 300
 
 const LINK_INSERT = `INSERT OR IGNORE INTO ea_links (${LINK_COLS.join(', ')}) VALUES (${placeholders(LINK_COLS.length)})`
+/** Nhận token từ Cloudflare lần đầu: không ghi đè token VPS đã có (VPS là nguồn gốc của token). */
+const TOKEN_INSERT = `INSERT OR IGNORE INTO gw_tokens (${TOKEN_COLS.join(', ')}) VALUES (${placeholders(TOKEN_COLS.length)})`
 const TRADE_UPSERT = `INSERT INTO trades (${TRADE_COLS.join(', ')}) VALUES (${placeholders(TRADE_COLS.length)})
   ON CONFLICT(link_id, ticket) DO UPDATE SET ${TRADE_COLS.filter(
     (c) => c !== 'link_id' && c !== 'ticket',
@@ -111,8 +115,35 @@ export class SyncAgent {
       }
     } else {
       await this.pull()
+      await this.syncTokensOnce()
     }
     await this.flush()
+  }
+
+  /**
+   * Một lần duy nhất (cờ `tokens_boot`): kéo token Cloudflare đang có, rồi xếp mọi token của VPS vào hàng
+   * đợi để đẩy sang. Cần cho VPS đã chạy từ bản trước khi có token (bootstrap cũ đã `done`).
+   */
+  private async syncTokensOnce(): Promise<boolean> {
+    if (this.getState('tokens_boot') === 'done') return true
+    let after = 0
+    for (;;) {
+      const reply = await this.get(`/api/sync/tokens?after=${after}&limit=100`)
+      if (!reply.ok) return false
+      const page = syncTokensPageSchema.safeParse(reply.json)
+      if (!page.success) return this.fail('phản hồi /sync/tokens không hợp lệ')
+      this.applyMuted(() => {
+        const stmt = this.store.statement(TOKEN_INSERT)
+        for (const row of page.data.tokens) stmt.run(...TOKEN_COLS.map((c) => row[c]))
+      })
+      if (page.data.next === null) break
+      after = page.data.next
+    }
+    this.store.sqlite.exec(
+      "INSERT OR REPLACE INTO sync_outbox (kind, a, b) SELECT 'token', id, 0 FROM gw_tokens",
+    )
+    this.setState('tokens_boot', 'done')
+    return true
   }
 
   /** Lần đầu: nhận dữ liệu cũ của Cloudflare; nếu VPS đã có dữ liệu riêng thì đẩy hết sang Cloudflare. */
@@ -136,6 +167,7 @@ export class SyncAgent {
       after = page.data.next
     }
     if (!(await this.pullTrades(0))) return false
+    if (!(await this.syncTokensOnce())) return false
     if (localHadData) this.enqueueAll()
     this.setState('bootstrap', 'done')
     this.setState('last_pull_at', String(startedAt))
@@ -148,6 +180,7 @@ export class SyncAgent {
     this.store.sqlite.exec(`
       INSERT OR REPLACE INTO sync_outbox (kind, a, b) SELECT 'link', id, 0 FROM ea_links;
       INSERT OR REPLACE INTO sync_outbox (kind, a, b) SELECT 'trade', link_id, ticket FROM trades;
+      INSERT OR REPLACE INTO sync_outbox (kind, a, b) SELECT 'token', id, 0 FROM gw_tokens;
     `)
   }
 
@@ -200,13 +233,25 @@ export class SyncAgent {
   }
 
   private buildPayload(rows: OutboxRow[]): SyncApply {
-    const payload: SyncApply = { links: [], links_deleted: [], trades: [], trades_deleted: [] }
+    const payload: SyncApply = {
+      tokens: [],
+      links: [],
+      links_deleted: [],
+      trades: [],
+      trades_deleted: [],
+    }
+    const token = this.store.statement(
+      `SELECT ${TOKEN_COLS.join(', ')} FROM gw_tokens WHERE id = ?`,
+    )
     const link = this.store.statement(`SELECT ${LINK_COLS.join(', ')} FROM ea_links WHERE id = ?`)
     const trade = this.store.statement(
       `SELECT ${TRADE_COLS.join(', ')} FROM trades WHERE link_id = ? AND ticket = ?`,
     )
     for (const r of rows) {
-      if (r.kind === 'link') {
+      if (r.kind === 'token') {
+        const row = token.get(r.a)
+        if (row) payload.tokens.push({ ...row } as SyncTokenRow)
+      } else if (r.kind === 'link') {
         const row = link.get(r.a)
         if (row) payload.links.push({ ...row } as SyncLinkRow)
         else payload.links_deleted.push(r.a)

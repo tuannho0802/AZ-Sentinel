@@ -8,7 +8,7 @@ import {
   terminalId,
 } from '@az-sentinel/shared'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { GW_HEADER, MAX_GW_TERMS } from '../../src/live/gw-header'
+import { encodeGwToken, GW_HEADER, GW_TOKEN_HEADER, MAX_GW_TERMS } from '../../src/live/gw-header'
 import { encodeViewer, VIEWER_HEADER } from '../../src/live/viewer-header'
 import type { Bindings } from '../../src/types'
 import { LOGIN, resetDb, SERVER, seedLink, setOwner } from '../helpers'
@@ -41,7 +41,14 @@ function accept<M>(ws: WebSocket): Peer<M> {
 
 async function connectGateway(hub: Hub): Promise<Peer<GwServerMessage>> {
   const res = await hub.fetch(
-    new Request('http://hub/', { headers: { Upgrade: 'websocket', [GW_HEADER]: '1' } }),
+    new Request('http://hub/', {
+      headers: {
+        Upgrade: 'websocket',
+        [GW_HEADER]: '1',
+        // Token cá nhân đã xác thực ở Worker: id 1, chủ là OWNER.
+        [GW_TOKEN_HEADER]: encodeGwToken(1, OWNER),
+      },
+    }),
   )
   if (!res.webSocket) throw new Error(`Gateway không nâng cấp được: ${res.status}`)
   return accept<GwServerMessage>(res.webSocket)
