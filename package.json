@@ -7,7 +7,7 @@
     "node": ">=22"
   },
   "scripts": {
-    "dev": "pnpm --parallel --filter @az-sentinel/api --filter @az-sentinel/web --filter @az-sentinel/gateway dev",
+    "dev": "pnpm --parallel --filter @az-sentinel/api --filter @az-sentinel/server --filter @az-sentinel/web --filter @az-sentinel/gateway dev",
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
     "typecheck": "pnpm -r typecheck && tsc -p Scripts/tsconfig.json",

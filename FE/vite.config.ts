@@ -19,9 +19,12 @@ logger.error = (msg, options) => {
   logError(msg, options)
 }
 
+const apiTarget = process.env.AZ_API_TARGET ?? 'http://127.0.0.1:8080'
+
 export default defineConfig({
   customLogger: logger,
   plugins: [react(), tailwindcss(), ...(useMockAuth ? [mockAuth()] : [])],
-  server: { port: 5173, proxy: { '/api': { target: 'http://127.0.0.1:8787', ws: true } } },
+  // Mặc định đi qua Server (VPS giả lập, 8080); đặt AZ_API_TARGET=http://127.0.0.1:8787 để dùng thẳng BE Worker.
+  server: { port: 5173, proxy: { '/api': { target: apiTarget, ws: true } } },
   test: { environment: 'jsdom', include: ['src/**/*.test.{ts,tsx}'] },
 })
