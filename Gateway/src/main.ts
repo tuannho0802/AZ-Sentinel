@@ -16,7 +16,9 @@ async function main() {
   const logDir = path.join(cfg.dataDir, 'logs')
   const log = createLogger(
     cfg.logLevel,
-    createFileSink(logDir, { alsoConsole: Boolean(process.stdout.isTTY) }),
+    createFileSink(logDir, {
+      alsoConsole: Boolean(process.stdout.isTTY) || process.env.AZ_GW_CONSOLE === '1',
+    }),
   )
   log.info(`AZ Gateway v${GATEWAY_VERSION} khởi động (vps=${cfg.vps})`)
 

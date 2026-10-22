@@ -39,6 +39,7 @@ import type {
 } from './hub-types'
 import { scopeMatches } from './scope'
 import { decodeViewer, VIEWER_HEADER } from './viewer-header'
+import { upgradeResponse } from './ws-response'
 
 const WS_OPEN = 1
 const MAX_CLIENT_MESSAGE_CHARS = 512
@@ -141,7 +142,7 @@ export class LiveHub extends DurableObject<Bindings> {
     // Trình duyệt không đọc được mã HTTP của lần nâng cấp thất bại, nên chấp nhận rồi mới đá.
     if (mine >= LIVE.maxTabsPerUser) this.kick(server, 'too_many_tabs')
     else this.syncWatch(viewer.nowMs)
-    return new Response(null, { status: 101, webSocket: client })
+    return upgradeResponse(client)
   }
 
   /**
@@ -168,7 +169,7 @@ export class LiveHub extends DurableObject<Bindings> {
       const cur = this.readGw(server)
       if (cur && !cur.hello && server.readyState === WS_OPEN) server.close(4001, 'hello timeout')
     }, GW.bindTimeoutSec * 1000)
-    return new Response(null, { status: 101, webSocket: client })
+    return upgradeResponse(client)
   }
 
   override async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): Promise<void> {

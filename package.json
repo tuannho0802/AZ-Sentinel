@@ -7,7 +7,7 @@
     "node": ">=22"
   },
   "scripts": {
-    "dev": "pnpm --parallel --filter @az-sentinel/api --filter @az-sentinel/server --filter @az-sentinel/web --filter @az-sentinel/gateway dev",
+    "dev": "node Scripts/dev.mjs",
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
     "typecheck": "pnpm -r typecheck && tsc -p Scripts/tsconfig.json",
@@ -24,7 +24,8 @@
     "build:web": "pnpm --filter @az-sentinel/web build",
     "build:server": "pnpm --filter @az-sentinel/server build",
     "pack:server": "pnpm build:web && pnpm --filter @az-sentinel/server pack",
-    "start:server": "pnpm --filter @az-sentinel/server start"
+    "start:server": "pnpm --filter @az-sentinel/server start",
+    "dev:raw": "pnpm --parallel --filter @az-sentinel/api --filter @az-sentinel/server --filter @az-sentinel/web --filter @az-sentinel/gateway dev"
   },
   "devDependencies": {
     "@biomejs/biome": "latest",
