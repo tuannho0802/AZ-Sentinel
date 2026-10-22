@@ -11,7 +11,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { encodeGwToken, GW_HEADER, GW_TOKEN_HEADER, MAX_GW_TERMS } from '../../src/live/gw-header'
 import { encodeViewer, VIEWER_HEADER } from '../../src/live/viewer-header'
 import type { Bindings } from '../../src/types'
-import { LOGIN, resetDb, SERVER, seedLink, setOwner } from '../helpers'
+import { count, LOGIN, resetDb, SERVER, seedLink, setOwner } from '../helpers'
 
 const bindings = env as unknown as Bindings
 let hubSeq = 0
@@ -39,14 +39,18 @@ function accept<M>(ws: WebSocket): Peer<M> {
   return { ws, msgs }
 }
 
-async function connectGateway(hub: Hub): Promise<Peer<GwServerMessage>> {
+async function connectGateway(
+  hub: Hub,
+  tokenId = 1,
+  tokenOwner = OWNER,
+): Promise<Peer<GwServerMessage>> {
   const res = await hub.fetch(
     new Request('http://hub/', {
       headers: {
         Upgrade: 'websocket',
         [GW_HEADER]: '1',
         // Token cá nhân đã xác thực ở Worker: id 1, chủ là OWNER.
-        [GW_TOKEN_HEADER]: encodeGwToken(1, OWNER),
+        [GW_TOKEN_HEADER]: encodeGwToken(tokenId, tokenOwner),
       },
     }),
   )
@@ -390,5 +394,60 @@ describe('ngủ đông: danh sách terminal sống sót qua storage', () => {
     expect(await keysOf()).toBe(1)
     g.ws.close(1000)
     await untilAsync(async () => (await keysOf()) === 0)
+  })
+})
+
+const bindMsg = (k: string) =>
+  JSON.stringify({ t: 'bind', tid: TID, key: k, login: LOGIN, server: SERVER, mode: 'demo' })
+
+describe('token cá nhân: chủ liên kết và ngắt kết nối (Plan 4)', () => {
+  it('khóa EA của người khác: bind qua token của bạn bị từ chối 403', async () => {
+    const hub = hubFor()
+    const g = await connectGateway(hub, 5, 99)
+    g.ws.send(bindMsg(key))
+    await until(() => g.msgs.some((m) => m.t === 'reject'))
+    expect(g.msgs.find((m) => m.t === 'reject')).toMatchObject({ code: 403 })
+    expect(g.msgs.some((m) => m.t === 'bound')).toBe(false)
+    expect(await count('ea_links', `id = ${linkId} AND owner_id = ${OWNER}`)).toBe(1)
+  })
+
+  it('liên kết chưa có chủ: lần bind đầu gán cho chủ token', async () => {
+    await env.DB.prepare('UPDATE ea_links SET owner_id = NULL WHERE id = ?').bind(linkId).run()
+    const hub = hubFor()
+    const g = await connectGateway(hub, 5, 99)
+    g.ws.send(bindMsg(key))
+    await until(() => g.msgs.some((m) => m.t === 'bound'))
+    expect(await count('ea_links', `id = ${linkId} AND owner_id = 99`)).toBe(1)
+  })
+
+  it('đúng chủ: bind bình thường và không đổi chủ', async () => {
+    const hub = hubFor()
+    const g = await connectGateway(hub, 5, OWNER)
+    g.ws.send(bindMsg(key))
+    await until(() => g.msgs.some((m) => m.t === 'bound'))
+    expect(await count('ea_links', `id = ${linkId} AND owner_id = ${OWNER}`)).toBe(1)
+  })
+
+  it('dropToken: chỉ đóng (4003) kết nối dùng đúng token đó', async () => {
+    const hub = hubFor()
+    const a = await connectGateway(hub, 1, OWNER)
+    const b = await connectGateway(hub, 2, 77)
+    const codes = new Map<string, number>()
+    a.ws.addEventListener('close', (e) => codes.set('a', e.code))
+    b.ws.addEventListener('close', (e) => codes.set('b', e.code))
+    expect(await hub.dropToken(1)).toBe(1)
+    await until(() => codes.has('a'))
+    expect(codes.get('a')).toBe(4003)
+    await tick()
+    expect(codes.has('b')).toBe(false)
+    expect(await hub.dropToken(999)).toBe(0)
+  })
+
+  it('thiếu hoặc sai header token nội bộ: hub từ chối 400', async () => {
+    const hub = hubFor()
+    const res = await hub.fetch(
+      new Request('http://hub/', { headers: { Upgrade: 'websocket', [GW_HEADER]: '1' } }),
+    )
+    expect(res.status).toBe(400)
   })
 })

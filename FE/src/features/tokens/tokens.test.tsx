@@ -120,4 +120,54 @@ describe('trang Token Gateway (admin)', () => {
     expect(screen.queryByRole('button', { name: strings.tokenIssue })).toBeNull()
     expect(screen.queryByRole('link', { name: strings.navTokens })).toBeNull()
   })
+
+  it('quản trị viên thấy mục menu Token Gateway; thao tác thất bại thì báo lỗi', async () => {
+    renderApp('/tokens', {
+      ...base,
+      'POST /api/admin/gw-tokens/1/revoke': () =>
+        json(500, { error: { code: 'INTERNAL', message: 'x' } }),
+    })
+    expect(await screen.findByRole('link', { name: strings.navTokens })).toBeTruthy()
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    fireEvent.click(await screen.findByRole('button', { name: strings.tokenRevoke }))
+    expect(await screen.findByText(strings.tokenActionFailed)).toBeTruthy()
+  })
+
+  it('danh sách rỗng: báo chưa cấp token nào, vẫn có form cấp', async () => {
+    renderApp('/tokens', { ...base, 'GET /api/admin/gw-tokens': () => json(200, { tokens: [] }) })
+    expect(await screen.findByText(strings.tokensEmpty)).toBeTruthy()
+    expect(screen.getByRole('button', { name: strings.tokenIssue })).toBeTruthy()
+  })
+
+  it('lỗi tải danh sách (không phải 403): báo lỗi và có nút thử lại', async () => {
+    renderApp('/tokens', {
+      ...base,
+      'GET /api/admin/gw-tokens': () => json(500, { error: { code: 'INTERNAL', message: 'x' } }),
+    })
+    expect(await screen.findByText(new RegExp(strings.tokensError))).toBeTruthy()
+    expect(screen.getByRole('button', { name: strings.retry })).toBeTruthy()
+  })
+
+  it('cấp token lỗi khác 409: báo không cấp được', async () => {
+    renderApp('/tokens', {
+      ...base,
+      'POST /api/admin/gw-tokens': () => json(500, { error: { code: 'INTERNAL', message: 'x' } }),
+    })
+    fireEvent.change(await screen.findByLabelText(strings.tokenOwnerId), { target: { value: '7' } })
+    fireEvent.change(screen.getByLabelText(strings.tokenLabel), { target: { value: 'A' } })
+    fireEvent.click(screen.getByRole('button', { name: strings.tokenIssue }))
+    expect(await screen.findByText(strings.tokenIssueFailed)).toBeTruthy()
+  })
+
+  it('đặt lại thất bại thì không hiện hộp thoại token', async () => {
+    renderApp('/tokens', {
+      ...base,
+      'POST /api/admin/gw-tokens/1/reset': () =>
+        json(409, { error: { code: 'CONFLICT', message: 'x' } }),
+    })
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    fireEvent.click(await screen.findByRole('button', { name: strings.tokenReset }))
+    expect(await screen.findByText(strings.tokenActionFailed)).toBeTruthy()
+    expect(screen.queryByRole('dialog')).toBeNull()
+  })
 })
