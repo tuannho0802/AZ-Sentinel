@@ -1,6 +1,6 @@
 # AZ Gateway: bộ cài cho Windows Server VPS và cách phát hành bản cập nhật
 
-> v0.1 · 21/10/2026 · Hiện thực mục 7 của `AZ_Sentinel_Plan3C_Local_Gateway.md`.
+> v0.2 · 22/10/2026 (token cá nhân, kiểm token lúc cài) · v0.1 · 21/10/2026 · Hiện thực mục 7 của `AZ_Sentinel_Plan3C_Local_Gateway.md`.
 > **Chưa thử trên Windows thật.** Phần Node/TypeScript (test, bundle, đóng gói exe) đã chạy và kiểm trên Linux; Inno Setup, Task Scheduler và script PowerShell cần chạy thử trên một VPS Windows trước khi phát hành chính thức (xem mục 6).
 
 ## 1. Bộ cài làm gì

@@ -29,12 +29,15 @@ Lưu ý: nếu người dùng vào bằng hostname của Worker (không phải h
 
 ## 3. Triển khai
 
-1. Máy dev: `pnpm install`, `pnpm pack:server` (build FE rồi đóng gói `Server/release/az-server`).
-2. Chép thư mục đó lên VPS (cần Node 22.5+ hoặc chép `node.exe` cạnh `server.mjs`). Copy `server.env.example` → `server.env`, điền cấu hình.
-3. PowerShell (Administrator): `.\install-task.ps1 -AppDir C:\AZServer`. Log: `%ProgramData%\AZSentinelServer\logs\server.log`.
-4. Cài `cloudflared`, tạo tunnel trỏ hostname → `http://127.0.0.1:8080`.
-5. Cloudflare Worker: `wrangler secret put SYNC_TOKEN` (cùng giá trị `AZ_SYNC_TOKEN`), đặt biến `VPS_ORIGIN` = URL VPS (hostname tunnel), `PRIMARY_URL`, `FALLBACK_URL`; deploy lại `pnpm deploy:api` và `pnpm deploy:web`.
-6. Gateway: `cloudUrl` = `wss://<vps>/api/gw/ws`, `cloudFallbackUrl` = `wss://<worker>/api/gw/ws` (cũng sửa được trong giao diện Gateway).
+**Cách khuyến nghị: bộ cài** (`AZSentinel-Server-Setup.exe` từ GitHub Releases `server-v*`, xem `AZ_Sentinel_Server_Installer.md`). Bộ cài đã kèm `node.exe` và giao diện web, hỏi cấu hình, ghi `server.env`, đăng ký tác vụ **AZ Server** và đợi `/api/health`.
+
+1. Chạy bộ cài trên VPS (hoặc cài im lặng với `/NAME /PORT /CLOUDURL /FALLBACKURL /SYNCTOKEN`).
+2. Cấp token Gateway cho từng người: Start menu > **Quản lý token Gateway** (`token issue <owner_id> <tên>`). Token Gateway là của từng người, không đặt trong `server.env`.
+3. Cài `cloudflared`, tạo tunnel trỏ hostname → `http://127.0.0.1:8080` (đúng cổng đã chọn).
+4. Cloudflare Worker: `wrangler secret put SYNC_TOKEN` (cùng giá trị `AZ_SYNC_TOKEN`), đặt biến `VPS_ORIGIN` = URL VPS (hostname tunnel), `PRIMARY_URL`, `FALLBACK_URL`; deploy lại bằng tag deploy (hoặc `pnpm deploy:api`, `pnpm deploy:web`). Nếu Worker còn secret `GW_CONNECT_TOKEN` thì xóa: `wrangler secret delete GW_CONNECT_TOKEN`.
+5. Gateway: cài bằng `AZSentinel-Gateway-Setup.exe` với `cloudUrl` = `wss://<vps>/api/gw/ws`, Cloud URL dự phòng = `wss://<worker>/api/gw/ws` và token cá nhân (cũng sửa được trong giao diện Gateway).
+
+**Cách thủ công** (khi không dùng bộ cài): máy dev `pnpm install`, `pnpm pack:server` (build FE rồi đóng gói `Server/release/az-server`), chép lên VPS cùng `node.exe` (hoặc cài Node 22.5+), copy `server.env.example` → `server.env`, rồi PowerShell Administrator: `.\install-task.ps1 -AppDir C:\AZServer`. Log: `%ProgramData%\AZSentinelServer\logs\server.log`. Quản lý token: `node server.mjs token issue|list|reset|revoke`.
 
 ## 4. Hành vi khi VPS sập / sống lại
 

@@ -117,7 +117,7 @@ Gateway mở `GET /api/gw/ws` và giữ vĩnh viễn, nối lại theo backoff 1
 | `ack` | `{tid, seq}` cho `event` |
 | `update` | `{min_ver, url, sha256}` khi bản Gateway quá cũ (mục 7) |
 
-Kết nối chưa `hello` trong 10 giây thì bị đóng. Từ Plan 3D, Worker đòi `Authorization: Bearer <GW_CONNECT_TOKEN>` khi mở WebSocket và từ chối trước khi gọi hub; quyền dữ liệu vẫn đi qua khóa của từng liên kết trong `bind` (Q3 giữ nguyên cho phần liên kết).
+Kết nối chưa `hello` trong 10 giây thì bị đóng. Từ Plan 3D (và đổi sang token cá nhân ở Plan 4), Worker đòi `Authorization: Bearer azt_...` (token của từng người, xem `AZ_Sentinel_Gateway_Token.md`) khi mở WebSocket và từ chối trước khi gọi hub; quyền dữ liệu vẫn đi qua khóa của từng liên kết trong `bind` (Q3 giữ nguyên cho phần liên kết).
 
 ## 5. Thay đổi ở BE
 
@@ -164,6 +164,8 @@ stateDiagram-v2
 - **EA mới thay `AZ_Spike`:** giữ file `ea/AZ_Spike.mq5` và mở rộng tại chỗ (Q2). Input mới: `InpGateway`, `InpPingSec`, `InpMarginLevelAlert`; bỏ `InpUrl` và `InpIntervalSec` khi đường "direct" bị xóa.
 
 ## 7. Gateway, giao diện cục bộ và bộ cài
+
+> **Đã làm (22/10/2026):** bộ cài Gateway (`Installer/az-gateway.iss`, xem `AZ_Sentinel_Gateway_Installer.md`) và bộ cài Server kèm giao diện web (`Installer/az-server.iss`, xem `AZ_Sentinel_Server_Installer.md`). Tên file thực tế là `AZSentinel-Gateway-Setup.exe`; phần đề xuất bên dưới giữ để đối chiếu.
 
 **Gateway** (Q1 đã chốt: **Node.js + TypeScript**, dùng chung `@az-sentinel/shared`; đóng gói `.exe` xem mục 15):
 
@@ -324,7 +326,7 @@ Cửa GO sang Part 4:
 | `AZ_Sentinel_Plan3B_Live_On_Demand.md` | Mục 2 (phương án gate), 4 (giao thức EA → server), 5 (máy trạng thái EA), 8 (ngân sách), 11 (case E, M) đã bị Plan 3C thay thế; giữ mục 1, 6, 7 (viewer, hub) |
 | `AZ_Sentinel_Rules_FE.md` | Mục 5 và 14: WebSocket thay poll trên `/links` (đã nêu ở L0 của Plan 3B) |
 | `AZ_Sentinel_Plan2_System_DB.md` | Mục 6, 8, 9: luồng ingest và ngân sách theo Plan 3C |
-| `AZ_Sentinel_Local_Setup.md` | Thêm mục Gateway và bộ cài khi có |
+| `AZ_Sentinel_Local_Setup.md` | Đã trỏ tới tài liệu bộ cài Gateway và Server (22/10/2026) |
 | `spike-results.md` mục 6 | Điền P1-27 đến P1-29 bằng số đo ở G0 |
 
 ## 15. Chạy cục bộ trên VPS (hướng dẫn vận hành)
@@ -347,7 +349,7 @@ Thứ tự ưu tiên: biến môi trường ghi đè file `config.json` ghi đè
 |---|---|---|
 | `port` | `AZ_GW_PORT` | 47800 |
 | `cloudUrl` | `AZ_GW_CLOUD_URL` | rỗng = chỉ chạy cục bộ, không live |
-| `cloudToken` | `AZ_GW_TOKEN` | rỗng; bản deploy bắt buộc đặt cùng giá trị `GW_CONNECT_TOKEN` của Worker (Plan 3D) |
+| `cloudToken` | `AZ_GW_TOKEN` | rỗng; token cá nhân `azt_...` do quản trị viên cấp (Plan 4), bộ cài hỏi và kiểm bằng `check-token` |
 | `idleFlushSec` | `AZ_GW_IDLE_FLUSH_SEC` | 1800; không ai xem thì `state`/`event` chờ chừng này giây mới đẩy gộp, 0 = gửi ngay (Plan 3D) |
 | `vps` | `AZ_GW_VPS` | tên máy |
 | `dataDir` | `AZ_GW_DATA` | `%ProgramData%\AZSentinel` (Windows), `~/.az-sentinel` (khác) |

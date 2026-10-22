@@ -11,6 +11,9 @@ name: Deploy
 #   CLOUDFLARE_API_TOKEN   token có quyền Workers Scripts:Edit và D1:Edit
 #   CLOUDFLARE_ACCOUNT_ID  ID tài khoản Cloudflare
 #   D1_DATABASE_ID         database_id thật của D1 "az-sentinel-db" (trong repo chỉ có ID giả)
+# Token Gateway (Plan 4): Worker không còn secret GW_CONNECT_TOKEN, token là của từng người (bảng gw_tokens,
+# migration 0004, chạy ở bước migration bên dưới). Worker cần secret SYNC_TOKEN (đặt bằng wrangler, không qua workflow này).
+# Bộ cài Gateway/Server có workflow riêng (release-gateway.yml, release-server.yml), không liên quan tới deploy.
 # Lưu ý: GITHUB_TOKEN mặc định chỉ đọc code, nên workflow này không thể tự ghi vào repo.
 on:
   push:

@@ -105,6 +105,7 @@ code .
 2. Bạn **chưa cần** làm gì thêm ở dashboard. Ở Part 1 (mục 1.F) chúng ta sẽ đăng nhập Wrangler (`wrangler login` mở trình duyệt để cấp quyền) và tạo D1.
 3. Không cần thêm domain vào Cloudflare ở giai đoạn này.
 4. Token Gateway (Plan 4): không còn khóa chung `GW_CONNECT_TOKEN`. Mỗi người dùng một token cá nhân `azt_...`, chỉ có tác dụng với người đó; xem `AZ_Sentinel_Gateway_Token.md` để cấp, đặt lại, thu hồi. Khi chạy `pnpm dev`, Server dev tự cấp sẵn token `azt_dev0123456789abcdef0123456789ab` cho người dùng dev (id 1) và Gateway dev dùng đúng token đó. Nhớ chạy migration `0004` (`pnpm db:migrate:remote`) trước khi deploy.
+5. Bộ cài cho VPS Windows (không cần làm khi chỉ chạy dev local): Gateway `AZ_Sentinel_Gateway_Installer.md`, Server kèm giao diện web `AZ_Sentinel_Server_Installer.md`. Phát hành bằng tag trong commit message, xem `AZ_Sentinel_CI_Tags_And_Gateway_Power.md`.
 
 ## 7. Chuẩn bị MT5 (để thử EA ở Part 1.G)
 

@@ -3,6 +3,8 @@
 > Bản v0.1 · 21/10/2026 · Bổ sung cho Plan 3B và 3C, không thay đổi giao thức EA ↔ Gateway.
 > **Trạng thái:** đã có mã và test xanh (Shared 61, Gateway 88, BE 153, FE 55). Chưa đo trên Cloudflare thật; các con số ngân sách bên dưới là ước tính từ nhịp trong mã (mục 5).
 
+> **Đã thay thế (Plan 4, 22/10/2026):** khóa chung `GW_CONNECT_TOKEN` (P3D-02 và mục 7 bên dưới) không còn. Gateway nối bằng token cá nhân `azt_...` do quản trị viên cấp, xem `AZ_Sentinel_Gateway_Token.md`. Phần còn lại của Plan 3D vẫn đúng.
+
 ## 1. Mục tiêu
 
 1. Giữ nguyên trải nghiệm: danh sách `/links` cập nhật mỗi giây, trang `/links/:id` theo tick.
@@ -114,10 +116,10 @@ Tất cả dưới 100.000 request/ngày và dưới 13.000 GB-s/ngày. Dòng gh
 
 ## 7. Vận hành
 
-1. `cd BE && wrangler secret put GW_CONNECT_TOKEN` (chuỗi ngẫu nhiên dài). Không đặt thì `/api/gw/ws` trả 503 ở bản deploy.
-2. Mỗi VPS: đặt `AZ_GW_TOKEN` (hoặc `cloudToken`) cùng giá trị.
+1. ~~`wrangler secret put GW_CONNECT_TOKEN`~~ (đã bỏ từ Plan 4). Nếu Worker đã deploy còn secret này: `wrangler secret delete GW_CONNECT_TOKEN`.
+2. Mỗi người một token cá nhân `azt_...` do quản trị viên cấp; nhập vào bộ cài Gateway (hoặc `AZ_GW_TOKEN`, `cloudToken`).
 3. Tùy chọn: `AZ_GW_IDLE_FLUSH_SEC` (mặc định 1800; 0 = gửi ngay).
-4. Không cần migration D1 mới. Hub dùng storage SQLite của Durable Object (gói free bắt buộc SQLite-backed, đã đúng theo `new_sqlite_classes`).
+4. (Lúc viết Plan 3D) không cần migration D1 mới; từ Plan 4 cần migration `0004` (bảng `gw_tokens`), `pnpm db:migrate:remote` trong workflow deploy đã chạy sẵn. Hub dùng storage SQLite của Durable Object (gói free bắt buộc SQLite-backed, đã đúng theo `new_sqlite_classes`).
 
 ## 8. Cách đo sau khi deploy
 

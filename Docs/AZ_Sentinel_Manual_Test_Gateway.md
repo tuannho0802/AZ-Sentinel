@@ -5,7 +5,7 @@
 ## 0. Luồng dữ liệu
 
 EA (MT5) → HTTP loopback → Gateway (127.0.0.1:47800) → WebSocket → BE `/api/gw/ws` (LiveHub) → WebSocket → FE (localhost:5173).
-Đăng nhập thật và bộ cài Gateway chưa có, nên bản deploy chưa dùng được; test này chỉ chạy ở chế độ dev local.
+Đăng nhập thật (Part 2) chưa có, nên trang `/tokens` chưa dùng được ở bản deploy (dùng `token.cmd` hoặc `node server.mjs token ...` trên VPS). Test này chạy ở chế độ dev local, Gateway dev dùng token cố định `azt_dev...` (xem `AZ_Sentinel_Gateway_Token.md`). Thử bộ cài trên VPS Windows thật: danh sách kiểm ở `AZ_Sentinel_Gateway_Installer.md` mục 6 và `AZ_Sentinel_Server_Installer.md` mục 6.
 
 ## 1. Chuẩn bị (một lần)
 

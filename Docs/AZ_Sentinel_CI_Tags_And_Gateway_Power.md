@@ -2,21 +2,22 @@
 
 ## 1. Khi nào CI chạy
 
-Hai workflow chỉ chạy khi **commit mới nhất** của lần push lên `main` có chứa tag trong message. Không có tag thì job bị bỏ qua ("skipped"), không tốn phút CI.
+Ba workflow chỉ chạy khi **commit mới nhất** của lần push lên `main` có chứa tag trong message. Không có tag thì job bị bỏ qua ("skipped"), không tốn phút CI.
 
 | Muốn làm gì | Tag trong message | Workflow | Kết quả |
 |---|---|---|---|
 | Deploy BE + FE lên Cloudflare | `[deploy]` | `.github/workflows/deploy.yml` | `pnpm check`, migration D1 remote, deploy API, deploy Web |
 | Build bộ cài Gateway (exe) và tạo Release | `[release]` | `.github/workflows/release-gateway.yml` | Build `AZSentinel-Gateway-Setup.exe`, tạo GitHub Release `gateway-v<version>` |
+| Build bộ cài Server (kèm giao diện web và `node.exe`) và tạo Release | `[release-server]` | `.github/workflows/release-server.yml` | Build `AZSentinel-Server-Setup.exe`, tạo GitHub Release `server-v<version>` |
 
-Ví dụ: `git commit -m "update: add new feat [deploy]"`. Một commit có cả hai tag thì chạy cả hai.
+Ví dụ: `git commit -m "update: add new feat [deploy]"`. Một commit có nhiều tag thì chạy từng workflow tương ứng. `[release-server]` không khớp `[release]` (và ngược lại), nên hai bộ cài không kích hoạt nhầm nhau.
 
-Cả hai cũng có nút chạy tay (Actions > chọn workflow > Run workflow). Chạy tay `deploy` thì deploy luôn; chạy tay `release` chỉ build và để file trong Artifacts, không tạo Release.
+Cả ba cũng có nút chạy tay (Actions > chọn workflow > Run workflow). Chạy tay `deploy` thì deploy luôn; chạy tay hai workflow release chỉ build và để file trong Artifacts, không tạo Release.
 
 Lưu ý:
 
 - Chỉ xét commit **cuối** của lần push. Push nhiều commit cùng lúc mà tag nằm ở commit đầu thì không chạy. Squash merge thì xét message của commit squash.
-- Đừng viết nguyên văn `[deploy]` hay `[release]` vào message khi chỉ muốn **nhắc** tới chúng (ví dụ commit sửa chính tài liệu này), vì chuỗi con nào khớp cũng kích hoạt workflow. Viết "tag deploy" thay vì "[deploy]".
+- Đừng viết nguyên văn `[deploy]`, `[release]` hay `[release-server]` vào message khi chỉ muốn **nhắc** tới chúng (ví dụ commit sửa chính tài liệu này), vì chuỗi con nào khớp cũng kích hoạt workflow. Viết "tag deploy" thay vì "[deploy]".
 - Không phân biệt hoa thường (`[Deploy]` cũng khớp).
 
 ## 2. Deploy cần gì
@@ -35,9 +36,21 @@ Migration D1 chạy **trước** khi deploy API, nên migration phải tương t
 
 ## 3. Release cần gì
 
-- Tăng `version` trong `Gateway/package.json` **trước** khi commit có `[release]`. Phiên bản lấy từ đó (không còn lấy từ tag Git).
-- Release có tên `gateway-v<version>`. Giao diện Gateway dựa vào tiền tố `gateway-v` để báo có bản mới.
-- Release `gateway-v<version>` đã tồn tại thì workflow dừng ngay, không ghi đè bộ cài đã phát hành.
+Dùng chung cho hai bộ cài; khác nhau ở thư mục `package.json`, tag trong message và tiền tố release:
+
+| | Gateway | Server (kèm giao diện web) |
+|---|---|---|
+| Tăng `version` trong | `Gateway/package.json` | `Server/package.json` |
+| Tag trong commit | `[release]` | `[release-server]` |
+| Release và tag Git | `gateway-v<version>` | `server-v<version>` |
+| Tệp đính kèm | `AZSentinel-Gateway-Setup.exe`, `SHA256SUMS.txt` | `AZSentinel-Server-Setup.exe`, `SHA256SUMS.txt` |
+| Kiểm trong CI | typecheck, test Gateway, chạy thử exe (`/v1/status`, `check-token`) | typecheck, test Server, chạy thử gói (`/api/health`, trang giao diện) |
+
+Chi tiết: `AZ_Sentinel_Gateway_Installer.md` và `AZ_Sentinel_Server_Installer.md`.
+
+- Phiên bản lấy từ `package.json` tương ứng (không lấy từ tag Git), nên phải tăng **trước** khi commit có tag release.
+- Giao diện Gateway dựa vào tiền tố `gateway-v` để báo có bản mới; release Server dùng tiền tố `server-v` nên không lẫn vào.
+- Release đã tồn tại thì workflow dừng ngay, không ghi đè bộ cài đã phát hành.
 
 ## 4. Bật/Tắt Gateway
 

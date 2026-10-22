@@ -7,6 +7,7 @@ name: Release Server
 #
 # Phiên bản lấy từ Server/package.json, nên PHẢI tăng "version" trước khi release. Tag Git và GitHub Release
 # có tên server-v<version>. Release đó đã tồn tại thì workflow dừng ngay, không ghi đè bộ cài đã phát hành.
+# Lệnh `token issue|list|reset|revoke` (token.cmd) và giao diện web nằm trong gói; bộ cài hỏi cấu hình Server, không hỏi token Gateway.
 # Chạy tay (workflow_dispatch) chỉ build và đưa file vào Artifacts, không tạo Release.
 on:
   push:

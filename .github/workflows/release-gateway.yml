@@ -90,6 +90,22 @@ jobs:
             Write-Host "OK: Gateway v$($s.version) dang chay"
           } finally { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue }
 
+      # Bộ cài Gateway dựa vào mã thoát của `check-token` (0 hợp lệ, 1 bị từ chối, 2 không hỏi được cloud,
+      # 3 đầu vào sai). Cổng 9 không có ai nghe nên cho mã 2 mà không cần mạng; token sai dạng cho mã 3.
+      - name: Chạy thử lệnh check-token của exe
+        shell: pwsh
+        run: |
+          $exe = Join-Path $PWD 'Gateway/dist/az-gateway.exe'
+          function Run-Check([string]$url, [string]$token) {
+            $p = Start-Process -FilePath $exe -ArgumentList 'check-token', $url, $token -PassThru -Wait -WindowStyle Hidden
+            return $p.ExitCode
+          }
+          $bad = Run-Check 'ws://127.0.0.1:9/api/gw/ws' 'khoa-chung-cu'
+          if ($bad -ne 3) { throw "check-token token sai dang: mong 3, nhan $bad" }
+          $down = Run-Check 'ws://127.0.0.1:9/api/gw/ws' 'azt_0123456789abcdef0123456789abcdef'
+          if ($down -ne 2) { throw "check-token khi khong noi duoc cloud: mong 2, nhan $down" }
+          Write-Host 'OK: check-token tra dung ma thoat (3 va 2)'
+
       - name: Build bộ cài (Inno Setup)
         shell: pwsh
         run: |
