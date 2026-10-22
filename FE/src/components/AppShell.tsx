@@ -1,6 +1,8 @@
 import type { ReactNode } from 'react'
 import { Link, useRoute } from 'wouter'
 import { useLogout, useMe } from '../features/auth/api'
+import { FailoverBanner } from '../features/server/FailoverBanner'
+import { ServerBadge } from '../features/server/ServerBadge'
 import { strings } from '../lib/strings'
 import { Button } from './Button'
 import { Logo } from './Logo'
@@ -49,6 +51,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             </nav>
           </div>
           <div className="flex shrink-0 items-center gap-1.5">
+            <ServerBadge />
             <ThemeToggle />
             {me.data && (
               <span className="hidden max-w-40 truncate px-1 text-sm text-muted sm:inline">
@@ -62,6 +65,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         </div>
       </header>
       <main id="main" tabIndex={-1} className="mx-auto max-w-7xl px-4 py-6 outline-none sm:px-6">
+        <FailoverBanner />
         {children}
       </main>
     </div>

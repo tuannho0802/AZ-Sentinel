@@ -8,16 +8,16 @@ export const realFetch: FetchFn = (input, init) => fetch(input, init)
  * làm đứt WebSocket đã nâng cấp hay luồng đang tải.
  */
 export async function timedFetch(
-    fetchFn: FetchFn,
-    input: string,
-    init: RequestInit,
-    timeoutMs: number,
+  fetchFn: FetchFn,
+  input: string,
+  init: RequestInit,
+  timeoutMs: number,
 ): Promise<Response> {
-    const ctl = new AbortController()
-    const timer = setTimeout(() => ctl.abort(), timeoutMs)
-    try {
-        return await fetchFn(input, { ...init, signal: ctl.signal })
-    } finally {
-        clearTimeout(timer)
-    }
+  const ctl = new AbortController()
+  const timer = setTimeout(() => ctl.abort(), timeoutMs)
+  try {
+    return await fetchFn(input, { ...init, signal: ctl.signal })
+  } finally {
+    clearTimeout(timer)
+  }
 }

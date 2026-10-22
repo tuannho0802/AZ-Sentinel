@@ -408,6 +408,7 @@ export class LiveHub extends DurableObject<Bindings> {
   async stats(nowMs: number): Promise<HubStats> {
     return {
       viewers: this.aliveConns(nowMs).length,
+      gateways: this.ctx.getWebSockets(GW_TAG).filter((ws) => ws.readyState === WS_OPEN).length,
       linksTracked: this.links.size,
       rpcCalls: this.rpcCalls,
     }

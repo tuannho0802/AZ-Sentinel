@@ -2,6 +2,7 @@ import { AppShell } from '../components/AppShell'
 import { ApiStatusCard } from '../features/overview/ApiStatusCard'
 import { LinksCard } from '../features/overview/LinksCard'
 import { SessionCard } from '../features/overview/SessionCard'
+import { ServerStatusCard } from '../features/server/ServerStatusCard'
 import { strings } from '../lib/strings'
 
 export function DashboardPage() {
@@ -12,6 +13,7 @@ export function DashboardPage() {
         <ApiStatusCard />
         <SessionCard />
         <LinksCard />
+        <ServerStatusCard />
       </div>
     </AppShell>
   )

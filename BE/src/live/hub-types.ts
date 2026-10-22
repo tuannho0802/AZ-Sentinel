@@ -50,6 +50,8 @@ export type PublishResult = {
 
 export type HubStats = {
   viewers: number
+  /** Số Gateway đang nối WebSocket vào hub (hiện trên thẻ máy chủ). */
+  gateways: number
   linksTracked: number
   /** Số lời gọi RPC từ lúc hub khởi tạo (bộ nhớ, mất khi hub ngủ đông). Chỉ để đo/chẩn đoán. */
   rpcCalls: number

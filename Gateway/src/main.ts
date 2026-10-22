@@ -56,6 +56,7 @@ async function main() {
     getConfig: () => ({
       vps: cfg.vps,
       cloudUrl: cfg.cloudUrl,
+      cloudFallbackUrl: cfg.cloudFallbackUrl,
       idleFlushSec: cfg.idleFlushSec,
       tokenSet: cfg.cloudToken !== '',
       port: cfg.port,
@@ -85,7 +86,12 @@ async function main() {
 
   let cloud: CloudClient | null = null
   if (cfg.cloudUrl) {
-    cloud = new CloudClient(gw, { url: cfg.cloudUrl, token: cfg.cloudToken, log })
+    cloud = new CloudClient(gw, {
+      url: cfg.cloudUrl,
+      ...(cfg.cloudFallbackUrl ? { fallbackUrl: cfg.cloudFallbackUrl } : {}),
+      token: cfg.cloudToken,
+      log,
+    })
     cloud.start()
   } else {
     log.warn('chưa cấu hình cloudUrl: chỉ chạy cục bộ, không có live')

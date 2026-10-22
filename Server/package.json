@@ -1,30 +1,30 @@
 {
-    "name": "@az-sentinel/server",
-    "version": "0.1.0",
-    "private": true,
-    "type": "module",
-    "scripts": {
-        "build": "node build.mjs",
-        "start": "node dist/server.mjs",
-        "dev": "node build.mjs && node dist/server.mjs",
-        "pack": "node build.mjs && node scripts/pack.mjs",
-        "typecheck": "tsc --noEmit",
-        "test": "vitest run"
-    },
-    "dependencies": {
-        "@az-sentinel/shared": "workspace:*",
-        "@hono/node-server": "latest",
-        "@hono/zod-validator": "latest",
-        "hono": "latest",
-        "ws": "latest",
-        "zod": "latest"
-    },
-    "devDependencies": {
-        "@cloudflare/workers-types": "latest",
-        "@types/node": "latest",
-        "@types/ws": "latest",
-        "esbuild": "^0.28.2",
-        "typescript": "latest",
-        "vitest": "^4.1.0"
-    }
+  "name": "@az-sentinel/server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs",
+    "start": "node dist/server.mjs",
+    "dev": "node build.mjs && node dist/server.mjs",
+    "pack": "node build.mjs && node scripts/pack.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@az-sentinel/shared": "workspace:*",
+    "@hono/node-server": "latest",
+    "@hono/zod-validator": "latest",
+    "hono": "latest",
+    "ws": "latest",
+    "zod": "latest"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "latest",
+    "@types/node": "latest",
+    "@types/ws": "latest",
+    "esbuild": "^0.28.2",
+    "typescript": "latest",
+    "vitest": "^4.1.0"
+  }
 }

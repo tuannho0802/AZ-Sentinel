@@ -58,31 +58,35 @@ BEGIN INSERT OR REPLACE INTO sync_outbox (kind, a, b) VALUES ('trade', OLD.link_
  * Mỗi tệp chạy trong một giao dịch và chỉ một lần (ghi tên vào `_migrations`). Trả về tên các tệp vừa áp.
  */
 export function runMigrations(db: ShimD1, dir: string): string[] {
-    const sqlite = db.sqlite
-    sqlite.exec('CREATE TABLE IF NOT EXISTS _migrations (name TEXT PRIMARY KEY, applied_at INTEGER NOT NULL)')
-    const done = new Set(
-        (sqlite.prepare('SELECT name FROM _migrations').all() as { name: string }[]).map((r) => r.name),
-    )
-    const applied: string[] = []
-    const files = readdirSync(dir)
-        .filter((f) => f.endsWith('.sql'))
-        .sort()
-    for (const file of files) {
-        if (done.has(file)) continue
-        const sql = readFileSync(path.join(dir, file), 'utf8')
-        sqlite.exec('BEGIN')
-        try {
-            sqlite.exec(sql)
-            sqlite
-                .prepare('INSERT INTO _migrations (name, applied_at) VALUES (?, ?)')
-                .run(file, Math.floor(Date.now() / 1000))
-            sqlite.exec('COMMIT')
-        } catch (error) {
-            sqlite.exec('ROLLBACK')
-            throw new Error(`Migration ${file} lỗi: ${error instanceof Error ? error.message : String(error)}`)
-        }
-        applied.push(file)
+  const sqlite = db.sqlite
+  sqlite.exec(
+    'CREATE TABLE IF NOT EXISTS _migrations (name TEXT PRIMARY KEY, applied_at INTEGER NOT NULL)',
+  )
+  const done = new Set(
+    (sqlite.prepare('SELECT name FROM _migrations').all() as { name: string }[]).map((r) => r.name),
+  )
+  const applied: string[] = []
+  const files = readdirSync(dir)
+    .filter((f) => f.endsWith('.sql'))
+    .sort()
+  for (const file of files) {
+    if (done.has(file)) continue
+    const sql = readFileSync(path.join(dir, file), 'utf8')
+    sqlite.exec('BEGIN')
+    try {
+      sqlite.exec(sql)
+      sqlite
+        .prepare('INSERT INTO _migrations (name, applied_at) VALUES (?, ?)')
+        .run(file, Math.floor(Date.now() / 1000))
+      sqlite.exec('COMMIT')
+    } catch (error) {
+      sqlite.exec('ROLLBACK')
+      throw new Error(
+        `Migration ${file} lỗi: ${error instanceof Error ? error.message : String(error)}`,
+      )
     }
-    sqlite.exec(SERVER_SCHEMA)
-    return applied
+    applied.push(file)
+  }
+  sqlite.exec(SERVER_SCHEMA)
+  return applied
 }

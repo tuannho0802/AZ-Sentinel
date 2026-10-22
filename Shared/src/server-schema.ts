@@ -95,6 +95,8 @@ export const serverInfoSchema = z.object({
   gateways: z.number().int().nonnegative(),
   viewers: z.number().int().nonnegative(),
   checkedAt: z.number().int(),
+  primaryUrl: z.string().max(256).nullable().optional(),
+  fallbackUrl: z.string().max(256).nullable().optional(),
 })
 export type ServerInfo = z.infer<typeof serverInfoSchema>
 
@@ -104,6 +106,7 @@ export const serverSelfSchema = z.object({
   standby: standbyStatusSchema.nullable(),
   gateways: z.number().int().nonnegative(),
   viewers: z.number().int().nonnegative(),
+  fallbackUrl: z.string().max(256).nullable().optional(),
 })
 export type ServerSelf = z.infer<typeof serverSelfSchema>
 
@@ -173,6 +176,13 @@ export const syncHeartbeatSchema = z.object({
   sentAt: z.number().int(),
 })
 export type SyncHeartbeat = z.infer<typeof syncHeartbeatSchema>
+
+/** `GET /api/sync/links`: trang `ea_links` (VPS kéo lần khởi động đầu). */
+export const syncLinksPageSchema = z.object({
+  links: z.array(syncLinkRowSchema),
+  next: z.number().int().nullable(),
+})
+export type SyncLinksPage = z.infer<typeof syncLinksPageSchema>
 
 /** `GET /api/sync/trades`: trang các lệnh Cloudflare đã ghi (VPS kéo về sau khi sống lại). */
 export const syncTradesPageSchema = z.object({

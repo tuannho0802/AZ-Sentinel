@@ -11,26 +11,26 @@ import type { AppEnv } from '../types'
  * `GET /api/server-info/self`: Worker hỏi VPS bằng token dịch vụ `SYNC_TOKEN`, chỉ trả thông tin của chính node.
  */
 export function createServerInfoRoutes(auth: ViewerAuth, deps: ServerInfoDeps = {}) {
-    const routes = new Hono<AppEnv>()
+  const routes = new Hono<AppEnv>()
 
-    routes.get('/', async (c) => {
-        const viewer = await auth(c)
-        if (!viewer) throw new AppError(401, 'UNAUTHENTICATED', 'Chưa đăng nhập')
-        const info = await buildServerInfo(c, deps)
-        c.set('servedBy', info.active.role)
-        c.set('mode', info.mode)
-        c.header('Cache-Control', 'no-store')
-        return c.json(info)
+  routes.get('/', async (c) => {
+    const viewer = await auth(c)
+    if (!viewer) throw new AppError(401, 'UNAUTHENTICATED', 'Chưa đăng nhập')
+    const info = await buildServerInfo(c, deps)
+    c.set('servedBy', info.active.role)
+    c.set('mode', info.mode)
+    c.header('Cache-Control', 'no-store')
+    return c.json(info)
+  })
+
+  routes.get('/self', async (c) => {
+    await requireServiceToken(c, c.env.SYNC_TOKEN, {
+      missing: 'Chưa cấu hình SYNC_TOKEN',
+      invalid: 'Token dịch vụ không hợp lệ',
     })
+    c.header('Cache-Control', 'no-store')
+    return c.json(await describeSelf(c))
+  })
 
-    routes.get('/self', async (c) => {
-        await requireServiceToken(c, c.env.SYNC_TOKEN, {
-            missing: 'Chưa cấu hình SYNC_TOKEN',
-            invalid: 'Token dịch vụ không hợp lệ',
-        })
-        c.header('Cache-Control', 'no-store')
-        return c.json(await describeSelf(c))
-    })
-
-    return routes
+  return routes
 }

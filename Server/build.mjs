@@ -34,7 +34,9 @@ await build({
   // node:sqlite có sẵn trong Node 22.5+; ws có hai phụ thuộc tùy chọn (tăng tốc) không cần thiết.
   external: ['node:sqlite', 'bufferutil', 'utf-8-validate'],
   // `ws` là CommonJS: cần `require` khi gom vào ESM.
-  banner: { js: "import { createRequire as __cr } from 'node:module';const require = __cr(import.meta.url);" },
+  banner: {
+    js: "import { createRequire as __cr } from 'node:module';const require = __cr(import.meta.url);",
+  },
   define: { 'process.env.AZ_SERVER_VERSION': JSON.stringify(pkg.version) },
 })
 

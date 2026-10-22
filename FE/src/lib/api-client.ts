@@ -1,4 +1,5 @@
 import type { ApiErrorBody } from '@az-sentinel/shared'
+import { recordNetworkError, recordResponse } from './server-status'
 
 export class ApiError extends Error {
   constructor(
@@ -23,12 +24,20 @@ async function request<T>(
   path: string,
   body?: unknown,
 ): Promise<T> {
-  const res = await fetch(path, {
-    method,
-    credentials: 'same-origin',
-    headers: body === undefined ? undefined : { 'Content-Type': 'application/json' },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  })
+  let res: Response
+  try {
+    res = await fetch(path, {
+      method,
+      credentials: 'same-origin',
+      headers: body === undefined ? undefined : { 'Content-Type': 'application/json' },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    })
+  } catch (e) {
+    // Không tới được máy chủ (VPS sập, mất mạng): báo cho thanh trạng thái máy chủ.
+    recordNetworkError()
+    throw e
+  }
+  recordResponse(res.headers)
   if (!res.ok) {
     let parsed: Partial<ApiErrorBody> = {}
     try {

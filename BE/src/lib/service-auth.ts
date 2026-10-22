@@ -9,16 +9,16 @@ import { sha256Hex } from './crypto'
  * (an toàn mặc định).
  */
 export async function requireServiceToken(
-    c: Context<AppEnv>,
-    expected: string | undefined,
-    messages: { missing: string; invalid: string },
+  c: Context<AppEnv>,
+  expected: string | undefined,
+  messages: { missing: string; invalid: string },
 ): Promise<void> {
-    if (!expected) {
-        if (c.env.DEV_LINKS_API === '1') return
-        throw new AppError(503, 'SERVICE_UNAVAILABLE', messages.missing)
-    }
-    const header = c.req.header('Authorization') ?? ''
-    const given = header.startsWith('Bearer ') ? header.slice(7) : ''
-    const [a, b] = await Promise.all([sha256Hex(given), sha256Hex(expected)])
-    if (a !== b) throw new AppError(401, 'UNAUTHENTICATED', messages.invalid)
+  if (!expected) {
+    if (c.env.DEV_LINKS_API === '1') return
+    throw new AppError(503, 'SERVICE_UNAVAILABLE', messages.missing)
+  }
+  const header = c.req.header('Authorization') ?? ''
+  const given = header.startsWith('Bearer ') ? header.slice(7) : ''
+  const [a, b] = await Promise.all([sha256Hex(given), sha256Hex(expected)])
+  if (a !== b) throw new AppError(401, 'UNAUTHENTICATED', messages.invalid)
 }

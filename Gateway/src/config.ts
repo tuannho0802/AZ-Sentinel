@@ -9,6 +9,11 @@ const configSchema = z.object({
   port: z.number().int().min(1024).max(65535).default(GW.defaultPort),
   /** URL WebSocket của hub, vd `wss://<tên>.workers.dev/api/gw/ws`. Rỗng = chỉ chạy cục bộ. */
   cloudUrl: z.string().default(''),
+  /**
+   * URL WebSocket dự phòng (Worker Cloudflare), dùng khi `cloudUrl` (VPS chính) không nối được. Gateway tự
+   * quay về `cloudUrl` khi VPS sống lại. Rỗng = không có dự phòng.
+   */
+  cloudFallbackUrl: z.string().default(''),
   /** Bí mật chung với Worker (`GW_CONNECT_TOKEN`), gửi trong header Authorization khi nối cloud. */
   cloudToken: z.string().default(''),
   /** Giữ `event` khi không ai xem trong chừng này giây (0 = gửi ngay). */
@@ -30,7 +35,7 @@ export function defaultDataDir(): string {
 
 /**
  * Nạp cấu hình: file JSON (đường dẫn trong `AZ_GW_CONFIG`, mặc định `<dataDir>/config.json`),
- * rồi biến môi trường ghi đè: AZ_GW_PORT, AZ_GW_CLOUD_URL, AZ_GW_TOKEN, AZ_GW_IDLE_FLUSH_SEC, AZ_GW_VPS, AZ_GW_DATA, AZ_GW_LOG.
+ * rồi biến môi trường ghi đè: AZ_GW_PORT, AZ_GW_CLOUD_URL, AZ_GW_CLOUD_FALLBACK_URL, AZ_GW_TOKEN, AZ_GW_IDLE_FLUSH_SEC, AZ_GW_VPS, AZ_GW_DATA, AZ_GW_LOG.
  */
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): GatewayConfig {
   const dataDir = env.AZ_GW_DATA ?? defaultDataDir()
@@ -46,6 +51,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): GatewayConfig 
   const overrides: Record<string, unknown> = {}
   if (env.AZ_GW_PORT) overrides.port = Number(env.AZ_GW_PORT)
   if (env.AZ_GW_CLOUD_URL) overrides.cloudUrl = env.AZ_GW_CLOUD_URL
+  if (env.AZ_GW_CLOUD_FALLBACK_URL) overrides.cloudFallbackUrl = env.AZ_GW_CLOUD_FALLBACK_URL
   if (env.AZ_GW_TOKEN) overrides.cloudToken = env.AZ_GW_TOKEN
   if (env.AZ_GW_IDLE_FLUSH_SEC) overrides.idleFlushSec = Number(env.AZ_GW_IDLE_FLUSH_SEC)
   if (env.AZ_GW_VPS) overrides.vps = env.AZ_GW_VPS
@@ -66,6 +72,12 @@ export const editableSchema = z.object({
     .string()
     .trim()
     .refine((v) => v === '' || /^wss?:\/\/[^\s]+$/i.test(v), 'phải bắt đầu bằng wss:// hoặc ws://'),
+  /** Địa chỉ dự phòng; rỗng = không có (xem `cloudFallbackUrl` ở trên). */
+  cloudFallbackUrl: z
+    .string()
+    .trim()
+    .refine((v) => v === '' || /^wss?:\/\/[^\s]+$/i.test(v), 'phải bắt đầu bằng wss:// hoặc ws://')
+    .optional(),
   /** Chuỗi rỗng = giữ token cũ (giao diện không bao giờ nhận lại token). */
   cloudToken: z.string().trim().max(512),
   vps: z.string().trim().min(1).max(64),
@@ -115,6 +127,7 @@ export function saveEditableConfig(
   const next = {
     ...current,
     cloudUrl: patch.cloudUrl,
+    cloudFallbackUrl: patch.cloudFallbackUrl ?? '',
     vps: patch.vps,
     idleFlushSec: patch.idleFlushSec,
   }

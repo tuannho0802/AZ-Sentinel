@@ -12,6 +12,10 @@ export const ERROR_CODES = [
   'INVALID_API_KEY',
   'LINK_DISABLED',
   'LINK_BOUND_TO_OTHER_ACCOUNT',
+  /** Plan 3E: VPS chính vừa mất kết nối giữa chừng, thao tác ghi không tự thử lại. */
+  'UPSTREAM_FAILED',
+  /** Plan 3E: đang chạy dự phòng Cloudflare, tạm chặn ghi liên kết. */
+  'READ_ONLY_FALLBACK',
 ] as const
 export type ErrorCode = (typeof ERROR_CODES)[number]
 
