@@ -1,7 +1,10 @@
 import {
   createGwTokenRequestSchema,
+  encodeConnectCode,
   type GwTokenListResponse,
   type GwTokenSecretResponse,
+  httpToGatewayWsUrl,
+  isLocalOnlyHost,
 } from '@az-sentinel/shared'
 import { zValidator } from '@hono/zod-validator'
 import { Hono } from 'hono'
@@ -27,6 +30,28 @@ export async function dropTokenAtHub(env: Bindings, row: GwTokenRow): Promise<vo
   } catch {
     // Gateway sẽ bị từ chối ở lần nối lại kế tiếp
   }
+}
+
+/**
+ * Mã kết nối một dòng cho token vừa cấp. Địa chỉ chính lấy từ `PRIMARY_URL` (VPS khai báo), không có thì
+ * dùng địa chỉ quản trị viên đang truy cập; bỏ qua nếu chỉ truy cập được từ chính máy (localhost).
+ */
+export function buildConnectCode(env: Bindings, requestUrl: string, token: string): string | null {
+  const configured = (env.PRIMARY_URL ?? '').trim()
+  let primary = configured !== '' ? httpToGatewayWsUrl(configured) : null
+  if (!primary) {
+    const u = new URL(requestUrl)
+    if (isLocalOnlyHost(u.host)) return null
+    primary = httpToGatewayWsUrl(`${u.protocol}//${u.host}`)
+  }
+  if (!primary) return null
+  const fb = (env.FALLBACK_URL ?? '').trim()
+  const fallback = fb !== '' ? (httpToGatewayWsUrl(fb) ?? '') : ''
+  return encodeConnectCode({
+    primaryUrl: primary,
+    fallbackUrl: fallback === primary ? '' : fallback,
+    token,
+  })
 }
 
 const parseId = (raw: string): number => {
@@ -90,7 +115,14 @@ export function createAdminTokenRoutes(viewerAuth: ViewerAuth) {
         { ownerId: owner.id, label: (body.label ?? owner.display_name).slice(0, 64) },
         nowUnix(),
       )
-      return c.json({ token, summary: toSummary(row) } satisfies GwTokenSecretResponse, 201)
+      return c.json(
+        {
+          token,
+          summary: toSummary(row),
+          connect_code: buildConnectCode(c.env, c.req.url, token),
+        } satisfies GwTokenSecretResponse,
+        201,
+      )
     },
   )
 
@@ -98,7 +130,11 @@ export function createAdminTokenRoutes(viewerAuth: ViewerAuth) {
     const out = await resetToken(c.env.DB, parseId(c.req.param('id')))
     if (!out) throw new AppError(404, 'NOT_FOUND', 'Không tìm thấy token')
     await dropTokenAtHub(c.env, out.row)
-    return c.json({ token: out.token, summary: toSummary(out.row) } satisfies GwTokenSecretResponse)
+    return c.json({
+      token: out.token,
+      summary: toSummary(out.row),
+      connect_code: buildConnectCode(c.env, c.req.url, out.token),
+    } satisfies GwTokenSecretResponse)
   })
 
   routes.post('/:id/revoke', async (c) => {

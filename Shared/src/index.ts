@@ -1,4 +1,5 @@
 export * from './auth-schema'
+export * from './connect-code'
 export * from './errors'
 export * from './gw-schema'
 export * from './ingest-schema'

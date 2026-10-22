@@ -3,6 +3,7 @@ import path from 'node:path'
 import { runCheckToken } from './check-token'
 import { CloudClient } from './cloud'
 import { defaultDataDir, loadConfig, saveEditableConfig, writeOffFlag } from './config'
+import { runApplyCode, runCheckCode } from './connect-code'
 import { GATEWAY_VERSION, Gateway } from './gateway'
 import { LocalServer, type UiHooks } from './local-server'
 import { createFileSink, createLogger } from './log'
@@ -122,8 +123,17 @@ function fatal(e: unknown) {
 }
 
 // Bộ cài gọi `az-gateway.exe check-token <url> <token>` để kiểm token rồi thoát (không mở Gateway).
+// `check-code <mã>` / `apply-code <mã> [tên-vps]`: cùng mục đích, nhưng nhận mã kết nối một dòng.
 if (process.argv[2] === 'check-token') {
   runCheckToken(process.argv.slice(3)).then((code) => process.exit(code), fatal)
+} else if (process.argv[2] === 'check-code') {
+  runCheckCode(process.argv.slice(3)).then((code) => process.exit(code), fatal)
+} else if (process.argv[2] === 'apply-code') {
+  try {
+    process.exit(runApplyCode(process.argv.slice(3)))
+  } catch (e) {
+    fatal(e)
+  }
 } else {
   main().catch(fatal)
 }

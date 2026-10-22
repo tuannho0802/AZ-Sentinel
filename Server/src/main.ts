@@ -77,6 +77,8 @@ async function main() {
     DB: db as unknown as D1Database,
     LIVE_HUB: { getByName: () => hub } as unknown as Bindings['LIVE_HUB'],
     SYNC_TOKEN: cfg.syncToken || undefined,
+    PRIMARY_URL: cfg.publicUrl || undefined,
+    FALLBACK_URL: cfg.fallbackUrl || undefined,
     LIVE_ALLOWED_ORIGINS: cfg.liveAllowedOrigins || undefined,
     DEV_LINKS_API: cfg.devLinksApi || undefined,
     LIVE_INTERVAL_SEC: cfg.liveIntervalSec || undefined,

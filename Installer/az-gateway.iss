@@ -1,6 +1,8 @@
 ; Bo cai AZ Gateway cho Windows Server VPS. Build: ISCC /DMyAppVersion=0.2.0 Installer\az-gateway.iss
 ; Dau vao: Gateway\dist\az-gateway.exe (pnpm --filter @az-sentinel/gateway build:exe).
-; Cai dat im lang: AZSentinel-Gateway-Setup.exe /VERYSILENT /VPS=VPS-01 /CLOUDURL=wss://... /TOKEN=azt_... [/FALLBACKURL=wss://...] [/SKIPTOKENCHECK=1]
+; Cai dat don gian nhat: dan "ma ket noi" azc1... (do quan tri vien gui) vao trang Ket noi cloud, hoac im lang:
+;   AZSentinel-Gateway-Setup.exe /VERYSILENT /VPS=VPS-01 /CODE=azc1.... [/SKIPTOKENCHECK=1]
+; Cai dat im lang (cach cu): AZSentinel-Gateway-Setup.exe /VERYSILENT /VPS=VPS-01 /CLOUDURL=wss://... /TOKEN=azt_... [/FALLBACKURL=wss://...] [/SKIPTOKENCHECK=1]
 ; TOKEN la token ca nhan azt_... do quan tri vien cap rieng cho tung nguoi (khong con khoa chung dung chung cho moi nguoi).
 ; Bo cai goi "az-gateway.exe check-token <url> <token>" (GET /api/gw/check) de kiem token: 401 thi dung cai.
 
@@ -172,6 +174,32 @@ begin
   end;
 end;
 
+function IsCodeShape(const C: String): Boolean;
+begin
+  Result := (Pos('azc1.', Trim(C)) = 1) and (Length(Trim(C)) >= 40) and (Pos('"', C) = 0);
+end;
+
+function HasCode: Boolean;
+begin
+  Result := Trim(CfgPage.Values[0]) <> '';
+end;
+
+{ Chay "az-gateway.exe check-code <ma>". Cung ma thoat voi check-token (0/1/2/3). }
+function CheckCodeOnline(const Code: String): Integer;
+var
+  RC: Integer;
+begin
+  Result := -1;
+  try
+    ExtractTemporaryFile('az-gateway.exe');
+    if Exec(ExpandConstant('{tmp}\az-gateway.exe'), 'check-code "' + Trim(Code) + '"', '',
+            SW_HIDE, ewWaitUntilTerminated, RC) then
+      Result := RC;
+  except
+    Result := -1;
+  end;
+end;
+
 procedure InitializeWizard;
 var
   Json: String;
@@ -179,26 +207,28 @@ begin
   MigrateMode := NeedsTokenMigration;
   CfgPage := CreateInputQueryPage(wpSelectDir, 'Ket noi cloud',
     'Thong tin de Gateway gui du lieu len he thong AZ Sentinel',
-    'Token ca nhan (azt_...) do quan tri vien cap rieng cho ban, moi nguoi mot token. ' +
-    'Co the de trong Cloud URL va token de chay cuc bo truoc, cau hinh sau tren giao dien web cua Gateway.');
+    'Dan "Ma ket noi" (azc1...) do quan tri vien gui cho ban la xong, khong can go gi them. ' +
+    'Cac o con lai chi can khi khong co ma. Co the de trong het de chay cuc bo truoc, cau hinh sau tren giao dien web cua Gateway.');
+  CfgPage.Add('Ma ket noi (dan ma azc1... vao day):', False);
   CfgPage.Add('Ten VPS (hien tren web):', False);
   CfgPage.Add('Cloud URL (vi du wss://ten.workers.dev/api/gw/ws):', False);
   CfgPage.Add('Cloud URL du phong (tuy chon):', False);
   CfgPage.Add('Token ca nhan (azt_..., do quan tri vien cap):', True);
-  CfgPage.Values[0] := ExpandConstant('{param:VPS|{computername}}');
-  CfgPage.Values[1] := ExpandConstant('{param:CLOUDURL|}');
-  CfgPage.Values[2] := ExpandConstant('{param:FALLBACKURL|}');
-  CfgPage.Values[3] := ExpandConstant('{param:TOKEN|}');
+  CfgPage.Values[0] := ExpandConstant('{param:CODE|}');
+  CfgPage.Values[1] := ExpandConstant('{param:VPS|{computername}}');
+  CfgPage.Values[2] := ExpandConstant('{param:CLOUDURL|}');
+  CfgPage.Values[3] := ExpandConstant('{param:FALLBACKURL|}');
+  CfgPage.Values[4] := ExpandConstant('{param:TOKEN|}');
   if MigrateMode then
   begin
     { Giu nguyen ten VPS va dia chi cu, chi doi token (cac khoa khac trong config.json khong bi dong vao). }
     Json := ReadConfig;
-    CfgPage.Values[0] := JsonGetString(Json, 'vps');
-    CfgPage.Values[1] := JsonGetString(Json, 'cloudUrl');
-    CfgPage.Values[2] := JsonGetString(Json, 'cloudFallbackUrl');
-    CfgPage.Edits[0].Enabled := False;
+    CfgPage.Values[1] := JsonGetString(Json, 'vps');
+    CfgPage.Values[2] := JsonGetString(Json, 'cloudUrl');
+    CfgPage.Values[3] := JsonGetString(Json, 'cloudFallbackUrl');
     CfgPage.Edits[1].Enabled := False;
     CfgPage.Edits[2].Enabled := False;
+    CfgPage.Edits[3].Enabled := False;
     CfgPage.PageDescription := 'Doi sang token ca nhan';
     CfgPage.SubCaptionLabel.Caption :=
       'Khoa ket noi chung cu khong con dung duoc. Hay nhap token ca nhan azt_... do quan tri vien cap cho ban. ' +
@@ -211,7 +241,7 @@ function ShouldSkipPage(PageID: Integer): Boolean;
 begin
   Result := False;
   if (PageID = CfgPage.ID) and FileExists(ConfigPath) and (not MigrateMode) and
-     (ExpandConstant('{param:CLOUDURL|}') = '') then
+     (ExpandConstant('{param:CLOUDURL|}') = '') and (ExpandConstant('{param:CODE|}') = '') then
     Result := True;
 end;
 
@@ -222,14 +252,45 @@ var
 begin
   Result := True;
   if CurPageID <> CfgPage.ID then Exit;
-  Url := Trim(CfgPage.Values[1]);
-  Fb := Trim(CfgPage.Values[2]);
-  Tok := Trim(CfgPage.Values[3]);
+  Url := Trim(CfgPage.Values[2]);
+  Fb := Trim(CfgPage.Values[3]);
+  Tok := Trim(CfgPage.Values[4]);
 
-  if Trim(CfgPage.Values[0]) = '' then
+  if Trim(CfgPage.Values[1]) = '' then
   begin
     MsgBox('Hay nhap ten VPS.', mbError, MB_OK);
     Result := False;
+    Exit;
+  end;
+  { Co ma ket noi: chi can kiem ma, bo qua cac o URL/token (ma ghi de chung). }
+  if HasCode then
+  begin
+    if not IsCodeShape(CfgPage.Values[0]) then
+    begin
+      MsgBox('Ma ket noi khong dung. Hay dan lai nguyen ma azc1... do quan tri vien gui.', mbError, MB_OK);
+      Result := False;
+      Exit;
+    end;
+    if not SkipTokenCheck then
+    begin
+      Code := CheckCodeOnline(CfgPage.Values[0]);
+      if Code = 3 then
+      begin
+        MsgBox('Ma ket noi khong doc duoc. Hay dan lai nguyen ma azc1... do quan tri vien gui.', mbError, MB_OK);
+        Result := False;
+      end
+      else if Code = 1 then
+      begin
+        MsgBox('He thong tu choi ma nay: da bi thu hoi hoac da dat lai. Hay xin quan tri vien ma moi.', mbError, MB_OK);
+        Result := False;
+      end
+      else if Code = 2 then
+      begin
+        if MsgBox('Khong hoi duoc may chu nen chua kiem tra duoc ma (mang hoac may chu dang tat).' + #13#10 +
+                  'Van tiep tuc cai dat?', mbConfirmation, MB_YESNO) = IDNO then
+          Result := False;
+      end;
+    end;
     Exit;
   end;
   if (Url <> '') and (not IsWsUrl(Url)) then
@@ -290,10 +351,29 @@ var
   Url, Tok: String;
 begin
   Result := '';
-  if WizardSilent and (not SkipTokenCheck) and (WillWriteFresh or MigrateMode) then
+  if WizardSilent and (not SkipTokenCheck) and HasCode then
   begin
-    Url := Trim(CfgPage.Values[1]);
-    Tok := Trim(CfgPage.Values[3]);
+    if not IsCodeShape(CfgPage.Values[0]) then
+    begin
+      Result := 'Tham so /CODE phai la ma ket noi azc1... do quan tri vien gui.';
+      Exit;
+    end;
+    Code := CheckCodeOnline(CfgPage.Values[0]);
+    if Code = 3 then
+    begin
+      Result := 'Ma ket noi (/CODE) khong doc duoc.';
+      Exit;
+    end;
+    if Code = 1 then
+    begin
+      Result := 'He thong tu choi ma ket noi (da thu hoi hoac da dat lai). Dung /SKIPTOKENCHECK=1 neu van muon cai.';
+      Exit;
+    end;
+  end
+  else if WizardSilent and (not SkipTokenCheck) and (WillWriteFresh or MigrateMode) then
+  begin
+    Url := Trim(CfgPage.Values[2]);
+    Tok := Trim(CfgPage.Values[4]);
     if (Url <> '') and (Tok <> '') then
     begin
       if not IsTokenShape(Tok) then
@@ -341,17 +421,27 @@ begin
     { Cai moi (khong phai nang cap) thi xoa co disabled.flag con sot tu lan go truoc, de Gateway tu chay.
       Nang cap thi giu: nguoi dung da tat thi van tat cho den khi bam shortcut. }
     if not WasInstalled then DeleteFile(ExpandConstant('{#DataDir}\disabled.flag'));
-    if WillWriteFresh then
+    if HasCode then
+    begin
+      { Ma ket noi: de az-gateway.exe giai ma va ghi config.json (giu cac khoa khac, tao moi neu chua co). }
+      ExtractTemporaryFile('az-gateway.exe');
+      if (not Exec(ExpandConstant('{tmp}\az-gateway.exe'),
+            'apply-code "' + Trim(CfgPage.Values[0]) + '" "' + Trim(CfgPage.Values[1]) + '"', '',
+            SW_HIDE, ewWaitUntilTerminated, RC)) or (RC <> 0) then
+        MsgBox('Khong ghi duoc cau hinh tu ma ket noi. Hay mo giao dien AZ Gateway va dan ma vao muc Cai dat.',
+          mbError, MB_OK);
+    end
+    else if WillWriteFresh then
     begin
       Json := '{' + #13#10 +
-        '  "vps": "' + JsonEscape(Trim(CfgPage.Values[0])) + '",' + #13#10 +
-        '  "cloudUrl": "' + JsonEscape(Trim(CfgPage.Values[1])) + '",' + #13#10 +
-        '  "cloudFallbackUrl": "' + JsonEscape(Trim(CfgPage.Values[2])) + '",' + #13#10 +
-        '  "cloudToken": "' + JsonEscape(Trim(CfgPage.Values[3])) + '"' + #13#10 + '}' + #13#10;
+        '  "vps": "' + JsonEscape(Trim(CfgPage.Values[1])) + '",' + #13#10 +
+        '  "cloudUrl": "' + JsonEscape(Trim(CfgPage.Values[2])) + '",' + #13#10 +
+        '  "cloudFallbackUrl": "' + JsonEscape(Trim(CfgPage.Values[3])) + '",' + #13#10 +
+        '  "cloudToken": "' + JsonEscape(Trim(CfgPage.Values[4])) + '"' + #13#10 + '}' + #13#10;
       SaveStringToFile(ConfigPath, Json, False);
     end
     else if MigrateMode then
-      MigrateToken(Trim(CfgPage.Values[3]));
+      MigrateToken(Trim(CfgPage.Values[4]));
     { Token nam trong config.json: chi Administrators va SYSTEM duoc doc. }
     Exec(ExpandConstant('{sys}\icacls.exe'),
       ExpandConstant('"{#DataDir}" /inheritance:r /grant:r *S-1-5-18:(OI)(CI)F *S-1-5-32-544:(OI)(CI)F'),

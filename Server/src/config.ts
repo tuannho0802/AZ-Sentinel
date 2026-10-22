@@ -25,6 +25,8 @@ const schema = z.object({
   syncToken: z.string().default(''),
   /** Địa chỉ Worker API dự phòng, ví dụ https://az-sentinel-api.xxx.workers.dev. Rỗng = tắt đồng bộ. */
   cloudUrl: z.string().default(''),
+  /** URL công khai của chính VPS này (hostname tunnel/tên miền), đưa vào mã kết nối Gateway. Rỗng = lấy theo địa chỉ admin đang truy cập. */
+  publicUrl: z.string().default(''),
   /** URL công khai của bản dự phòng cho người dùng (hiện ở UI khi VPS mất kết nối). */
   fallbackUrl: z.string().default(''),
   liveAllowedOrigins: z.string().default(''),
@@ -79,6 +81,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
     syncToken: merged.AZ_SYNC_TOKEN || undefined,
     cloudUrl: merged.AZ_CLOUD_URL || undefined,
     fallbackUrl: merged.AZ_FALLBACK_URL || undefined,
+    publicUrl: merged.AZ_PUBLIC_URL || undefined,
     liveAllowedOrigins: merged.AZ_LIVE_ALLOWED_ORIGINS || undefined,
     devLinksApi: merged.AZ_DEV_LINKS_API || undefined,
     liveIntervalSec: merged.AZ_LIVE_INTERVAL_SEC || undefined,

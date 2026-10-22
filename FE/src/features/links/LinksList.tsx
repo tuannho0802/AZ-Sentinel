@@ -8,6 +8,7 @@ import { inputClass } from '../../components/styles'
 import { ApiError } from '../../lib/api-client'
 import { formatTime } from '../../lib/format'
 import { strings } from '../../lib/strings'
+import { useMe } from '../auth/api'
 import { LINKS_KEY, useCreateLink, useLinks } from './api'
 import { KeyDialog } from './KeyDialog'
 import { LinksSummary } from './LinksSummary'
@@ -20,6 +21,8 @@ import { useLiveLease } from './live/useLiveLease'
 export function LinksList() {
   const client = useQueryClient()
   const links = useLinks()
+  const me = useMe()
+  const isPlainUser = me.data?.role === 'user'
   const live = useLiveLease({
     enabled: true, // route chỉ mount khi đã đăng nhập (RequireAuth)
     onResync: () => void client.invalidateQueries({ queryKey: LINKS_KEY }),
@@ -120,8 +123,12 @@ export function LinksList() {
         )}
         {links.isSuccess && links.data.links.length === 0 && (
           <div className="rounded-lg border border-dashed border-line-strong bg-surface px-6 py-12 text-center">
-            <p className="font-medium">{strings.linksEmpty}</p>
-            <p className="mx-auto mt-1 max-w-md text-sm text-muted">{strings.linksEmptyHint}</p>
+            <p className="font-medium">
+              {isPlainUser ? strings.userSetupTitle : strings.linksEmpty}
+            </p>
+            <p className="mx-auto mt-1 max-w-md text-sm text-muted">
+              {isPlainUser ? strings.userSetupBody : strings.linksEmptyHint}
+            </p>
           </div>
         )}
         {hasLinks && shown.length > 0 && <LinksTable rows={shown} />}

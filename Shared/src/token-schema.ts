@@ -46,7 +46,12 @@ export type GwTokenSummary = {
 export type GwTokenListResponse = { tokens: GwTokenSummary[] }
 
 /** Phản hồi cấp mới / đặt lại: `token` chỉ xuất hiện một lần. */
-export type GwTokenSecretResponse = { token: string; summary: GwTokenSummary }
+export type GwTokenSecretResponse = {
+  token: string
+  summary: GwTokenSummary
+  /** Mã kết nối một dòng (`azc1.…`) gói sẵn địa chỉ + token; null nếu máy chủ chưa biết địa chỉ công khai của mình. */
+  connect_code?: string | null
+}
 
 const hex64 = z.string().regex(/^[0-9a-f]{64}$/)
 

@@ -74,6 +74,15 @@ export const strings = {
     'Sao chép token ngay và gửi riêng cho đúng người đó: token chỉ hiện một lần, đóng hộp thoại là không xem lại được.',
   tokenFieldLabel: 'Token',
   tokenCopy: 'Sao chép token',
+  connectCodeLabel: 'Mã kết nối (gửi mã này cho người dùng)',
+  connectCodeCopy: 'Sao chép mã',
+  connectCodeHint:
+    'Người dùng cài Gateway rồi dán đúng mã này là xong: địa chỉ máy chủ, địa chỉ dự phòng và token đã gói sẵn. Mã chứa token nên hãy gửi riêng, không đăng nơi công khai.',
+  connectCodeUnavailable:
+    'Chưa tạo được mã kết nối vì máy chủ chưa biết địa chỉ công khai của mình (đang truy cập bằng localhost). Đặt AZ_PUBLIC_URL trong server.env, hoặc mở trang này bằng địa chỉ công khai rồi đặt lại token. Có thể gửi token bên dưới và nhờ người dùng nhập tay.',
+  userSetupTitle: 'Bắt đầu theo dõi tài khoản của bạn',
+  userSetupBody:
+    'Chưa có dữ liệu nào. Hãy xin quản trị viên một mã kết nối (azc1...), cài AZ Gateway trên VPS có MT5 của bạn, dán mã vào bộ cài. Gateway kết nối xong, tài khoản của bạn sẽ hiện ở đây.',
 
   linksPageTitle: 'Liên kết EA',
   linksDevBanner:

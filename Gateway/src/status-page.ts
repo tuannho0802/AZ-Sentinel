@@ -89,6 +89,7 @@ details>summary::before{content:"\\25B8  ";color:var(--mut)}details[open]>summar
   <section>
     <h2>Cài đặt</h2>
     <form id="cfg" autocomplete="off">
+      <div><label for="f-code">Mã kết nối (dán vào đây là xong)</label><input id="f-code" placeholder="azc1...." autocomplete="new-password"><div class="hint">Quản trị viên gửi cho bạn một mã bắt đầu bằng azc1. Dán mã vào đây rồi bấm Lưu: địa chỉ và token tự điền, không cần gõ tay.</div></div>
       <div><label for="f-vps">Tên VPS (hiện trên web)</label><input id="f-vps" maxlength="64" required></div>
       <div><label for="f-url">Cloud URL</label><input id="f-url" placeholder="wss://ten.workers.dev/api/gw/ws"><div class="hint">Để trống = chỉ chạy cục bộ, không có live. Nên trỏ vào VPS chính (qua tunnel).</div></div>
       <div><label for="f-fb">Cloud URL dự phòng</label><input id="f-fb" placeholder="wss://ten.workers.dev/api/gw/ws"><div class="hint">Dùng khi VPS chính không nối được; tự quay về khi VPS sống lại. Có thể để trống.</div></div>
@@ -160,17 +161,17 @@ async function loadUpd(){
     if(u.available){b.textContent='Có bản mới v'+u.latest+'. ';const a=document.createElement('a');a.href=u.url;a.target='_blank';a.rel='noopener';a.textContent='Tải bộ cài mới';b.appendChild(a);b.style.display='block'}
   }catch{}
 }
-for(const id of ['f-vps','f-url','f-fb','f-tok','f-idle'])$(id).addEventListener('input',()=>{dirty=true});
+for(const id of ['f-code','f-vps','f-url','f-fb','f-tok','f-idle'])$(id).addEventListener('input',()=>{dirty=true});
 $('cfg').addEventListener('submit',async e=>{
   e.preventDefault();const m=$('msg');m.className='';m.textContent='Đang lưu...';$('save').disabled=true;
   try{
     const r=await fetch('/v1/ui/config',{method:'POST',headers:{'content-type':'application/json','x-az-ui':'1'},
-      body:JSON.stringify({vps:$('f-vps').value,cloudUrl:$('f-url').value,cloudFallbackUrl:$('f-fb').value,cloudToken:$('f-tok').value,idleFlushSec:Number($('f-idle').value)})});
+      body:JSON.stringify({connectCode:$('f-code').value,vps:$('f-vps').value,cloudUrl:$('f-url').value,cloudFallbackUrl:$('f-fb').value,cloudToken:$('f-tok').value,idleFlushSec:Number($('f-idle').value)})});
     const j=await r.json();
-    if(!r.ok){m.className='bad-t';m.textContent='Lỗi: '+(j.error||r.status);$('save').disabled=false;return}
+    if(!r.ok){m.className='bad-t';m.textContent=(j.error==='connect_code_invalid')?'Mã kết nối không đúng: hãy dán lại nguyên mã azc1...':'Lỗi: '+(j.error||r.status);$('save').disabled=false;return}
     m.className='ok-t';m.textContent='Đã lưu. Gateway đang khởi động lại...';
     await fetch('/v1/ui/restart',{method:'POST',headers:{'x-az-ui':'1'}});
-    dirty=false;$('f-tok').value='';
+    dirty=false;$('f-tok').value='';$('f-code').value='';
     setTimeout(()=>location.reload(),4000);
   }catch{m.className='bad-t';m.textContent='Không lưu được';$('save').disabled=false}
 });

@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { GW, looksLikeGwToken } from '@az-sentinel/shared'
+import { decodeConnectCode, GW, looksLikeGwToken } from '@az-sentinel/shared'
 import { z } from 'zod'
 
 const configSchema = z.object({
@@ -143,4 +143,57 @@ export function saveEditableConfig(
   const tmp = `${file}.tmp`
   writeFileSync(tmp, `${JSON.stringify(next, null, 2)}\n`, 'utf8')
   renameSync(tmp, file)
+}
+
+/**
+ * Ghi địa chỉ chính, địa chỉ dự phòng và token (từ mã kết nối) vào file cấu hình, giữ nguyên các khóa khác.
+ * Tạo file nếu chưa có. `vps` chỉ đổi khi được truyền.
+ */
+export function writeConnection(
+  c: { primaryUrl: string; fallbackUrl: string; token: string; vps?: string },
+  env: NodeJS.ProcessEnv = process.env,
+): void {
+  const file = configFilePath(env)
+  let current: Record<string, unknown> = {}
+  if (existsSync(file)) {
+    try {
+      const parsed: unknown = JSON.parse(readFileSync(file, 'utf8'))
+      if (typeof parsed === 'object' && parsed !== null) current = parsed as Record<string, unknown>
+    } catch {
+      throw new Error(`File cấu hình ${file} đang hỏng JSON, hãy sửa hoặc xóa trước`)
+    }
+  }
+  const next: Record<string, unknown> = {
+    ...current,
+    cloudUrl: c.primaryUrl,
+    cloudFallbackUrl: c.fallbackUrl,
+    cloudToken: c.token,
+  }
+  if (c.vps) next.vps = c.vps
+  mkdirSync(path.dirname(file), { recursive: true })
+  const tmp = `${file}.tmp`
+  writeFileSync(tmp, `${JSON.stringify(next, null, 2)}\n`, 'utf8')
+  renameSync(tmp, file)
+}
+
+/**
+ * Giao diện cục bộ: nếu body có `connectCode` thì giải mã và ghi đè cloudUrl/cloudFallbackUrl/cloudToken
+ * của body (các trường người dùng gõ tay bị bỏ qua). Mã sai thì trả lỗi. Không có mã thì giữ nguyên body.
+ */
+export function applyConnectCodeToBody(
+  body: unknown,
+): { ok: true; body: unknown } | { ok: false; error: string } {
+  if (typeof body !== 'object' || body === null) return { ok: true, body }
+  const raw = (body as Record<string, unknown>).connectCode
+  if (raw === undefined || (typeof raw === 'string' && raw.trim() === '')) {
+    const { connectCode: _drop, ...rest } = body as Record<string, unknown>
+    return { ok: true, body: rest }
+  }
+  const p = typeof raw === 'string' ? decodeConnectCode(raw) : null
+  if (!p) return { ok: false, error: 'connect_code_invalid' }
+  const { connectCode: _drop, ...rest } = body as Record<string, unknown>
+  return {
+    ok: true,
+    body: { ...rest, cloudUrl: p.primaryUrl, cloudFallbackUrl: p.fallbackUrl, cloudToken: p.token },
+  }
 }

@@ -3,7 +3,7 @@
 ;   ISCC /DMyAppVersion=0.1.0 Installer\az-server.iss      (CI: .github/workflows/release-server.yml lam het)
 ; Dau vao: Server\release\az-server\ (server.mjs, node.exe, migrations\, web\, *.ps1, *.cmd, server.env.example).
 ; Cai dat im lang:
-;   AZSentinel-Server-Setup.exe /VERYSILENT /NAME=VPS-MAIN /PORT=8080 /CLOUDURL=https://... /FALLBACKURL=https://... /SYNCTOKEN=...
+;   AZSentinel-Server-Setup.exe /VERYSILENT /NAME=VPS-MAIN /PORT=8080 /CLOUDURL=https://... /FALLBACKURL=https://... /PUBLICURL=https://... /SYNCTOKEN=...
 ;       [/LAN=1] [/FIREWALL=1] [/RECONFIGURE=1]
 ; Khong co /RECONFIGURE thi server.env cu duoc giu nguyen (nang cap khong hoi lai).
 ; Token Gateway KHONG dat o day: moi nguoi mot token azt_... do quan tri vien cap (token.cmd hoac trang /tokens).
@@ -152,12 +152,14 @@ begin
   SrvPage.Add('Dia chi Worker API du phong (https://...workers.dev, tuy chon):', False);
   SrvPage.Add('URL web du phong cho nguoi dung (https://..., tuy chon):', False);
   SrvPage.Add('Bi mat dong bo SYNC_TOKEN (>= 32 ky tu, trung voi Worker, tuy chon):', True);
+  SrvPage.Add('URL cong khai cua VPS nay (https://..., de tao ma ket noi Gateway, tuy chon):', False);
   SrvPage.Values[0] := ExpandConstant('{param:NAME|{computername}}');
   SrvPage.Values[1] := ExpandConstant('{param:LOCATION|}');
   SrvPage.Values[2] := ExpandConstant('{param:PORT|8080}');
   SrvPage.Values[3] := ExpandConstant('{param:CLOUDURL|}');
   SrvPage.Values[4] := ExpandConstant('{param:FALLBACKURL|}');
   SrvPage.Values[5] := ExpandConstant('{param:SYNCTOKEN|}');
+  SrvPage.Values[6] := ExpandConstant('{param:PUBLICURL|}');
 
   NetPage := CreateInputOptionPage(SrvPage.ID, 'Truy cap tu may khac',
     'Mac dinh Server chi nghe 127.0.0.1 (di qua Cloudflare Tunnel hoac reverse proxy)',
@@ -212,6 +214,12 @@ begin
     Result := False;
     Exit;
   end;
+  if (Trim(SrvPage.Values[6]) <> '') and (not IsHttpUrl(Trim(SrvPage.Values[6]))) then
+  begin
+    MsgBox('URL cong khai cua VPS phai bat dau bang https:// (hoac http://).', mbError, MB_OK);
+    Result := False;
+    Exit;
+  end;
   if (Fb <> '') and (not IsHttpUrl(Fb)) then
   begin
     MsgBox('URL web du phong phai bat dau bang https:// (hoac http://).', mbError, MB_OK);
@@ -262,7 +270,8 @@ begin
     '# Token Gateway la token ca nhan azt_... do quan tri vien cap (token.cmd), khong dat trong tep nay.' + #13#10 +
     'AZ_SYNC_TOKEN=' + Trim(SrvPage.Values[5]) + #13#10 +
     'AZ_CLOUD_URL=' + Trim(SrvPage.Values[3]) + #13#10 +
-    'AZ_FALLBACK_URL=' + Trim(SrvPage.Values[4]) + #13#10;
+    'AZ_FALLBACK_URL=' + Trim(SrvPage.Values[4]) + #13#10 +
+    'AZ_PUBLIC_URL=' + Trim(SrvPage.Values[6]) + #13#10;
   SaveStringToFile(EnvPath, Env, False);
 end;
 

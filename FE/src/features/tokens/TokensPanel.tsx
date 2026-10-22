@@ -11,7 +11,7 @@ import { useUsers } from '../users/api'
 import { useIssueToken, useResetToken, useRevokeToken, useTokens } from './api'
 import { TokenSecretDialog } from './TokenSecretDialog'
 
-type Revealed = { token: string; title: string }
+type Revealed = { token: string; title: string; connectCode: string | null }
 
 function IssueForm({ onIssued }: { onIssued: (r: Revealed) => void }) {
   const issue = useIssueToken()
@@ -33,7 +33,11 @@ function IssueForm({ onIssued }: { onIssued: (r: Revealed) => void }) {
       { owner_id: id },
       {
         onSuccess: (res) => {
-          onIssued({ token: res.token, title: strings.tokenDialogIssue })
+          onIssued({
+            token: res.token,
+            title: strings.tokenDialogIssue,
+            connectCode: res.connect_code ?? null,
+          })
           issue.reset()
           setOwnerId('')
         },
@@ -118,7 +122,11 @@ function Row({ t, onReveal }: { t: GwTokenSummary; onReveal: (r: Revealed) => vo
     if (!window.confirm(strings.tokenConfirmReset)) return
     reset.mutate(t.id, {
       onSuccess: (res) => {
-        onReveal({ token: res.token, title: strings.tokenDialogReset })
+        onReveal({
+          token: res.token,
+          title: strings.tokenDialogReset,
+          connectCode: res.connect_code ?? null,
+        })
         reset.reset()
       },
     })
@@ -232,6 +240,7 @@ export function TokensPanel() {
       {revealed && (
         <TokenSecretDialog
           token={revealed.token}
+          connectCode={revealed.connectCode}
           title={revealed.title}
           onClose={() => setRevealed(null)}
         />

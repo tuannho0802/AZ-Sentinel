@@ -8,7 +8,7 @@ import {
   samplesRequestSchema,
 } from '@az-sentinel/shared'
 import type { ZodType } from 'zod'
-import { type EditableConfig, editableSchema } from './config'
+import { applyConnectCodeToBody, type EditableConfig, editableSchema } from './config'
 import type { Gateway } from './gateway'
 import { type Logger, silentLogger } from './log'
 import { statusPage } from './status-page'
@@ -256,7 +256,12 @@ export class LocalServer {
       req,
       res,
       (body) => {
-        const r = editableSchema.safeParse(body)
+        const applied = applyConnectCodeToBody(body)
+        if (!applied.ok) {
+          send(res, fail(400, applied.error))
+          return
+        }
+        const r = editableSchema.safeParse(applied.body)
         if (!r.success) {
           const i = r.error.issues[0]
           send(res, fail(400, `invalid_body:${i?.path.join('.') || '-'}:${i?.message ?? ''}`))
