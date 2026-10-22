@@ -53,3 +53,24 @@ Mã kết nối mang sẵn cả địa chỉ dự phòng, nên Gateway của Use
 - Không chạy test hay chạy thử thật. Cần thử trên máy thật: dán mã trong bộ cài, `apply-code`, ô dán mã trên giao diện Gateway, và bộ cài Server ghi `AZ_PUBLIC_URL`.
 - Mã kết nối có token nên lộ mã = lộ token: dùng **Thu hồi** hoặc **Đặt lại** nếu nghi lộ.
 - Bản FE tĩnh gọi thẳng API VPS rồi tự chuyển sang Worker (cookie khác origin, CORS) chưa làm: hiện Worker vẫn chuyển tiếp `/api/*` sang VPS khi VPS sống.
+
+## Test nhanh: Server + web ở máy dev, Gateway ở VPS (một lệnh)
+
+Ở máy dev (cần Node 22+ và pnpm; VPS thì KHÔNG cần gì ngoài bộ cài Gateway):
+
+```
+pnpm install
+pnpm dev:public
+```
+
+`dev:public` tự tải `cloudflared` nếu máy chưa có, mở Quick Tunnel, chạy Server + web với địa chỉ công khai đó, rồi in sẵn **mã kết nối `azc1...`** (cũng chép vào clipboard, lưu ở `Server/.dev-data/connect-code.txt`). Trên VPS chỉ cần chạy `AZSentinel-Gateway-Setup.exe`, dán mã, Next. Mở `http://localhost:5173` ở máy dev để xem dữ liệu.
+
+- Tunnel đi qua một cổng lọc (8081) chỉ cho `/api/gw/ws` và `/api/gw/check`; API dev và đăng nhập thử của Server không lộ ra internet.
+- Quick Tunnel đổi địa chỉ mỗi lần chạy lại, nên mỗi lần phải dán mã mới trên VPS (giao diện Gateway, mục **Cài đặt**). Cần địa chỉ cố định thì dùng Cloudflare Tunnel có tên (xem Plan 3E).
+- Chỉ chạy web + Server trong máy dev (không Gateway/BE local): `pnpm dev:public`. Chạy đủ bốn dịch vụ local: `pnpm dev`.
+
+## Bộ cài Gateway tự bật WebRequest cho MT5
+
+Khi chép EA, bộ cài ghi `Allow WebRequest` + `http://127.0.0.1:47800` vào `config\common.ini` của từng terminal tìm thấy (sao lưu `common.ini.azbak`, giữ nguyên mã hóa file, không đụng vào danh sách URL có sẵn của terminal; nếu có thì báo để thêm tay). MT5 chỉ đọc file này lúc khởi động, nên terminal đang chạy cần được khởi động lại một lần: tick **Tự động khởi động lại MT5** trong bộ cài (hoặc `/TASKS="restartmt5"` khi cài im lặng), hoặc tự tắt và mở lại MT5. Việc thủ công còn lại duy nhất: kéo EA `AZ` vào một chart và bật Algo Trading.
+
+Chưa kiểm chứng trên MT5 thật: định dạng `WebRequestUrl` trong `common.ini` khi có nhiều URL, và việc tự khởi động lại terminal. Nếu MT5 không nhận, mở Tools > Options > Expert Advisors xem mục WebRequest.

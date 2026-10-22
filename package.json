@@ -8,6 +8,7 @@
   },
   "scripts": {
     "dev": "node Scripts/dev.mjs",
+    "dev:public": "node Scripts/dev-public.mjs",
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
     "typecheck": "pnpm -r typecheck && tsc -p Scripts/tsconfig.json",

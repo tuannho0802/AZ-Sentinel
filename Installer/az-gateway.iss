@@ -48,6 +48,9 @@ Source: "az-gateway.ico"; DestDir: "{app}"; Flags: ignoreversion
 Source: "scripts\*.ps1"; DestDir: "{app}\scripts"; Flags: ignoreversion
 Source: "ea\*.ex5"; DestDir: "{app}\ea"; Flags: ignoreversion skipifsourcedoesntexist
 
+[Tasks]
+Name: "restartmt5"; Description: "Tu dong khoi dong lai MT5 de ap dung (nho luu cong viec; khong chon thi ban tu tat va mo lai MT5 mot lan)"; Flags: unchecked
+
 [INI]
 Filename: "{app}\AZ Gateway.url"; Section: "InternetShortcut"; Key: "URL"; String: "http://127.0.0.1:47800/"
 Filename: "{app}\AZ Gateway.url"; Section: "InternetShortcut"; Key: "IconFile"; String: "{app}\az-gateway.ico"
@@ -63,7 +66,8 @@ Name: "{autodesktop}\AZ Gateway"; Filename: "powershell.exe"; Parameters: "-NoPr
 
 [Run]
 Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\scripts\install-task.ps1"" -AppDir ""{app}"""; Flags: runhidden waituntilterminated; StatusMsg: "Dang ky tac vu tu khoi dong..."
-Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\scripts\install-ea.ps1"" -LogFile ""{app}\install-ea.log"""; Flags: runhidden waituntilterminated; StatusMsg: "Tim terminal MT5 va chep EA..."
+Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\scripts\install-ea.ps1"" -LogFile ""{app}\install-ea.log"""; Tasks: "!restartmt5"; Flags: runhidden waituntilterminated; StatusMsg: "Tim terminal MT5 va chep EA..."
+Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\scripts\install-ea.ps1"" -RestartTerminals -LogFile ""{app}\install-ea.log"""; Tasks: restartmt5; Flags: runhidden waituntilterminated; StatusMsg: "Tim terminal MT5 va chep EA..."
 Filename: "{app}\AZ Gateway.url"; Description: "Mo giao dien AZ Gateway"; Flags: postinstall shellexec skipifsilent
 
 [UninstallRun]
