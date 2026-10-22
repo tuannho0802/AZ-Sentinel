@@ -147,6 +147,12 @@ string PNull(const double v) // sl/tp: 0 nghia la khong dat
    return (v > 0.0) ? P(v) : "null";
 }
 
+string ApiKeyOrAuto()
+{
+   // De trong InpApiKey: gui "auto", Gateway/cloud tu gan lien ket theo token ca nhan.
+   return (StringLen(InpApiKey) == 0 ? "auto" : InpApiKey);
+}
+
 string Q(const string s) // chuoi JSON co dau nhay
 {
    return "\"" + JsonEscape(s) + "\"";
@@ -902,12 +908,6 @@ bool AnotherInstanceRunning()
          return true;
    }
    return false;
-}
-
-string ApiKeyOrAuto()
-{
-   // De trong InpApiKey: gui "auto", Gateway/cloud tu gan lien ket theo token ca nhan.
-   return (StringLen(InpApiKey) == 0 ? "auto" : InpApiKey);
 }
 
 int OnInit()
