@@ -6,6 +6,7 @@ import { LinksPage } from './pages/LinksPage'
 import { LoginPage } from './pages/LoginPage'
 import { NotFoundPage } from './pages/NotFoundPage'
 import { TokensPage } from './pages/TokensPage'
+import { UsersPage } from './pages/UsersPage'
 
 /** Các trang liên kết EA chỉ có ở `pnpm dev` (API dev của BE); bản build không chứa chúng. */
 const showLinks = import.meta.env.DEV
@@ -36,6 +37,11 @@ export function App() {
       <Route path="/tokens">
         <RequireAuth>
           <TokensPage />
+        </RequireAuth>
+      </Route>
+      <Route path="/users">
+        <RequireAuth>
+          <UsersPage />
         </RequireAuth>
       </Route>
       <Route component={NotFoundPage} />

@@ -16,5 +16,6 @@ if (-not $isAdmin) {
   } catch { }   # bam "No" o hop thoai UAC: khong lam gi
   exit 0
 }
-# token.cmd khong tham so in huong dan; cua so o lai (cmd /k) trong thu muc cai nen go `token list`, `token issue 1 Ten`...
-Start-Process -FilePath 'cmd.exe' -WorkingDirectory $AppDir -ArgumentList @('/k', 'token.cmd')
+# token.cmd va user.cmd khong tham so in huong dan; cua so o lai (cmd /k) trong thu muc cai nen go `token list`,
+# `user create-admin email@abc.com Ten` (tao admin dau tien), `user list`...
+Start-Process -FilePath 'cmd.exe' -WorkingDirectory $AppDir -ArgumentList @('/k', 'call token.cmd & call user.cmd')

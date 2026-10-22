@@ -1,6 +1,7 @@
 import { env, exports } from 'cloudflare:workers'
 import type { IngestPayload } from '@az-sentinel/shared'
 import { generateApiKey } from '../src/lib/crypto'
+import { createUser } from '../src/services/user-service'
 
 export const SERVER = 'Broker-Live01'
 export const LOGIN = 12345678
@@ -13,6 +14,8 @@ export async function resetDb(): Promise<void> {
     env.DB.prepare('DELETE FROM link_state'),
     env.DB.prepare('DELETE FROM ea_links'),
     env.DB.prepare('DELETE FROM gw_tokens'),
+    env.DB.prepare('DELETE FROM sessions'),
+    env.DB.prepare('DELETE FROM users'),
   ])
 }
 
@@ -112,4 +115,28 @@ export async function seedToken(ownerId: number, label = `user-${ownerId}`) {
   const { createToken } = await import('../src/services/gw-token-service')
   const { token, row } = await createToken(env.DB, { ownerId, label }, 1_000)
   return { token, id: row.id }
+}
+
+export const TEST_PASSWORD = 'mat-khau-test-123'
+
+/** Tạo người dùng thật trong D1 test. Mặc định vai trò `user`, đang hoạt động. */
+export async function seedUser(
+  email: string,
+  opts: {
+    role?: 'root_admin' | 'admin' | 'user'
+    status?: 'pending' | 'active' | 'rejected' | 'suspended'
+    name?: string
+  } = {},
+) {
+  return createUser(
+    env.DB,
+    {
+      email,
+      displayName: opts.name ?? email.split('@')[0] ?? email,
+      password: TEST_PASSWORD,
+      role: opts.role ?? 'user',
+      status: opts.status ?? 'active',
+    },
+    1_700_000_000,
+  )
 }

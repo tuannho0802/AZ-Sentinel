@@ -1,4 +1,10 @@
-import type { SyncApply, SyncLinkRow, SyncTokenRow, SyncTradeRow } from '@az-sentinel/shared'
+import type {
+  SyncApply,
+  SyncLinkRow,
+  SyncTokenRow,
+  SyncTradeRow,
+  SyncUserRow,
+} from '@az-sentinel/shared'
 
 export const LINK_COLS = [
   'id',
@@ -47,6 +53,16 @@ export const TOKEN_COLS = [
   'revoked_at',
 ] as const satisfies readonly (keyof SyncTokenRow)[]
 
+export const USER_COLS = [
+  'id',
+  'email',
+  'display_name',
+  'password_hash',
+  'role',
+  'status',
+  'created_at',
+] as const satisfies readonly (keyof SyncUserRow)[]
+
 const placeholders = (n: number) => Array(n).fill('?').join(', ')
 
 const LINK_UPSERT = `INSERT INTO ea_links (${LINK_COLS.join(', ')}) VALUES (${placeholders(LINK_COLS.length)})
@@ -57,6 +73,12 @@ const LINK_UPSERT = `INSERT INTO ea_links (${LINK_COLS.join(', ')}) VALUES (${pl
 /** `last_used_at` không nằm trong TOKEN_COLS nên upsert không bao giờ ghi đè nó. */
 const TOKEN_UPSERT = `INSERT INTO gw_tokens (${TOKEN_COLS.join(', ')}) VALUES (${placeholders(TOKEN_COLS.length)})
   ON CONFLICT(id) DO UPDATE SET ${TOKEN_COLS.filter((c) => c !== 'id')
+    .map((c) => `${c} = excluded.${c}`)
+    .join(', ')}`
+
+/** `failed_logins`/`locked_until` không nằm trong USER_COLS nên upsert không bao giờ ghi đè chúng. */
+const USER_UPSERT = `INSERT INTO users (${USER_COLS.join(', ')}) VALUES (${placeholders(USER_COLS.length)})
+  ON CONFLICT(id) DO UPDATE SET ${USER_COLS.filter((c) => c !== 'id')
     .map((c) => `${c} = excluded.${c}`)
     .join(', ')}`
 
@@ -84,6 +106,15 @@ export async function applySync(db: D1Database, payload: SyncApply): Promise<num
     stmts.push(
       db.prepare('DELETE FROM trades WHERE link_id = ? AND ticket = ?').bind(t.link_id, t.ticket),
     )
+  }
+  for (const row of payload.users) {
+    // VPS là nguồn gốc: dòng khác đang giữ cùng email bị xóa để không vướng ràng buộc duy nhất.
+    stmts.push(db.prepare('DELETE FROM users WHERE email = ? AND id <> ?').bind(row.email, row.id))
+    stmts.push(db.prepare(USER_UPSERT).bind(...USER_COLS.map((c) => row[c])))
+    // Khóa/từ chối/đổi mật khẩu ở VPS thì phiên đang mở trên Cloudflare cũng hết hiệu lực.
+    if (row.status !== 'active') {
+      stmts.push(db.prepare('DELETE FROM sessions WHERE user_id = ?').bind(row.id))
+    }
   }
   for (const row of payload.tokens) {
     // Mỗi người một token đang hoạt động: token cũ cùng chủ (id khác) bị thu hồi trước khi upsert dòng mới,
@@ -114,6 +145,7 @@ export async function applySync(db: D1Database, payload: SyncApply): Promise<num
   if (stmts.length === 0) return 0
   await db.batch(stmts)
   return (
+    payload.users.length +
     payload.links.length +
     payload.links_deleted.length +
     payload.tokens.length +

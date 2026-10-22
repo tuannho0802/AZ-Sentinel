@@ -26,8 +26,8 @@ export function looksLikeGwToken(value: string): boolean {
 export const createGwTokenRequestSchema = z.object({
   /** Người dùng nhận token (id người dùng). */
   owner_id: z.number().int().positive(),
-  /** Tên hiển thị của người nhận (email hoặc tên), để quản trị viên dễ nhận ra. */
-  label: z.string().trim().min(1).max(64),
+  /** Tên hiển thị của người nhận. Bỏ trống thì BE lấy tên của người dùng (owner_id). */
+  label: z.string().trim().min(1).max(64).optional(),
 })
 export type CreateGwTokenRequest = z.infer<typeof createGwTokenRequestSchema>
 

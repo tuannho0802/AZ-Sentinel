@@ -49,7 +49,10 @@ export function AppShell({ children }: { children: ReactNode }) {
               <NavLink href="/">{strings.navOverview}</NavLink>
               {import.meta.env.DEV && <NavLink href="/links">{strings.navLinks}</NavLink>}
               {(me.data?.role === 'admin' || me.data?.role === 'root_admin') && (
-                <NavLink href="/tokens">{strings.navTokens}</NavLink>
+                <>
+                  <NavLink href="/users">{strings.navUsers}</NavLink>
+                  <NavLink href="/tokens">{strings.navTokens}</NavLink>
+                </>
               )}
             </nav>
           </div>

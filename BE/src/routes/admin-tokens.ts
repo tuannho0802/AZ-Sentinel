@@ -17,6 +17,7 @@ import {
   revokeToken,
   toSummary,
 } from '../services/gw-token-service'
+import { getUserById } from '../services/user-service'
 import type { AppEnv, Bindings } from '../types'
 
 /** Báo hub đá Gateway đang dùng token vừa đổi/thu hồi. Hub lỗi không chặn thao tác (token đã chết ở D1). */
@@ -78,9 +79,15 @@ export function createAdminTokenRoutes(viewerAuth: ViewerAuth) {
     }),
     async (c) => {
       const body = c.req.valid('json')
+      // Chỉ cấp cho người dùng có thật và đang hoạt động; nhãn mặc định là tên người đó.
+      const owner = await getUserById(c.env.DB, body.owner_id)
+      if (!owner) throw new AppError(404, 'NOT_FOUND', 'Không tìm thấy người dùng')
+      if (owner.status !== 'active') {
+        throw new AppError(409, 'CONFLICT', 'Người dùng chưa được duyệt hoặc đã bị khóa')
+      }
       const { token, row } = await createToken(
         c.env.DB,
-        { ownerId: body.owner_id, label: body.label },
+        { ownerId: owner.id, label: (body.label ?? owner.display_name).slice(0, 64) },
         nowUnix(),
       )
       return c.json({ token, summary: toSummary(row) } satisfies GwTokenSecretResponse, 201)

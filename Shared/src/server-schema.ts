@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { syncTokenRowSchema } from './token-schema'
+import { syncUserRowSchema } from './user-schema'
 
 /**
  * Plan 3E: VPS là máy chủ chính, Cloudflare là dự phòng. Mọi hằng số và schema dùng chung giữa
@@ -161,6 +162,7 @@ const SYNC_MAX_ROWS = 100
 
 /** `POST /api/sync/apply`: một lô thay đổi; upsert theo khóa nên gửi lại bao nhiêu lần cũng không hại. */
 export const syncApplySchema = z.object({
+  users: z.array(syncUserRowSchema).max(SYNC_MAX_ROWS).default([]),
   tokens: z.array(syncTokenRowSchema).max(SYNC_MAX_ROWS).default([]),
   links: z.array(syncLinkRowSchema).max(SYNC_MAX_ROWS).default([]),
   links_deleted: z.array(z.number().int().positive()).max(SYNC_MAX_ROWS).default([]),

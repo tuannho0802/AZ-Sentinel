@@ -7,6 +7,8 @@ import { resolveViewer, type ViewerAuth } from './live/viewer-auth'
 import { notFound, onError } from './middleware/error-handler'
 import { requestLogger } from './middleware/request-logger'
 import { createAdminTokenRoutes } from './routes/admin-tokens'
+import { createAdminUserRoutes } from './routes/admin-users'
+import { createAuthRoutes } from './routes/auth'
 import { devLinks } from './routes/dev-links'
 import { createEaRoutes, defaultHub, type HubProvider } from './routes/ea'
 import { health } from './routes/health'
@@ -46,6 +48,9 @@ export function createApp(opts: AppOptions = {}) {
   app.route('/api/gw', createGwWsRoutes())
   // Plan 4: quản trị viên cấp, đặt lại, thu hồi token Gateway cá nhân.
   app.route('/api/admin/gw-tokens', createAdminTokenRoutes(opts.viewerAuth ?? resolveViewer))
+  // Plan 4B: người dùng, đăng nhập thật và quản lý người dùng.
+  app.route('/api', createAuthRoutes(opts.viewerAuth ?? resolveViewer))
+  app.route('/api/admin/users', createAdminUserRoutes(opts.viewerAuth ?? resolveViewer))
   // DEV Part 1: quản lý liên kết không cần đăng nhập, chỉ bật bằng DEV_LINKS_API. Xóa khi có Part 2/3.
   app.route('/api/dev', devLinks)
   // SPIKE (P1-19): xóa ở P1-31.

@@ -1,5 +1,6 @@
 import type { ServerMode, ServerNode, ServerRole, StandbyStatus } from '@az-sentinel/shared'
 import type { LiveHub } from './live/live-hub'
+import type { Viewer } from './live/viewer-auth'
 
 export type Bindings = {
   DB: D1Database
@@ -46,5 +47,7 @@ export type AppEnv = {
     /** Node thực sự phục vụ request (đặt bởi bộ định tuyến biên hoặc route `server-info`). */
     servedBy?: ServerRole
     mode?: ServerMode
+    /** Người đã xác thực của request hiện tại (đặt bởi middleware của route quản trị). */
+    viewer?: Viewer
   }
 }

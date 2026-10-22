@@ -1,7 +1,7 @@
 ; Bo cai AZ Gateway cho Windows Server VPS. Build: ISCC /DMyAppVersion=0.2.0 Installer\az-gateway.iss
 ; Dau vao: Gateway\dist\az-gateway.exe (pnpm --filter @az-sentinel/gateway build:exe).
 ; Cai dat im lang: AZSentinel-Gateway-Setup.exe /VERYSILENT /VPS=VPS-01 /CLOUDURL=wss://... /TOKEN=azt_... [/FALLBACKURL=wss://...] [/SKIPTOKENCHECK=1]
-; TOKEN la token ca nhan azt_... do quan tri vien cap rieng cho tung nguoi (khong con khoa chung GW_CONNECT_TOKEN).
+; TOKEN la token ca nhan azt_... do quan tri vien cap rieng cho tung nguoi (khong con khoa chung dung chung cho moi nguoi).
 ; Bo cai goi "az-gateway.exe check-token <url> <token>" (GET /api/gw/check) de kiem token: 401 thi dung cai.
 
 #ifndef MyAppVersion

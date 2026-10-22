@@ -6,7 +6,7 @@ function toHex(bytes: Uint8Array): string {
   return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('')
 }
 
-function toBase64Url(bytes: Uint8Array): string {
+export function toBase64Url(bytes: Uint8Array): string {
   let binary = ''
   for (const b of bytes) binary += String.fromCharCode(b)
   return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
@@ -52,4 +52,33 @@ export async function generateGwToken(): Promise<GeneratedGwToken> {
     tokenHash: await sha256Hex(token),
     tokenPrefix: token.slice(0, GW_TOKEN_SHOWN_PREFIX),
   }
+}
+
+/** Giải mã base64url về byte; null nếu chuỗi hỏng. */
+export function fromBase64Url(value: string): Uint8Array | null {
+  try {
+    const padded = value.replace(/-/g, '+').replace(/_/g, '/')
+    const binary = atob(padded + '='.repeat((4 - (padded.length % 4)) % 4))
+    return Uint8Array.from(binary, (c) => c.charCodeAt(0))
+  } catch {
+    return null
+  }
+}
+
+/** So sánh hai chuỗi byte trong thời gian không phụ thuộc vị trí khác biệt. */
+export function timingSafeEqual(a: Uint8Array, b: Uint8Array): boolean {
+  if (a.length !== b.length) return false
+  let diff = 0
+  for (let i = 0; i < a.length; i++) diff |= (a[i] as number) ^ (b[i] as number)
+  return diff === 0
+}
+
+export type GeneratedSessionToken = { token: string; tokenHash: string }
+
+/** Mã phiên đăng nhập: 32 byte ngẫu nhiên (base64url). Chỉ băm được lưu. */
+export async function generateSessionToken(): Promise<GeneratedSessionToken> {
+  const bytes = new Uint8Array(32)
+  crypto.getRandomValues(bytes)
+  const token = toBase64Url(bytes)
+  return { token, tokenHash: await sha256Hex(token) }
 }

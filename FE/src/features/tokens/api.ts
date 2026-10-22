@@ -6,6 +6,7 @@ import type {
 } from '@az-sentinel/shared'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiGet, apiPost } from '../../lib/api-client'
+import { USERS_KEY } from '../users/api'
 
 const BASE = '/api/admin/gw-tokens'
 export const TOKENS_KEY = ['gw-tokens'] as const
@@ -26,7 +27,10 @@ export function useIssueToken() {
   const client = useQueryClient()
   return useMutation({
     mutationFn: (body: CreateGwTokenRequest) => apiPost<GwTokenSecretResponse>(BASE, body),
-    onSuccess: () => client.invalidateQueries({ queryKey: TOKENS_KEY }),
+    onSuccess: () => {
+      client.invalidateQueries({ queryKey: TOKENS_KEY })
+      client.invalidateQueries({ queryKey: USERS_KEY })
+    },
   })
 }
 
@@ -42,6 +46,9 @@ export function useRevokeToken() {
   const client = useQueryClient()
   return useMutation({
     mutationFn: (id: number) => apiPost<{ summary: GwTokenSummary }>(`${BASE}/${id}/revoke`, {}),
-    onSuccess: () => client.invalidateQueries({ queryKey: TOKENS_KEY }),
+    onSuccess: () => {
+      client.invalidateQueries({ queryKey: TOKENS_KEY })
+      client.invalidateQueries({ queryKey: USERS_KEY })
+    },
   })
 }

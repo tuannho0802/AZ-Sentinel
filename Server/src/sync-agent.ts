@@ -6,15 +6,16 @@ import {
   type SyncLinkRow,
   type SyncTokenRow,
   type SyncTradeRow,
+  type SyncUserRow,
   syncLinksPageSchema,
   syncTokensPageSchema,
   syncTradesPageSchema,
 } from '@az-sentinel/shared'
-import { LINK_COLS, TOKEN_COLS, TRADE_COLS } from '../../BE/src/services/sync-service'
+import { LINK_COLS, TOKEN_COLS, TRADE_COLS, USER_COLS } from '../../BE/src/services/sync-service'
 import type { Logger } from './log'
 import type { ShimD1 } from './shim/d1'
 
-type OutboxRow = { seq: number; kind: 'link' | 'trade' | 'token'; a: number; b: number }
+type OutboxRow = { seq: number; kind: 'link' | 'trade' | 'token' | 'user'; a: number; b: number }
 type Reply = { ok: boolean; status: number; json: unknown }
 
 const placeholders = (n: number) => Array(n).fill('?').join(', ')
@@ -116,8 +117,21 @@ export class SyncAgent {
     } else {
       await this.pull()
       await this.syncTokensOnce()
+      this.syncUsersOnce()
     }
     await this.flush()
+  }
+
+  /**
+   * Một lần duy nhất (cờ `users_boot`): xếp mọi người dùng của VPS vào hàng đợi để đẩy sang Cloudflare, nhờ đó
+   * bản dự phòng đăng nhập được. VPS là nguồn gốc duy nhất của người dùng nên không kéo ngược.
+   */
+  private syncUsersOnce(): void {
+    if (this.getState('users_boot') === 'done') return
+    this.store.sqlite.exec(
+      "INSERT OR REPLACE INTO sync_outbox (kind, a, b) SELECT 'user', id, 0 FROM users",
+    )
+    this.setState('users_boot', 'done')
   }
 
   /**
@@ -168,6 +182,7 @@ export class SyncAgent {
     }
     if (!(await this.pullTrades(0))) return false
     if (!(await this.syncTokensOnce())) return false
+    this.syncUsersOnce()
     if (localHadData) this.enqueueAll()
     this.setState('bootstrap', 'done')
     this.setState('last_pull_at', String(startedAt))
@@ -181,6 +196,7 @@ export class SyncAgent {
       INSERT OR REPLACE INTO sync_outbox (kind, a, b) SELECT 'link', id, 0 FROM ea_links;
       INSERT OR REPLACE INTO sync_outbox (kind, a, b) SELECT 'trade', link_id, ticket FROM trades;
       INSERT OR REPLACE INTO sync_outbox (kind, a, b) SELECT 'token', id, 0 FROM gw_tokens;
+      INSERT OR REPLACE INTO sync_outbox (kind, a, b) SELECT 'user', id, 0 FROM users;
     `)
   }
 
@@ -234,12 +250,14 @@ export class SyncAgent {
 
   private buildPayload(rows: OutboxRow[]): SyncApply {
     const payload: SyncApply = {
+      users: [],
       tokens: [],
       links: [],
       links_deleted: [],
       trades: [],
       trades_deleted: [],
     }
+    const user = this.store.statement(`SELECT ${USER_COLS.join(', ')} FROM users WHERE id = ?`)
     const token = this.store.statement(
       `SELECT ${TOKEN_COLS.join(', ')} FROM gw_tokens WHERE id = ?`,
     )
@@ -248,7 +266,10 @@ export class SyncAgent {
       `SELECT ${TRADE_COLS.join(', ')} FROM trades WHERE link_id = ? AND ticket = ?`,
     )
     for (const r of rows) {
-      if (r.kind === 'token') {
+      if (r.kind === 'user') {
+        const row = user.get(r.a)
+        if (row) payload.users.push({ ...row } as SyncUserRow)
+      } else if (r.kind === 'token') {
         const row = token.get(r.a)
         if (row) payload.tokens.push({ ...row } as SyncTokenRow)
       } else if (r.kind === 'link') {

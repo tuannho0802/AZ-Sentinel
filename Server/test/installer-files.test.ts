@@ -35,6 +35,7 @@ describe('bộ cài Server (az-server.iss)', () => {
       'uninstall-task.ps1',
       'server.env.example',
       'token.cmd',
+      'user.cmd',
     ]) {
       expect(packSrc).toContain(`'${f}'`)
     }

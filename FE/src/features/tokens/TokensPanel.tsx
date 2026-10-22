@@ -1,11 +1,13 @@
 import type { GwTokenSummary } from '@az-sentinel/shared'
 import { type FormEvent, useState } from 'react'
+import { Link } from 'wouter'
 import { Button } from '../../components/Button'
 import { Card } from '../../components/Card'
 import { inputClass } from '../../components/styles'
 import { ApiError } from '../../lib/api-client'
 import { formatDateTime, formatRelative } from '../../lib/format'
 import { strings } from '../../lib/strings'
+import { useUsers } from '../users/api'
 import { useIssueToken, useResetToken, useRevokeToken, useTokens } from './api'
 import { TokenSecretDialog } from './TokenSecretDialog'
 
@@ -13,32 +15,27 @@ type Revealed = { token: string; title: string }
 
 function IssueForm({ onIssued }: { onIssued: (r: Revealed) => void }) {
   const issue = useIssueToken()
+  const users = useUsers()
   const [ownerId, setOwnerId] = useState('')
-  const [label, setLabel] = useState('')
-  const [error, setError] = useState<{ field: 'owner' | 'label' | 'server'; text: string } | null>(
-    null,
-  )
+  const [error, setError] = useState<{ field: 'owner' | 'server'; text: string } | null>(null)
+  // Chỉ người đang hoạt động và chưa có token mới cần cấp (mỗi người một token).
+  const eligible = (users.data?.users ?? []).filter((u) => u.status === 'active' && !u.has_token)
 
   function onSubmit(e: FormEvent) {
     e.preventDefault()
-    const id = Number(ownerId.trim())
-    if (ownerId.trim() === '' || !Number.isInteger(id) || id <= 0) {
-      setError({ field: 'owner', text: strings.tokenOwnerInvalid })
-      return
-    }
-    if (label.trim() === '') {
-      setError({ field: 'label', text: strings.tokenLabelRequired })
+    const id = Number(ownerId)
+    if (!Number.isInteger(id) || id <= 0) {
+      setError({ field: 'owner', text: strings.tokenPickRequired })
       return
     }
     setError(null)
     issue.mutate(
-      { owner_id: id, label: label.trim() },
+      { owner_id: id },
       {
         onSuccess: (res) => {
           onIssued({ token: res.token, title: strings.tokenDialogIssue })
           issue.reset()
           setOwnerId('')
-          setLabel('')
         },
         onError: (err) =>
           setError({
@@ -46,41 +43,56 @@ function IssueForm({ onIssued }: { onIssued: (r: Revealed) => void }) {
             text:
               err instanceof ApiError && err.status === 409
                 ? strings.tokenIssueConflict
-                : strings.tokenIssueFailed,
+                : err instanceof ApiError && err.status === 404
+                  ? strings.tokenIssueNotFound
+                  : strings.tokenIssueFailed,
           }),
       },
     )
   }
 
+  if (users.isPending) return <p className="text-sm text-muted">{strings.usersLoading}</p>
+  if (users.isError) {
+    return (
+      <p role="alert" className="text-sm text-loss">
+        {strings.tokenUsersError}{' '}
+        <Button size="sm" onClick={() => users.refetch()}>
+          {strings.retry}
+        </Button>
+      </p>
+    )
+  }
+  if (eligible.length === 0) {
+    return (
+      <p className="text-sm text-muted">
+        {strings.tokenNoEligible}{' '}
+        <Link href="/users" className="font-medium text-accent-text underline underline-offset-2">
+          {strings.tokenGoUsers}
+        </Link>
+      </p>
+    )
+  }
+
   return (
     <form noValidate onSubmit={onSubmit} className="flex flex-wrap items-start gap-3">
-      <div className="w-40">
-        <label className="block text-sm font-medium" htmlFor="gw-owner-id">
-          {strings.tokenOwnerId}
+      <div className="min-w-64 flex-1">
+        <label className="block text-sm font-medium" htmlFor="gw-owner">
+          {strings.tokenPickUser}
         </label>
-        <input
-          id="gw-owner-id"
-          inputMode="numeric"
-          autoComplete="off"
+        <select
+          id="gw-owner"
           value={ownerId}
           aria-invalid={error?.field === 'owner'}
           onChange={(e) => setOwnerId(e.target.value)}
           className={`${inputClass} mt-1`}
-        />
-      </div>
-      <div className="min-w-56 flex-1">
-        <label className="block text-sm font-medium" htmlFor="gw-label">
-          {strings.tokenLabel}
-        </label>
-        <input
-          id="gw-label"
-          autoComplete="off"
-          maxLength={64}
-          value={label}
-          aria-invalid={error?.field === 'label'}
-          onChange={(e) => setLabel(e.target.value)}
-          className={`${inputClass} mt-1`}
-        />
+        >
+          <option value="">{strings.tokenPickPlaceholder}</option>
+          {eligible.map((u) => (
+            <option key={u.id} value={u.id}>
+              {u.display_name} ({u.email})
+            </option>
+          ))}
+        </select>
       </div>
       <div className="pt-[1.375rem]">
         <Button type="submit" variant="primary" disabled={issue.isPending}>

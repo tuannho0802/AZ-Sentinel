@@ -1,5 +1,8 @@
 import type { UserRole } from '@az-sentinel/shared'
 import type { Context } from 'hono'
+import { readCookie } from '../lib/cookies'
+import { nowUnix } from '../lib/time'
+import { findSession, SESSION_COOKIE } from '../services/session-service'
 import type { AppEnv } from '../types'
 
 /** Người xem đã xác thực. `expiresAt` (ms) để hub tự đá khi phiên hết hạn; null = không hết hạn. */
@@ -7,8 +10,9 @@ export type Viewer = { userId: number; role: UserRole; expiresAt: number | null 
 
 /**
  * Adapter xác thực người xem WebSocket (Plan 3B mục 7). Chỉ trả người dùng ĐÃ được xác thực và
- * ĐANG hoạt động; mọi trường hợp khác trả null (route sẽ trả 401). Part 2 thay `resolveViewer`
- * bằng tra phiên thật (cookie phiên -> bản băm trong DB, kiểm tra hạn và trạng thái User).
+ * ĐANG hoạt động; mọi trường hợp khác trả null (route sẽ trả 401). `resolveViewer` tra phiên thật
+ * (cookie phiên -> bản băm trong DB, kiểm tra hạn và trạng thái User); chỉ khi chạy dev mới tin thêm
+ * cookie giả lập của FE.
  */
 export type ViewerAuth = (c: Context<AppEnv>) => Promise<Viewer | null> | Viewer | null
 
@@ -17,21 +21,6 @@ const MOCK_COOKIE = 'az_mock_session'
 const DEV_VIEWERS: Record<string, Viewer> = {
   'admin@az.local': { userId: 1, role: 'root_admin', expiresAt: null },
   'user@az.local': { userId: 2, role: 'user', expiresAt: null },
-}
-
-function readCookie(header: string | undefined, name: string): string | null {
-  if (!header) return null
-  for (const part of header.split(';')) {
-    const eq = part.indexOf('=')
-    if (eq < 0) continue
-    if (part.slice(0, eq).trim() !== name) continue
-    try {
-      return decodeURIComponent(part.slice(eq + 1).trim())
-    } catch {
-      return null
-    }
-  }
-  return null
 }
 
 /**
@@ -45,5 +34,14 @@ export const devViewerAuth: ViewerAuth = (c) => {
   return email ? (DEV_VIEWERS[email.toLowerCase()] ?? null) : null
 }
 
-/** Part 2: thay bằng tra phiên thật. */
-export const resolveViewer: ViewerAuth = devViewerAuth
+/** Người xem từ cookie phiên thật (`az_session`). null nếu thiếu, hết hạn hoặc người dùng không còn active. */
+export const sessionViewer: ViewerAuth = async (c) => {
+  const token = readCookie(c.req.header('Cookie'), SESSION_COOKIE)
+  if (!token) return null
+  const session = await findSession(c.env.DB, token, nowUnix())
+  if (!session) return null
+  return { userId: session.userId, role: session.role, expiresAt: session.expiresAt * 1000 }
+}
+
+/** Phiên thật trước; không có thì (chỉ khi dev) thử cookie giả lập. */
+export const resolveViewer: ViewerAuth = async (c) => (await sessionViewer(c)) ?? devViewerAuth(c)

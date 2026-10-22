@@ -4,7 +4,7 @@ import type { ShimD1 } from './shim/d1'
 
 /**
  * Bảng và trigger chỉ của máy chủ VPS: hàng đợi thay đổi để đẩy sang Cloudflare (outbox).
- * - `sync_outbox`: mỗi dòng là "khóa này đã đổi" (liên kết `link`/lệnh `trade`/token Gateway `token`); khóa trùng thì dòng cũ bị
+ * - `sync_outbox`: mỗi dòng là "khóa này đã đổi" (liên kết `link`/lệnh `trade`/token Gateway `token`/người dùng `user`); khóa trùng thì dòng cũ bị
  *   thay (seq mới), nên một lệnh đổi trăm lần chỉ đẩy một lần. Nội dung đọc lại từ bảng gốc lúc đẩy.
  * - Trigger bị tắt khi `sync_state.mute = 1`: lúc áp dữ liệu kéo từ Cloudflare về thì không đẩy ngược lại.
  */
@@ -15,7 +15,7 @@ UPDATE sync_state SET v = '0' WHERE k = 'mute';
 
 CREATE TABLE IF NOT EXISTS sync_outbox (
   seq  INTEGER PRIMARY KEY AUTOINCREMENT,
-  kind TEXT NOT NULL CHECK (kind IN ('link', 'trade', 'token')),
+  kind TEXT NOT NULL CHECK (kind IN ('link', 'trade', 'token', 'user')),
   a    INTEGER NOT NULL,
   b    INTEGER NOT NULL DEFAULT 0,
   UNIQUE (kind, a, b)
@@ -54,6 +54,18 @@ CREATE TRIGGER az_trades_ad AFTER DELETE ON trades
 WHEN (SELECT v FROM sync_state WHERE k = 'mute') = '0'
 BEGIN INSERT OR REPLACE INTO sync_outbox (kind, a, b) VALUES ('trade', OLD.link_id, OLD.ticket); END;
 
+-- Người dùng (Plan 4B). Chỉ đẩy khi đổi cột có ý nghĩa; failed_logins/locked_until thì không đẩy.
+DROP TRIGGER IF EXISTS az_users_ai;
+DROP TRIGGER IF EXISTS az_users_au;
+
+CREATE TRIGGER az_users_ai AFTER INSERT ON users
+WHEN (SELECT v FROM sync_state WHERE k = 'mute') = '0'
+BEGIN INSERT OR REPLACE INTO sync_outbox (kind, a, b) VALUES ('user', NEW.id, 0); END;
+
+CREATE TRIGGER az_users_au AFTER UPDATE OF email, display_name, password_hash, role, status ON users
+WHEN (SELECT v FROM sync_state WHERE k = 'mute') = '0'
+BEGIN INSERT OR REPLACE INTO sync_outbox (kind, a, b) VALUES ('user', NEW.id, 0); END;
+
 -- Token Gateway (Plan 4). Chỉ đẩy khi đổi cột có ý nghĩa; cập nhật last_used_at thì không đẩy.
 CREATE TRIGGER az_tokens_ai AFTER INSERT ON gw_tokens
 WHEN (SELECT v FROM sync_state WHERE k = 'mute') = '0'
@@ -73,6 +85,8 @@ const ALL_TRIGGERS = [
   'az_trades_ad',
   'az_tokens_ai',
   'az_tokens_au',
+  'az_users_ai',
+  'az_users_au',
 ]
 
 /**
@@ -84,7 +98,7 @@ function upgradeOutbox(sqlite: ShimD1['sqlite']): void {
   const row = sqlite
     .prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'sync_outbox'")
     .get() as { sql: string } | undefined
-  if (!row || row.sql.includes("'token'")) return
+  if (!row || row.sql.includes("'user'")) return
   sqlite.exec('BEGIN')
   try {
     for (const t of ALL_TRIGGERS) sqlite.exec(`DROP TRIGGER IF EXISTS ${t}`)
@@ -92,7 +106,7 @@ function upgradeOutbox(sqlite: ShimD1['sqlite']): void {
       ALTER TABLE sync_outbox RENAME TO sync_outbox_old;
       CREATE TABLE sync_outbox (
         seq  INTEGER PRIMARY KEY AUTOINCREMENT,
-        kind TEXT NOT NULL CHECK (kind IN ('link', 'trade', 'token')),
+        kind TEXT NOT NULL CHECK (kind IN ('link', 'trade', 'token', 'user')),
         a    INTEGER NOT NULL,
         b    INTEGER NOT NULL DEFAULT 0,
         UNIQUE (kind, a, b)

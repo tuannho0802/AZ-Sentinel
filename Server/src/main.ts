@@ -2,6 +2,7 @@ import { mkdirSync } from 'node:fs'
 import { createApp } from '../../BE/src/app'
 import { LiveHub } from '../../BE/src/live/live-hub'
 import { ensureDevToken } from '../../BE/src/services/gw-token-service'
+import { ensureDevUsers } from '../../BE/src/services/user-service'
 import type { Bindings } from '../../BE/src/types'
 import { loadConfig } from './config'
 import { CpuMeter, createHostHooks, describeNode } from './host'
@@ -13,6 +14,7 @@ import { openDatabase } from './shim/d1'
 import { createStaticHandler } from './static'
 import { SyncAgent } from './sync-agent'
 import { runTokenCli } from './token-cli'
+import { runUserCli } from './user-cli'
 
 /**
  * Máy chủ VPS (Plan 3E): chạy NGUYÊN BE (Hono) và `LiveHub` trên Node với SQLite thay D1, đồng thời phục
@@ -24,6 +26,11 @@ async function main() {
   if (process.argv[2] === 'token') {
     process.exit(await runTokenCli(cfg, process.argv.slice(3)))
   }
+  // `node server.mjs user <lệnh>`: tạo admin đầu tiên, liệt kê người dùng, đặt lại mật khẩu rồi thoát.
+  if (process.argv[2] === 'user') {
+    mkdirSync(cfg.dataDir, { recursive: true })
+    process.exit(await runUserCli(cfg, process.argv.slice(3)))
+  }
   mkdirSync(cfg.dataDir, { recursive: true })
   const log = createLogger(cfg.logLevel, `${cfg.dataDir}/logs`)
   log.info(`AZ Server v${process.env.AZ_SERVER_VERSION ?? 'dev'} khởi động (${cfg.name})`)
@@ -31,6 +38,10 @@ async function main() {
   const db = openDatabase(cfg.dbFile)
   const applied = runMigrations(db, cfg.migrationsDir)
   if (applied.length > 0) log.info(`đã áp migration: ${applied.join(', ')}`)
+
+  // Dev: người dùng dev khớp tài khoản giả lập của FE (id 1 = admin, id 2 = user). Bản thật không có
+  // cờ này: admin đầu tiên tạo bằng `user create-admin`.
+  if (cfg.devLinksApi === '1') await ensureDevUsers(db as unknown as D1Database)
 
   // Dev: bảo đảm Gateway dev có token cá nhân cố định (người dùng dev id 1). Bản thật không có cờ này.
   if (cfg.devLinksApi === '1' && cfg.devGwToken !== '') {

@@ -21,6 +21,7 @@ cpSync(web, `${out}/web`, { recursive: true })
 for (const f of [
   'run-server.cmd',
   'token.cmd',
+  'user.cmd',
   'install-task.ps1',
   'uninstall-task.ps1',
   'stop-server.ps1',

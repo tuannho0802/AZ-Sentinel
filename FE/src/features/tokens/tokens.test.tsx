@@ -1,4 +1,4 @@
-import type { GwTokenSummary } from '@az-sentinel/shared'
+import type { GwTokenSummary, UserSummary } from '@az-sentinel/shared'
 import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { strings } from '../../lib/strings'
@@ -32,9 +32,29 @@ const revoked: GwTokenSummary = {
 }
 const SECRET = 'azt_AbCd1234EfGh5678IjKl9012MnOp3456'
 
+const user = (id: number, name: string, over: Partial<UserSummary> = {}): UserSummary => ({
+  id,
+  email: `${name.toLowerCase()}@az.local`,
+  display_name: name,
+  role: 'user',
+  status: 'active',
+  created_at: NOW,
+  has_token: false,
+  ...over,
+})
+// An đã có token, Bình chờ duyệt, Cường bị khóa: chỉ Dũng và Hà đủ điều kiện nhận token.
+const users = [
+  user(7, 'An', { has_token: true }),
+  user(10, 'Bình', { status: 'pending' }),
+  user(11, 'Cường', { status: 'suspended' }),
+  user(9, 'Dũng'),
+  user(12, 'Hà'),
+]
+
 const base = {
   'GET /api/me': () => json(200, me),
   'GET /api/admin/gw-tokens': () => json(200, { tokens: [active, revoked] }),
+  'GET /api/admin/users': () => json(200, { users }),
 }
 
 describe('trang Token Gateway (admin)', () => {
@@ -47,24 +67,44 @@ describe('trang Token Gateway (admin)', () => {
     expect(screen.getAllByRole('button', { name: strings.tokenRevoke })).toHaveLength(1)
   })
 
-  it('cấp token: kiểm tra dữ liệu, gọi API, hiện token một lần và sao chép được', async () => {
+  it('dropdown chỉ liệt kê người dùng đang hoạt động và chưa có token', async () => {
+    renderApp('/tokens', base)
+    const select = (await screen.findByLabelText(strings.tokenPickUser)) as HTMLSelectElement
+    const labels = Array.from(select.options).map((o) => o.textContent)
+    expect(labels).toEqual([
+      strings.tokenPickPlaceholder,
+      'Dũng (dũng@az.local)',
+      'Hà (hà@az.local)',
+    ])
+  })
+
+  it('không còn ai cần cấp: báo và dẫn tới trang Người dùng', async () => {
+    renderApp('/tokens', {
+      ...base,
+      'GET /api/admin/users': () => json(200, { users: [users[0] as UserSummary] }),
+    })
+    expect(await screen.findByText(new RegExp(strings.tokenNoEligible.slice(0, 20)))).toBeTruthy()
+    expect(screen.getByRole('link', { name: strings.tokenGoUsers }).getAttribute('href')).toBe(
+      '/users',
+    )
+  })
+
+  it('cấp token: bắt buộc chọn người, chỉ gửi owner_id, hiện token một lần và sao chép được', async () => {
     const issue = vi.fn(() =>
-      json(201, { token: SECRET, summary: { ...active, id: 3, owner_id: 9, label: 'B' } }),
+      json(201, { token: SECRET, summary: { ...active, id: 3, owner_id: 9, label: 'Dũng' } }),
     )
     const writeText = vi.fn(async () => {})
     Object.assign(navigator, { clipboard: { writeText } })
     renderApp('/tokens', { ...base, 'POST /api/admin/gw-tokens': issue })
 
     fireEvent.click(await screen.findByRole('button', { name: strings.tokenIssue }))
-    expect(await screen.findByText(strings.tokenOwnerInvalid)).toBeTruthy()
-    fireEvent.change(screen.getByLabelText(strings.tokenOwnerId), { target: { value: '9' } })
-    fireEvent.click(screen.getByRole('button', { name: strings.tokenIssue }))
-    expect(await screen.findByText(strings.tokenLabelRequired)).toBeTruthy()
+    expect(await screen.findByText(strings.tokenPickRequired)).toBeTruthy()
     expect(issue).not.toHaveBeenCalled()
 
-    fireEvent.change(screen.getByLabelText(strings.tokenLabel), { target: { value: 'B' } })
+    fireEvent.change(screen.getByLabelText(strings.tokenPickUser), { target: { value: '9' } })
     fireEvent.click(screen.getByRole('button', { name: strings.tokenIssue }))
     const dialog = await screen.findByRole('dialog')
+    expect(issue).toHaveBeenCalledTimes(1)
     expect((within(dialog).getByLabelText(strings.tokenFieldLabel) as HTMLInputElement).value).toBe(
       SECRET,
     )
@@ -81,8 +121,9 @@ describe('trang Token Gateway (admin)', () => {
       'POST /api/admin/gw-tokens': () =>
         json(409, { error: { code: 'CONFLICT', message: 'đã có' } }),
     })
-    fireEvent.change(await screen.findByLabelText(strings.tokenOwnerId), { target: { value: '7' } })
-    fireEvent.change(screen.getByLabelText(strings.tokenLabel), { target: { value: 'A' } })
+    fireEvent.change(await screen.findByLabelText(strings.tokenPickUser), {
+      target: { value: '9' },
+    })
     fireEvent.click(screen.getByRole('button', { name: strings.tokenIssue }))
     expect(await screen.findByText(strings.tokenIssueConflict)).toBeTruthy()
   })
@@ -153,8 +194,9 @@ describe('trang Token Gateway (admin)', () => {
       ...base,
       'POST /api/admin/gw-tokens': () => json(500, { error: { code: 'INTERNAL', message: 'x' } }),
     })
-    fireEvent.change(await screen.findByLabelText(strings.tokenOwnerId), { target: { value: '7' } })
-    fireEvent.change(screen.getByLabelText(strings.tokenLabel), { target: { value: 'A' } })
+    fireEvent.change(await screen.findByLabelText(strings.tokenPickUser), {
+      target: { value: '9' },
+    })
     fireEvent.click(screen.getByRole('button', { name: strings.tokenIssue }))
     expect(await screen.findByText(strings.tokenIssueFailed)).toBeTruthy()
   })
