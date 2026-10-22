@@ -9,6 +9,7 @@ coverage/
 .vite/
 *.patch
 spike_result.json
+*.env
 
 # Tệp tự sinh bởi extension MQL Clangd (chứa đường dẫn riêng của từng máy)
 .clangd
