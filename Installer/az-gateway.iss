@@ -320,8 +320,8 @@ begin
   end;
   if (Url <> '') and (Tok = '') then
   begin
-    if MsgBox('Chua nhap token: Gateway se khong ket noi duoc cloud cho den khi ban nhap token trong phan Cai dat.' +
-              #13#10 + 'Tiep tuc cai dat?', mbConfirmation, MB_YESNO) = IDNO then
+    if MsgBox('Chua nhap token: Gateway se khong ket noi duoc cloud cho den khi ban nhap token trong phan Cai dat.' + #13#10 +
+              'Tiep tuc cai dat?', mbConfirmation, MB_YESNO) = IDNO then
       Result := False;
     Exit;
   end;
