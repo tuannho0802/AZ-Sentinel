@@ -12,6 +12,10 @@ Một file `AZSentinel-Server-Setup.exe`, **không cần cài Node.js, Git hay p
 4. Đăng ký tác vụ **AZ Server** trong Task Scheduler: chạy lúc khởi động máy bằng SYSTEM, không cần đăng nhập RDP, tự bật lại.
 5. Đợi `/api/health` trả lời rồi báo kết quả; tạo shortcut Start menu và Desktop mở giao diện.
 
+**Cài sạch + quét cổng (mọi lần cài/nâng cấp):** trước khi ghi file, bộ cài chạy `preflight.ps1`: dừng tác vụ `AZ Server`, vòng lặp `run-server.cmd`, `node server.mjs` và `cloudflared` của Quick Tunnel còn sót; xóa file tạm và `cloudflared.exe` không chạy được trên máy này (Server tự tải lại đúng bản); quét cổng đã chọn. Cổng bị `node server.mjs` cũ giữ thì tắt; bị **chương trình khác** giữ thì bộ cài dừng và báo tên + PID (không tắt nhầm), bạn đóng chương trình đó hoặc chọn cổng khác. `server.env`, cơ sở dữ liệu, tài khoản và whitelist IP được giữ nguyên. Chạy tay: `.\preflight.ps1 -AppDir "C:\Program Files\AZSentinel\Server" -Port 8080`.
+
+**Thứ tự:** `server.env` được ghi xong rồi mới đăng ký tác vụ, mở tường lửa và chạy `check-server.ps1` (Inno xử lý `[Run]` trước bước ghi `server.env`, nên các lệnh này nằm trong `StartServer` chứ không nằm trong `[Run]`). Lỗi đăng ký tác vụ hiện hộp thoại và ghi vào `C:\ProgramData\AZSentinelServer\logs\install-task.log`.
+
 Cài đè lên bản cũ được: bộ cài tự dừng bản đang chạy (đúng tiến trình `node.exe` nằm trong thư mục cài), thay `web\` và `migrations\` (tránh tệp giao diện cũ), **giữ nguyên `server.env` và cơ sở dữ liệu** (`C:\ProgramData\AZSentinelServer`). Migration mới tự chạy khi Server khởi động.
 
 ## 2. Token Gateway (không cấu hình trong bộ cài)

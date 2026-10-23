@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
@@ -168,7 +168,11 @@ describe('bộ cài Server: giao diện không bị khuất và chạy được 
   })
 
   it('check-server nhận thư mục cài để tự đăng ký lại tác vụ và chờ Quick Tunnel', () => {
-    expect(serverIss).toMatch(/check-server\.ps1""[^\n]*-AppDir ""\{app\}""/)
+    const startProc = serverIss.slice(
+      serverIss.indexOf('procedure StartServer;'),
+      serverIss.indexOf('procedure CurStepChanged'),
+    )
+    expect(startProc).toMatch(/check-server\.ps1'\)[\s\S]*?-AppDir/)
     const check = read('Server/scripts/check-server.ps1')
     expect(check).toContain('install-task.ps1')
     expect(check).toContain('tunnel-url.txt')
@@ -183,6 +187,78 @@ describe('bộ cài Server: giao diện không bị khuất và chạy được 
     const src = read('Server/src/tunnel.ts')
     expect(src).toContain("LEGACY_WINDOWS_VERSION = '2023.10.0'")
     expect(src).toContain('cloudflaredRuns')
+  })
+})
+
+describe('bộ cài Server: cài sạch, quét cổng, đúng thứ tự', () => {
+  const runSection = serverIss
+    .slice(serverIss.indexOf('[Run]'), serverIss.indexOf('[UninstallRun]'))
+    .split('\n')
+    .filter((l) => !l.trimStart().startsWith(';'))
+    .join('\n')
+
+  it('[Run] KHÔNG gọi install-task/check-server/open-firewall: Inno chạy [Run] trước ssPostInstall nên lúc đó server.env chưa được ghi', () => {
+    expect(runSection).not.toContain('install-task.ps1')
+    expect(runSection).not.toContain('check-server.ps1')
+    expect(runSection).not.toContain('open-firewall.ps1')
+  })
+
+  it('StartServer chạy sau WriteEnvFile trong ssPostInstall và gọi install-task, check-server', () => {
+    const post = serverIss.slice(serverIss.indexOf('if CurStep = ssPostInstall'))
+    expect(post.indexOf('WriteEnvFile')).toBeGreaterThan(-1)
+    expect(post.indexOf('StartServer')).toBeGreaterThan(post.indexOf('WriteEnvFile'))
+    const proc = serverIss.slice(
+      serverIss.indexOf('procedure StartServer;'),
+      serverIss.indexOf('procedure CurStepChanged'),
+    )
+    expect(proc).toContain('install-task.ps1')
+    expect(proc).toContain('check-server.ps1')
+    expect(proc).toContain('install-task.log')
+  })
+
+  it('PrepareToInstall luôn chạy preflight.ps1 với cổng đã chọn và dừng cài khi cổng bị chương trình khác chiếm (mã 2)', () => {
+    const prep = serverIss.slice(
+      serverIss.indexOf('function PrepareToInstall'),
+      serverIss.indexOf('procedure WriteEnvFile'),
+    )
+    expect(prep).toContain("ExtractTemporaryFile('preflight.ps1')")
+    expect(prep).toContain('IntToStr(PortValue)')
+    expect(prep).toContain('RC = 2')
+    expect(prep).not.toContain("if FileExists(ExpandConstant('{app}\\server.mjs')) then")
+    expect(serverIss).toContain('Source: "{#Src}\\preflight.ps1"; Flags: dontcopy')
+  })
+
+  it('preflight.ps1: tắt tiến trình AZ, dọn cloudflared hỏng, quét cổng bằng netstat, không tắt chương trình lạ', () => {
+    const pre = read('Server/scripts/preflight.ps1')
+    expect(pre).toContain('stop-server.ps1')
+    expect(pre).toContain('cloudflared.exe')
+    expect(pre).toContain('netstat.exe')
+    expect(pre).toContain('server\\.mjs')
+    expect(pre).toContain('exit 2')
+    expect(packSrc).toContain("'preflight.ps1'")
+  })
+
+  it('mọi script .ps1 chỉ chứa ASCII (PowerShell 4 trên Server 2012 R2 đọc tệp không BOM theo bảng mã ANSI)', () => {
+    for (const f of readdirSync(path.join(root, 'Server/scripts'))) {
+      if (!f.endsWith('.ps1')) continue
+      const bytes = readFileSync(path.join(root, 'Server/scripts', f))
+      expect(
+        bytes.some((b) => b > 127),
+        `${f} có ký tự ngoài ASCII`,
+      ).toBe(false)
+    }
+  })
+
+  it('install-task/stop-server đổi -AppDir tương đối (vd ".") thành đường dẫn đầy đủ trước khi dùng', () => {
+    expect(read('Server/scripts/install-task.ps1')).toContain('Resolve-Path')
+    expect(read('Server/scripts/stop-server.ps1')).toContain('Resolve-Path')
+  })
+
+  it('check-server đọc log UTF-8 và chẩn đoán cổng, Node, cloudflared khi không lên', () => {
+    const c = read('Server/scripts/check-server.ps1')
+    expect(c).toContain('-Encoding UTF8')
+    expect(c).toContain('Show-PortOwner')
+    expect(c).toContain('Test-Runs')
   })
 })
 

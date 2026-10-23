@@ -7,6 +7,10 @@ if (Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue) {
   Get-CimInstance Win32_Process -Filter "Name = 'node.exe'" |
     Where-Object { $_.CommandLine -like '*server.mjs*' } |
     ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
+  $cf = Join-Path $(if ($env:ProgramData) { $env:ProgramData } else { 'C:\ProgramData' }) 'AZSentinelServer\cloudflared.exe'
+  Get-CimInstance Win32_Process -Filter "Name = 'cloudflared.exe'" |
+    Where-Object { $_.ExecutablePath -and ($_.ExecutablePath -ieq $cf) } |
+    ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
   Write-Host "Da go tac vu '$name'."
 } else {
   Write-Host "Khong co tac vu '$name'."

@@ -57,6 +57,7 @@ Source: "az-gateway.ico"; DestDir: "{app}"; DestName: "az-sentinel.ico"; Flags: 
 Source: "..\Gateway\dist\AZSentinel-Gateway-Setup.exe"; DestDir: "{tmp}"; Flags: ignoreversion deleteafterinstall skipifsourcedoesntexist
 ; Dung ban cu truoc khi ghi de: chay tu thu muc tam vi thu muc cai dang bi khoa.
 Source: "{#Src}\stop-server.ps1"; Flags: dontcopy
+Source: "{#Src}\preflight.ps1"; Flags: dontcopy
 
 [INI]
 Filename: "{app}\AZ Server.url"; Section: "InternetShortcut"; Key: "URL"; String: "{code:ServerUrl}"
@@ -70,9 +71,8 @@ Name: "{autoprograms}\AZ Server\Xem log AZ Server"; Filename: "{win}\explorer.ex
 Name: "{autodesktop}\AZ Sentinel"; Filename: "{app}\AZ Server.url"; IconFilename: "{app}\az-sentinel.ico"
 
 [Run]
-Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\install-task.ps1"" -AppDir ""{app}"""; Flags: runhidden waituntilterminated; StatusMsg: "Dang ky tac vu tu khoi dong..."
-Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\open-firewall.ps1"" -Port {code:ServerPort}"; Flags: runhidden waituntilterminated; Check: WantFirewall; StatusMsg: "Mo cong tuong lua..."
-Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\check-server.ps1"" -Port {code:ServerPort} -AppDir ""{app}"""; Flags: waituntilterminated skipifsilent; StatusMsg: "Dang cho AZ Server khoi dong..."
+; Dang ky tac vu, mo tuong lua va kiem tra Server KHONG nam o day: Inno xu ly [Run] truoc ssPostInstall, luc do server.env
+; chua duoc ghi nen install-task.ps1 bao "Chua co server.env". Chung chay trong procedure StartServer (sau WriteEnvFile).
 Filename: "{app}\AZ Server.url"; Description: "Mo giao dien AZ Sentinel"; Flags: postinstall shellexec skipifsilent
 
 [UninstallRun]
@@ -368,18 +368,32 @@ begin
   end;
 end;
 
-{ Dung ban dang chay truoc khi ghi de file (nang cap tai cho). }
+{ Don sach + quet cong truoc khi ghi file (cai moi hoac nang cap tai cho): dung tac vu va tien trinh con sot cua AZ,
+  xoa file tam/cloudflared hong, tat node server.mjs con giu cong. Cong bi chuong trinh KHAC chiem (ma thoat 2)
+  thi dung cai dat ngay va bao ten chuong trinh do, khong tat nham. }
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 var
   RC: Integer;
+  Detail: AnsiString;
+  OutFile: String;
 begin
   Result := '';
-  if FileExists(ExpandConstant('{app}\server.mjs')) then
+  ExtractTemporaryFile('stop-server.ps1');
+  ExtractTemporaryFile('preflight.ps1');
+  OutFile := ExpandConstant('{tmp}\preflight.txt');
+  DeleteFile(OutFile);
+  RC := 0;
+  if not Exec('powershell.exe',
+    '-NoProfile -ExecutionPolicy Bypass -File "' + ExpandConstant('{tmp}\preflight.ps1') + '" -AppDir "' +
+    ExpandConstant('{app}') + '" -Port ' + IntToStr(PortValue) + ' -OutFile "' + OutFile + '"',
+    '', SW_HIDE, ewWaitUntilTerminated, RC) then
+    RC := 0;
+  if RC = 2 then
   begin
-    ExtractTemporaryFile('stop-server.ps1');
-    Exec('powershell.exe',
-      '-NoProfile -ExecutionPolicy Bypass -File "' + ExpandConstant('{tmp}\stop-server.ps1') + '" -AppDir "' +
-      ExpandConstant('{app}') + '"', '', SW_HIDE, ewWaitUntilTerminated, RC);
+    Detail := '';
+    LoadStringFromFile(OutFile, Detail);
+    Result := 'Cổng ' + IntToStr(PortValue) + ' đang bị chương trình khác chiếm: ' + Trim(String(Detail)) + #13#10#13#10 +
+      'Hãy đóng chương trình đó, hoặc quay lại trang cấu hình Server và chọn cổng HTTP khác.';
   end;
 end;
 
@@ -502,6 +516,41 @@ begin
     ExpandConstant('{app}'), SW_HIDE, ewWaitUntilTerminated, RC);
 end;
 
+{ Dang ky tac vu tu khoi dong, mo tuong lua (neu chon), doi AZ Server (va Quick Tunnel) len va bao ket qua.
+  PHAI goi SAU WriteEnvFile: install-task.ps1 can server.env. Loi cua install-task ghi vao logs\install-task.log. }
+procedure StartServer;
+var
+  RC: Integer;
+  TaskLog: String;
+begin
+  TaskLog := ExpandConstant('{#DataDir}\logs\install-task.log');
+  DeleteFile(TaskLog);
+  WizardForm.StatusLabel.Caption := 'Dang ky tac vu tu khoi dong...';
+  RC := 1;
+  Exec(ExpandConstant('{cmd}'),
+    '/S /C ""powershell.exe" -NoProfile -ExecutionPolicy Bypass -File "' + ExpandConstant('{app}\install-task.ps1') +
+    '" -AppDir "' + ExpandConstant('{app}') + '" > "' + TaskLog + '" 2>&1"',
+    '', SW_HIDE, ewWaitUntilTerminated, RC);
+  if RC <> 0 then
+    SuppressibleMsgBox('Không đăng ký được tác vụ tự khởi động AZ Server (mã ' + IntToStr(RC) + ').' + #13#10 +
+      'Chi tiết: ' + TaskLog, mbError, MB_OK, IDOK);
+  if WantFirewall then
+  begin
+    WizardForm.StatusLabel.Caption := 'Mo cong tuong lua...';
+    Exec('powershell.exe',
+      '-NoProfile -ExecutionPolicy Bypass -File "' + ExpandConstant('{app}\open-firewall.ps1') + '" -Port ' + IntToStr(PortValue),
+      '', SW_HIDE, ewWaitUntilTerminated, RC);
+  end;
+  if not WizardSilent then
+  begin
+    WizardForm.StatusLabel.Caption := 'Dang cho AZ Server khoi dong...';
+    Exec('powershell.exe',
+      '-NoProfile -ExecutionPolicy Bypass -File "' + ExpandConstant('{app}\check-server.ps1') + '" -Port ' + IntToStr(PortValue) +
+      ' -AppDir "' + ExpandConstant('{app}') + '"',
+      '', SW_SHOWNORMAL, ewWaitUntilTerminated, RC);
+  end;
+end;
+
 procedure CurStepChanged(CurStep: TSetupStep);
 var
   RC: Integer;
@@ -527,6 +576,7 @@ begin
       InstallAdminGateway;
       SeedWhitelist;
     end;
+    StartServer;
   end;
 end;
 

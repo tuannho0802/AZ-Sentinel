@@ -26,6 +26,7 @@ for (const f of [
   'install-task.ps1',
   'uninstall-task.ps1',
   'stop-server.ps1',
+  'preflight.ps1',
   'token-shell.ps1',
   'open-firewall.ps1',
   'check-server.ps1',

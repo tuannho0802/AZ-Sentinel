@@ -6,6 +6,7 @@
 param([Parameter(Mandatory = $true)][string]$AppDir)
 $ErrorActionPreference = 'SilentlyContinue'
 try { Stop-ScheduledTask -TaskName 'AZ Server' -ErrorAction Stop } catch { }  # chua co tac vu thi bo qua, khong in loi
+if (Test-Path -LiteralPath $AppDir) { $AppDir = (Resolve-Path -LiteralPath $AppDir).Path }  # '.' tinh theo thu muc PowerShell, khong theo thu muc tien trinh
 $root = ([IO.Path]::GetFullPath($AppDir)).TrimEnd('\') + '\'
 # Vong lap giam sat run-server.cmd (cmd.exe) cung nam trong thu muc cai: tat truoc de no khong bat lai node.
 Get-CimInstance Win32_Process | Where-Object {

@@ -6,12 +6,15 @@
 param([Parameter(Mandatory = $true)][string]$AppDir)
 $ErrorActionPreference = 'Stop'
 $name = 'AZ Server'
+# Duong dan tuong doi (vd -AppDir .) khong dung duoc voi tac vu chay bang SYSTEM: doi sang duong dan day du.
+if (-not (Test-Path -LiteralPath $AppDir)) { throw "Khong thay thu muc $AppDir" }
+$AppDir = (Resolve-Path -LiteralPath $AppDir).Path
 $cmd = Join-Path $AppDir 'run-server.cmd'
 if (-not (Test-Path -LiteralPath $cmd)) { throw "Khong thay $cmd" }
 if (-not (Test-Path -LiteralPath (Join-Path $AppDir 'server.env'))) {
   throw "Chua co server.env: copy server.env.example thanh server.env va dien cau hinh truoc"
 }
-if (-not (Get-Command node -ErrorAction SilentlyContinue) -and -not (Test-Path -LiteralPath (Join-Path $AppDir 'node.exe'))) {
+if (-not (Test-Path -LiteralPath (Join-Path $AppDir 'node.exe')) -and -not (Get-Command node -ErrorAction SilentlyContinue)) {
   throw "Khong thay Node.js: cai Node 22.5+ (https://nodejs.org) hoac chep node.exe vao $AppDir"
 }
 
@@ -34,5 +37,6 @@ try {
   $ErrorActionPreference = 'Stop'
   if ($code -ne 0) { throw "Khong dang ky duoc tac vu '$name' (schtasks ma $code)" }
 }
-Start-ScheduledTask -TaskName $name
+try { Start-ScheduledTask -TaskName $name -ErrorAction Stop }
+catch { & schtasks.exe /Run /TN $name | Out-Null }
 Write-Host "Da dang ky va khoi dong tac vu '$name'. Log: %ProgramData%\AZSentinelServer\logs\server.log"
