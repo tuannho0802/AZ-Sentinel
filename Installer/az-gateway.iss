@@ -66,7 +66,7 @@ Name: "{autodesktop}\AZ Gateway"; Filename: "powershell.exe"; Parameters: "-NoPr
 
 [Run]
 Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\scripts\install-task.ps1"" -AppDir ""{app}"""; Flags: runhidden waituntilterminated; StatusMsg: "Dang ky tac vu tu khoi dong..."
-Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\scripts\install-ea.ps1"" -LogFile ""{app}\install-ea.log"""; Tasks: "!restartmt5"; Flags: runhidden waituntilterminated; StatusMsg: "Tim terminal MT5 va chep EA..."
+Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\scripts\install-ea.ps1"" -LogFile ""{app}\install-ea.log"""; Tasks: "not restartmt5"; Flags: runhidden waituntilterminated; StatusMsg: "Tim terminal MT5 va chep EA..."
 Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\scripts\install-ea.ps1"" -RestartTerminals -LogFile ""{app}\install-ea.log"""; Tasks: restartmt5; Flags: runhidden waituntilterminated; StatusMsg: "Tim terminal MT5 va chep EA..."
 Filename: "{app}\AZ Gateway.url"; Description: "Mo giao dien AZ Gateway"; Flags: postinstall shellexec skipifsilent
 
