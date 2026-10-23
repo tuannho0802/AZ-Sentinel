@@ -1,10 +1,18 @@
 import { EventEmitter } from 'node:events'
-import { existsSync, mkdtempSync, readFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { PassThrough } from 'node:stream'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cloudflaredAsset, extractTunnelUrl, QuickTunnel } from '../src/tunnel'
+import {
+  cloudflaredAsset,
+  cloudflaredReleaseBase,
+  ensureCloudflared,
+  extractTunnelUrl,
+  isLegacyWindows,
+  LEGACY_WINDOWS_VERSION,
+  QuickTunnel,
+} from '../src/tunnel'
 
 const noop = () => {}
 const log = { debug: noop, info: noop, warn: noop, error: noop }
@@ -39,6 +47,104 @@ describe('cloudflaredAsset', () => {
     expect(cloudflaredAsset('win32', 'x64')).toBe('cloudflared-windows-amd64.exe')
     expect(cloudflaredAsset('linux', 'x64')).toBe('cloudflared-linux-amd64')
     expect(cloudflaredAsset('freebsd', 'x64')).toBeNull()
+  })
+})
+
+describe('cloudflared cho Windows cũ (Server 2012 R2)', () => {
+  it('nhận ra Windows trước 10 qua os.release() (6.x), không nhầm Windows 10/Server 2016+ hay Linux', () => {
+    expect(isLegacyWindows('win32', '6.3.9600')).toBe(true) // Server 2012 R2 / Windows 8.1
+    expect(isLegacyWindows('win32', '6.1.7601')).toBe(true) // Server 2008 R2 / Windows 7
+    expect(isLegacyWindows('win32', '10.0.17763')).toBe(false) // Server 2019
+    expect(isLegacyWindows('win32', '10.0.26100')).toBe(false)
+    expect(isLegacyWindows('linux', '6.8.0')).toBe(false)
+    expect(isLegacyWindows('win32', 'khong-ro')).toBe(false)
+  })
+
+  it('Windows cũ tải bản ghim (Go 1.20), máy mới tải bản mới nhất', () => {
+    expect(cloudflaredReleaseBase(true)).toBe(
+      `https://github.com/cloudflare/cloudflared/releases/download/${LEGACY_WINDOWS_VERSION}`,
+    )
+    expect(cloudflaredReleaseBase(false)).toBe(
+      'https://github.com/cloudflare/cloudflared/releases/latest/download',
+    )
+    expect(LEGACY_WINDOWS_VERSION).toBe('2023.10.0')
+  })
+})
+
+describe('ensureCloudflared', () => {
+  const tmpFile = () => path.join(mkdtempSync(path.join(os.tmpdir(), 'az-cf-')), 'cloudflared.exe')
+  const okFetch = (hits: string[]) =>
+    (async (url: string) => {
+      hits.push(url)
+      return new Response('NEWBIN')
+    }) as unknown as typeof fetch
+
+  it('chưa có tệp thì tải đúng địa chỉ theo bản đã chọn, rồi kiểm chạy được', async () => {
+    const file = tmpFile()
+    const hits: string[] = []
+    await ensureCloudflared(file, okFetch(hits), 'cloudflared-windows-amd64.exe', {
+      base: cloudflaredReleaseBase(true),
+      verify: () => true,
+    })
+    expect(hits).toEqual([
+      `https://github.com/cloudflare/cloudflared/releases/download/${LEGACY_WINDOWS_VERSION}/cloudflared-windows-amd64.exe`,
+    ])
+    expect(readFileSync(file, 'utf8')).toBe('NEWBIN')
+    expect(existsSync(`${file}.part`)).toBe(false)
+  })
+
+  it('tệp đã có và chạy được thì dùng luôn, không tải', async () => {
+    const file = tmpFile()
+    writeFileSync(file, 'OLD')
+    const hits: string[] = []
+    await ensureCloudflared(file, okFetch(hits), 'x', { verify: () => true })
+    expect(hits).toEqual([])
+    expect(readFileSync(file, 'utf8')).toBe('OLD')
+  })
+
+  it('tệp có sẵn nhưng không chạy được (bản mới trên Server 2012 R2) thì xóa và tải lại', async () => {
+    const file = tmpFile()
+    writeFileSync(file, 'BROKEN')
+    const hits: string[] = []
+    // Lần kiểm đầu (tệp cũ) hỏng, lần sau (tệp mới tải) chạy được.
+    const results = [false, true]
+    await ensureCloudflared(file, okFetch(hits), 'x', { verify: () => results.shift() ?? true })
+    expect(hits).toHaveLength(1)
+    expect(readFileSync(file, 'utf8')).toBe('NEWBIN')
+  })
+
+  it('tệp do người dùng chỉ định (managed=false) mà hỏng thì báo lỗi, không xóa, không tải', async () => {
+    const file = tmpFile()
+    writeFileSync(file, 'MINE')
+    const hits: string[] = []
+    await expect(
+      ensureCloudflared(file, okFetch(hits), 'x', { verify: () => false, managed: false }),
+    ).rejects.toThrow(/AZ_CLOUDFLARED/)
+    expect(hits).toEqual([])
+    expect(readFileSync(file, 'utf8')).toBe('MINE')
+  })
+
+  it('tải về mà vẫn không chạy được thì báo lỗi và lần sau không tải lại (tránh tải 55 MB mỗi 30 giây)', async () => {
+    const file = tmpFile()
+    const hits: string[] = []
+    await expect(
+      ensureCloudflared(file, okFetch(hits), 'x', { verify: () => false }),
+    ).rejects.toThrow(/không chạy được/)
+    expect(hits).toHaveLength(1)
+    await expect(
+      ensureCloudflared(file, okFetch(hits), 'x', { verify: () => false }),
+    ).rejects.toThrow(/không chạy được/)
+    expect(hits).toHaveLength(1)
+  })
+
+  it('tải lỗi HTTP thì báo lỗi và không để lại tệp dở', async () => {
+    const file = tmpFile()
+    const bad = (async () => new Response('x', { status: 404 })) as unknown as typeof fetch
+    await expect(ensureCloudflared(file, bad, 'x', { verify: () => true })).rejects.toThrow(
+      /HTTP 404/,
+    )
+    expect(existsSync(file)).toBe(false)
+    expect(existsSync(`${file}.part`)).toBe(false)
   })
 })
 

@@ -1,5 +1,6 @@
 import { type ChildProcess, spawn, spawnSync } from 'node:child_process'
 import { chmodSync, existsSync, mkdirSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import type { Logger } from './log'
 
@@ -13,7 +14,30 @@ export function extractTunnelUrl(text: string): string | null {
   return null
 }
 
-const RELEASE = 'https://github.com/cloudflare/cloudflared/releases/latest/download'
+const RELEASE_LATEST = 'https://github.com/cloudflare/cloudflared/releases/latest/download'
+
+/**
+ * Bản cloudflared cuối cùng còn chạy được trên Windows 8.1 / Server 2012 R2 (build bằng Go 1.20; Go 1.21 trở đi
+ * bỏ hỗ trợ các Windows này nên bản `latest` báo "not a valid application for this OS platform", Node báo spawn EFTYPE).
+ */
+export const LEGACY_WINDOWS_VERSION = '2023.10.0'
+
+/** Windows trước 10 (Windows 7/8/8.1, Server 2008 R2/2012/2012 R2) có `os.release()` bắt đầu bằng 6. */
+export function isLegacyWindows(
+  platform: string = process.platform,
+  release: string = os.release(),
+): boolean {
+  if (platform !== 'win32') return false
+  const major = Number.parseInt(release.split('.')[0] ?? '', 10)
+  return Number.isFinite(major) && major < 10
+}
+
+/** Thư mục tải cloudflared: bản mới nhất, hoặc bản ghim cho Windows cũ. */
+export function cloudflaredReleaseBase(legacy: boolean = isLegacyWindows()): string {
+  return legacy
+    ? `https://github.com/cloudflare/cloudflared/releases/download/${LEGACY_WINDOWS_VERSION}`
+    : RELEASE_LATEST
+}
 
 /** Tên tệp cloudflared trên trang phát hành; null nếu hệ điều hành này phải tự đặt `AZ_CLOUDFLARED`. */
 export function cloudflaredAsset(platform: string = process.platform, arch: string = process.arch) {
@@ -23,17 +47,60 @@ export function cloudflaredAsset(platform: string = process.platform, arch: stri
   return null
 }
 
-/** Có tệp rồi thì dùng luôn; chưa có thì tải về cạnh dữ liệu (ghi tạm rồi đổi tên để không để lại tệp dở). */
+/** Tệp cloudflared có chạy được trên máy này không (`--version` thoát mã 0). Hệ điều hành không hợp thì spawn lỗi. */
+export function cloudflaredRuns(file: string): boolean {
+  try {
+    const res = spawnSync(file, ['--version'], { timeout: 15_000, windowsHide: true })
+    return !res.error && res.status === 0
+  } catch {
+    return false
+  }
+}
+
+export type EnsureCloudflaredOptions = {
+  /** Thư mục tải (mặc định theo hệ điều hành, xem `cloudflaredReleaseBase`). */
+  base?: string
+  /** Kiểm tệp chạy được; chỉ để kiểm thử. */
+  verify?: (file: string) => boolean
+  /** true: tệp do Server tự quản (tải về cạnh dữ liệu) nên hỏng thì xóa và tải lại; false: tệp người dùng chỉ định, không đụng tới. */
+  managed?: boolean
+}
+
+// Tệp đã kiểm một lần trong tiến trình này thì khỏi kiểm lại mỗi lần chạy lại tunnel; tệp vừa tải mà vẫn hỏng
+// thì không tải đi tải lại (55 MB mỗi 30 giây), chỉ báo lỗi rõ ràng.
+const verifiedOk = new Set<string>()
+const knownBad = new Set<string>()
+
+/**
+ * Có tệp rồi và chạy được thì dùng luôn. Tệp hỏng/không hợp hệ điều hành (ví dụ bản mới nhất trên Server 2012 R2)
+ * thì xóa và tải lại đúng bản. Chưa có thì tải về cạnh dữ liệu (ghi tạm rồi đổi tên để không để lại tệp dở).
+ */
 export async function ensureCloudflared(
   file: string,
   fetchFn: typeof fetch = fetch,
   asset: string | null = cloudflaredAsset(),
+  opts: EnsureCloudflaredOptions = {},
 ): Promise<void> {
-  if (existsSync(file)) return
+  const verify = opts.verify ?? cloudflaredRuns
+  const managed = opts.managed ?? true
+  if (existsSync(file)) {
+    if (verifiedOk.has(file) || verify(file)) {
+      verifiedOk.add(file)
+      return
+    }
+    if (!managed || knownBad.has(file))
+      throw new Error(
+        `cloudflared không chạy được trên máy này (${file}): đặt AZ_CLOUDFLARED trỏ tới bản tương thích` +
+          (isLegacyWindows() ? ` (Windows cũ cần bản ${LEGACY_WINDOWS_VERSION})` : ''),
+      )
+    rmSync(file, { force: true })
+  }
   if (!asset)
     throw new Error('hệ điều hành này không có bản cloudflared tự tải: đặt AZ_CLOUDFLARED')
   mkdirSync(path.dirname(file), { recursive: true })
-  const res = await fetchFn(`${RELEASE}/${asset}`, { signal: AbortSignal.timeout(120_000) })
+  const res = await fetchFn(`${opts.base ?? cloudflaredReleaseBase()}/${asset}`, {
+    signal: AbortSignal.timeout(120_000),
+  })
   if (!res.ok) throw new Error(`tải cloudflared lỗi HTTP ${res.status}`)
   const tmp = `${file}.part`
   try {
@@ -43,6 +110,12 @@ export async function ensureCloudflared(
   } finally {
     rmSync(tmp, { force: true })
   }
+  if (verify(file)) {
+    verifiedOk.add(file)
+    return
+  }
+  knownBad.add(file)
+  throw new Error(`cloudflared vừa tải về không chạy được trên máy này (${file})`)
 }
 
 /**
@@ -85,6 +158,8 @@ export type QuickTunnelOptions = {
   spawnFn?: typeof spawn
   fetchFn?: typeof fetch
   ensureBin?: (file: string) => Promise<void>
+  /** false khi `binPath` là tệp người dùng tự chỉ định (AZ_CLOUDFLARED): hỏng thì báo lỗi, không xóa. Mặc định true. */
+  managedBin?: boolean
   /** Dọn cloudflared sót từ lần trước, gọi một lần khi bắt đầu. Mặc định `killStaleCloudflared`. */
   killStale?: (binPath: string) => void
   /** Chu kỳ tự kiểm tra tunnel còn thông (ms). Mặc định 60 giây. */
@@ -146,9 +221,13 @@ export class QuickTunnel {
     while (!this.stopped) {
       const startedAt = Date.now()
       try {
-        await (this.opts.ensureBin ?? ((f) => ensureCloudflared(f, this.opts.fetchFn)))(
-          this.opts.binPath,
-        )
+        await (
+          this.opts.ensureBin ??
+          ((f) =>
+            ensureCloudflared(f, this.opts.fetchFn, undefined, {
+              managed: this.opts.managedBin ?? true,
+            }))
+        )(this.opts.binPath)
         await this.runOnce()
       } catch (error) {
         this.opts.log.error(`tunnel: ${String(error).slice(0, 200)}`)

@@ -1,6 +1,6 @@
 # Quick Tunnel tự theo (Plan 3G): không cần tên miền, VPS reset vẫn vào được
 
-> v0.2 · 23/10/2026 (Plan 3H: Gateway tự tìm tunnel và nối thẳng) · **Chưa thử trên Windows/Cloudflare thật.** Phần Node/TypeScript đã có test và đã chạy thử với `cloudflared` giả; việc tải `cloudflared.exe`, tác vụ "AZ Server" và Worker thật cần chạy thử trên VPS (mục 6).
+> v0.3 · 23/10/2026 (Server 0.2.2: tự chọn cloudflared hợp Windows cũ) · v0.2 (Plan 3H: Gateway tự tìm tunnel và nối thẳng) · **Chưa thử trên Windows/Cloudflare thật.** Phần Node/TypeScript đã có test và đã chạy thử với `cloudflared` giả; việc tải `cloudflared.exe`, tác vụ "AZ Server" và Worker thật cần chạy thử trên VPS (mục 6).
 
 ## 1. Vấn đề và cách giải
 
@@ -62,6 +62,8 @@ Script đặt `AZ_QUICK_TUNNEL=1` (và `AZ_PUBLIC_URL=<địa chỉ Worker>`) tr
 
 - `AZ_PUBLIC_URL` để trống thì Server tự lấy địa chỉ Worker (`AZ_CLOUD_URL`). Nếu tự đặt thì phải là **địa chỉ Worker** (cố định), không phải địa chỉ `trycloudflare.com`, vì đó là địa chỉ đưa vào mã kết nối Gateway.
 - `cloudflared.exe` tự tải về `C:\ProgramData\AZSentinelServer` lần chạy đầu (cần VPS ra được `github.com`). Đặt `AZ_CLOUDFLARED` nếu muốn dùng tệp có sẵn. Tệp `tunnel-url.txt` cùng thư mục ghi địa chỉ hiện tại.
+- **Windows cũ (Windows 8.1 / Server 2012 R2, Server 2008 R2):** bản `cloudflared` mới nhất (Go 1.21 trở đi) không chạy được ở đó (`not a valid application for this OS platform`, log Server ghi `spawn EFTYPE` lặp lại). Từ Server 0.2.2, máy Windows trước 10 tự tải bản **2023.10.0** (Go 1.20, bản cuối còn hỗ trợ). Server cũng tự kiểm `cloudflared --version` khi khởi động: tệp có sẵn mà không chạy được thì xóa và tải lại đúng bản (tệp do `AZ_CLOUDFLARED` chỉ định thì chỉ báo lỗi, không xóa). Nâng cấp từ bản cũ không cần làm gì thêm; muốn thay tay thì tải `https://github.com/cloudflare/cloudflared/releases/download/2023.10.0/cloudflared-windows-amd64.exe` vào `C:\ProgramData\AZSentinelServer\cloudflared.exe`.
+- Bản 2023.10.0 là bản cũ: Cloudflare có thể ngừng hỗ trợ giao thức của nó trong tương lai. Khi đó hãy nâng VPS lên Windows Server 2016 trở lên (dùng được bản mới nhất).
 - Cài đè bằng bộ cài với `/RECONFIGURE=1` sẽ ghi lại `server.env` và làm mất hai dòng này (xem `AZ_Sentinel_Server_Installer.md`): chạy lại `quick-tunnel.ps1`.
 
 **Cấp Gateway:** Start menu > Quản lý token Gateway > `token issue ...`; gửi **mã kết nối** cho người dùng (đã mang địa chỉ Worker). Gateway tự hỏi Worker tìm tunnel hiện tại. Nếu nhập tay: Cloud URL = `wss://<worker>/api/gw/ws`, ô dự phòng cũng là địa chỉ Worker (đó là nơi Gateway hỏi danh bạ).

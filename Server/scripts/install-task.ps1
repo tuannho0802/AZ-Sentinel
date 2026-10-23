@@ -22,7 +22,17 @@ $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoi
   -StartWhenAvailable -MultipleInstances IgnoreNew -ExecutionTimeLimit ([TimeSpan]::Zero) `
   -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1)
 
-Register-ScheduledTask -TaskName $name -Action $action -Trigger $trigger -Principal $principal `
-  -Settings $settings -Description 'AZ Sentinel Server (may chu chinh tren VPS)' -Force | Out-Null
+try {
+  Register-ScheduledTask -TaskName $name -Action $action -Trigger $trigger -Principal $principal `
+    -Settings $settings -Description 'AZ Sentinel Server (may chu chinh tren VPS)' -Force | Out-Null
+} catch {
+  # Windows cu (Server 2012 R2) doi khi loi o module ScheduledTasks: dung schtasks.exe co san cua he dieu hanh.
+  Write-Host "Register-ScheduledTask loi ($($_.Exception.Message)), thu schtasks.exe..."
+  $ErrorActionPreference = 'Continue'
+  & schtasks.exe /Create /TN $name /TR "`"$cmd`"" /SC ONSTART /RU SYSTEM /RL HIGHEST /F | Out-Null
+  $code = $LASTEXITCODE
+  $ErrorActionPreference = 'Stop'
+  if ($code -ne 0) { throw "Khong dang ky duoc tac vu '$name' (schtasks ma $code)" }
+}
 Start-ScheduledTask -TaskName $name
 Write-Host "Da dang ky va khoi dong tac vu '$name'. Log: %ProgramData%\AZSentinelServer\logs\server.log"

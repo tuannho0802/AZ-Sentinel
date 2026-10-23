@@ -32,6 +32,9 @@ OutputBaseFilename=AZSentinel-Server-Setup
 Compression=lzma2/ultra64
 SolidCompression=yes
 WizardStyle=modern
+; Cua so lon hon 15% va keo gian duoc: cac trang nhap lieu khong con bi cat o duoi (Inno khong co thanh cuon).
+WizardSizePercent=115,115
+WizardResizable=yes
 SetupIconFile=az-gateway.ico
 UninstallDisplayIcon={app}\az-sentinel.ico
 UninstallDisplayName={#MyAppName}
@@ -69,7 +72,7 @@ Name: "{autodesktop}\AZ Sentinel"; Filename: "{app}\AZ Server.url"; IconFilename
 [Run]
 Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\install-task.ps1"" -AppDir ""{app}"""; Flags: runhidden waituntilterminated; StatusMsg: "Dang ky tac vu tu khoi dong..."
 Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\open-firewall.ps1"" -Port {code:ServerPort}"; Flags: runhidden waituntilterminated; Check: WantFirewall; StatusMsg: "Mo cong tuong lua..."
-Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\check-server.ps1"" -Port {code:ServerPort}"; Flags: waituntilterminated skipifsilent; StatusMsg: "Dang cho AZ Server khoi dong..."
+Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\check-server.ps1"" -Port {code:ServerPort} -AppDir ""{app}"""; Flags: waituntilterminated skipifsilent; StatusMsg: "Dang cho AZ Server khoi dong..."
 Filename: "{app}\AZ Server.url"; Description: "Mo giao dien AZ Sentinel"; Flags: postinstall shellexec skipifsilent
 
 [UninstallRun]
@@ -81,6 +84,8 @@ var
   ModePage: TInputOptionWizardPage;
   FreshInstall: Boolean;
   SrvPage: TInputQueryWizardPage;
+  CloudPage: TInputQueryWizardPage;
+  AdvPage: TInputQueryWizardPage;
   NetPage: TInputOptionWizardPage;
   AdmPage: TInputQueryWizardPage;
 
@@ -161,17 +166,26 @@ end;
   dat lai trong run-*.cmd. }
 function SetEnvironmentVariableW(Name, Value: String): Boolean; external 'SetEnvironmentVariableW@kernel32.dll stdcall';
 
+{ Bo dau / o cuoi dia chi (server.env va quick-tunnel.ps1 yeu cau khong co / o cuoi). }
+function StripSlash(const U: String): String;
+begin
+  Result := Trim(U);
+  while (Result <> '') and (Copy(Result, Length(Result), 1) = '/') do
+    Delete(Result, Length(Result), 1);
+end;
+
+{ Moi trang chi 2-4 o nhap: Inno Setup khong co thanh cuon, nhieu o tren mot trang se bi cat o duoi. }
 procedure InitializeWizard;
 begin
   SetEnvironmentVariableW('NODE_SKIP_PLATFORM_CHECK', '1');
   FreshInstall := WillWriteEnv;
   ModePage := CreateInputOptionPage(wpWelcome, 'Chọn cách cài đặt',
     'Bạn muốn cài AZ Server theo cách nào?',
-    'Nếu chưa chắc, cứ chọn "Cài nhanh": chỉ cần tạo tài khoản quản trị, mọi thứ còn lại bộ cài tự lo. ' +
+    'Nếu chưa chắc, cứ chọn "Cài nhanh": chỉ cần tài khoản quản trị và (nếu có) thông tin Cloudflare. ' +
     'Có thể đổi các thiết lập nâng cao sau trong tệp server.env.',
     True, False);
-  ModePage.Add('Cài nhanh (khuyên dùng): tạo tài khoản quản trị, tự cài luôn AZ Gateway trên máy này.');
-  ModePage.Add('Tùy chỉnh nâng cao: tên máy chủ, cổng, địa chỉ công khai (Cloudflare Tunnel), dự phòng Cloudflare, mạng nội bộ.');
+  ModePage.Add('Cài nhanh (khuyên dùng): tài khoản quản trị, kết nối Cloudflare, tự cài luôn AZ Gateway trên máy này.');
+  ModePage.Add('Tùy chỉnh nâng cao: tên máy chủ, cổng, địa chỉ công khai, Cloudflare Tunnel có tên, whitelist IP, mạng nội bộ.');
   ModePage.Values[0] := True;
 
   AdmPage := CreateInputQueryPage(ModePage.ID, 'Tài khoản quản trị',
@@ -186,37 +200,47 @@ begin
   AdmPage.Values[2] := ExpandConstant('{param:ADMINPASSWORD|}');
   AdmPage.Values[3] := ExpandConstant('{param:ADMINPASSWORD|}');
 
-  SrvPage := CreateInputQueryPage(AdmPage.ID, 'Cau hinh AZ Server',
-    'May chu chinh tren VPS: phuc vu giao dien web va nhan du lieu tu Gateway',
-    'Chỉ dành cho người đã quen Cloudflare. Cloud URL và đồng bộ là tùy chọn: để trống thì Server chạy một mình, không có bản dự phòng. ' +
-    'Có thể sửa sau trong server.env (thư mục cài).');
-  SrvPage.Add('Ten may chu (hien tren web):', False);
-  SrvPage.Add('Vi tri (tuy chon, vi du Singapore):', False);
-  SrvPage.Add('Cong HTTP:', False);
-  SrvPage.Add('Dia chi Worker API du phong (https://...workers.dev, tuy chon):', False);
-  SrvPage.Add('URL web du phong cho nguoi dung (https://..., tuy chon):', False);
-  SrvPage.Add('Bi mat dong bo SYNC_TOKEN (>= 32 ky tu, trung voi Worker, tuy chon):', True);
-  SrvPage.Add('URL cong khai cua VPS nay (https://..., de tao ma ket noi Gateway, tuy chon):', False);
-  SrvPage.Add('Token Cloudflare Tunnel (tuy chon, bo cai tu cai cloudflared de VPS co HTTPS cong khai):', True);
-  SrvPage.Add('IP duoc phep truy cap (cach nhau dau phay, tuy chon; co dien thi chi cac IP nay moi vao duoc - nho them IP cua ban):', False);
+  CloudPage := CreateInputQueryPage(AdmPage.ID, 'Kết nối Cloudflare',
+    'Cửa trước cố định và bản dự phòng khi VPS tắt (tùy chọn)',
+    'Điền địa chỉ Worker và SYNC_TOKEN để VPS tự mở Quick Tunnel và báo địa chỉ mới cho Worker mỗi lần khởi động. ' +
+    'Bỏ trống cả hai nếu chỉ chạy một mình.');
+  CloudPage.Add('Địa chỉ Worker API (https://....workers.dev, không có / ở cuối):', False);
+  CloudPage.Add('SYNC_TOKEN (từ 32 ký tự, trùng secret đã đặt cho Worker):', True);
+  CloudPage.Add('Nhập lại SYNC_TOKEN:', True);
+  CloudPage.Values[0] := ExpandConstant('{param:CLOUDURL|}');
+  CloudPage.Values[1] := ExpandConstant('{param:SYNCTOKEN|}');
+  CloudPage.Values[2] := ExpandConstant('{param:SYNCTOKEN|}');
+
+  SrvPage := CreateInputQueryPage(CloudPage.ID, 'Cấu hình AZ Server',
+    'Máy chủ chính trên VPS: phục vụ giao diện web và nhận dữ liệu từ Gateway',
+    'Tên máy chủ hiện trên web. Cổng mặc định 8080 là đủ cho hầu hết trường hợp.');
+  SrvPage.Add('Tên máy chủ (hiện trên web):', False);
+  SrvPage.Add('Vị trí (tùy chọn, ví dụ Singapore):', False);
+  SrvPage.Add('Cổng HTTP:', False);
   SrvPage.Values[0] := ExpandConstant('{param:NAME|{computername}}');
   SrvPage.Values[1] := ExpandConstant('{param:LOCATION|}');
   SrvPage.Values[2] := ExpandConstant('{param:PORT|8080}');
-  SrvPage.Values[3] := ExpandConstant('{param:CLOUDURL|}');
-  SrvPage.Values[4] := ExpandConstant('{param:FALLBACKURL|}');
-  SrvPage.Values[5] := ExpandConstant('{param:SYNCTOKEN|}');
-  SrvPage.Values[6] := ExpandConstant('{param:PUBLICURL|}');
-  SrvPage.Values[7] := ExpandConstant('{param:TUNNELTOKEN|}');
-  SrvPage.Values[8] := ExpandConstant('{param:IPS|}');
 
-  NetPage := CreateInputOptionPage(SrvPage.ID, 'Truy cap tu may khac',
-    'Mac dinh Server chi nghe 127.0.0.1 (di qua Cloudflare Tunnel hoac reverse proxy)',
-    'Chi bat neu muon may khac trong mang noi bo vao thang http://<ip-vps>:cong/ . ' +
-    'Token Gateway ca nhan do quan tri vien cap, khong dat o buoc nay.',
+  AdvPage := CreateInputQueryPage(SrvPage.ID, 'Thiết lập nâng cao',
+    'Tất cả đều tùy chọn; để trống nếu không chắc',
+    'Địa chỉ công khai và Token Cloudflare Tunnel chỉ dùng khi bạn đã có tunnel có tên (thay cho Quick Tunnel tự động).');
+  AdvPage.Add('URL web dự phòng cho người dùng (https://...):', False);
+  AdvPage.Add('URL công khai của VPS này (https://..., để tạo mã kết nối Gateway):', False);
+  AdvPage.Add('Token Cloudflare Tunnel (bộ cài tự cài cloudflared làm dịch vụ):', True);
+  AdvPage.Add('IP được phép truy cập (cách nhau dấu phẩy; có điền thì chỉ các IP này vào được):', False);
+  AdvPage.Values[0] := ExpandConstant('{param:FALLBACKURL|}');
+  AdvPage.Values[1] := ExpandConstant('{param:PUBLICURL|}');
+  AdvPage.Values[2] := ExpandConstant('{param:TUNNELTOKEN|}');
+  AdvPage.Values[3] := ExpandConstant('{param:IPS|}');
+
+  NetPage := CreateInputOptionPage(AdvPage.ID, 'Truy cập từ máy khác',
+    'Mặc định Server chỉ nghe 127.0.0.1 (đi qua Cloudflare Tunnel hoặc reverse proxy)',
+    'Chỉ bật nếu muốn máy khác trong mạng nội bộ vào thẳng http://<ip-vps>:cổng/ . ' +
+    'Token Gateway cá nhân do quản trị viên cấp, không đặt ở bước này.',
     False, False);
-  NetPage.Add('Cho phep may khac trong mang noi bo truy cap (AZ_HOST=0.0.0.0)');
-  NetPage.Add('Mo cong nay tren Windows Firewall (chi mang Private/Domain)');
-  NetPage.Add('Cai luon AZ Gateway tren VPS nay (can tai khoan quan tri o buoc sau)');
+  NetPage.Add('Cho phép máy khác trong mạng nội bộ truy cập (AZ_HOST=0.0.0.0)');
+  NetPage.Add('Mở cổng này trên Windows Firewall (chỉ mạng Private/Domain)');
+  NetPage.Add('Cài luôn AZ Gateway trên VPS này (cần tài khoản quản trị ở bước trước)');
   NetPage.Values[0] := ExpandConstant('{param:LAN|}') = '1';
   NetPage.Values[1] := ExpandConstant('{param:FIREWALL|}') = '1';
   NetPage.Values[2] := ExpandConstant('{param:GATEWAY|1}') <> '0';
@@ -225,14 +249,14 @@ end;
 function ShouldSkipPage(PageID: Integer): Boolean;
 begin
   Result := False;
-  if ((PageID = ModePage.ID) or (PageID = AdmPage.ID)) and (not WillWriteEnv) then Result := True;
-  if ((PageID = SrvPage.ID) or (PageID = NetPage.ID)) and ((not WillWriteEnv) or (not WantAdvanced)) then Result := True;
+  if ((PageID = ModePage.ID) or (PageID = AdmPage.ID) or (PageID = CloudPage.ID)) and (not WillWriteEnv) then Result := True;
+  if ((PageID = SrvPage.ID) or (PageID = AdvPage.ID) or (PageID = NetPage.ID)) and ((not WillWriteEnv) or (not WantAdvanced)) then Result := True;
 end;
 
 function NextButtonClick(CurPageID: Integer): Boolean;
 var
   Port: Integer;
-  Cloud, Fb, Sync: String;
+  Cloud, Sync: String;
 begin
   Result := True;
   { Doi thu muc cai thi server.env co the co/khong co o cho moi: tinh lai de trang cuoi noi dung. }
@@ -276,53 +300,71 @@ begin
     end;
     Exit;
   end;
-  if CurPageID <> SrvPage.ID then Exit;
-  Cloud := Trim(SrvPage.Values[3]);
-  Fb := Trim(SrvPage.Values[4]);
-  Sync := Trim(SrvPage.Values[5]);
-  Port := StrToIntDef(Trim(SrvPage.Values[2]), 0);
-
-  if Trim(SrvPage.Values[0]) = '' then
+  if CurPageID = CloudPage.ID then
   begin
-    MsgBox('Hay nhap ten may chu.', mbError, MB_OK);
-    Result := False;
-    Exit;
-  end;
-  if (Port < 1) or (Port > 65535) then
-  begin
-    MsgBox('Cong HTTP phai la so tu 1 den 65535.', mbError, MB_OK);
-    Result := False;
-    Exit;
-  end;
-  if (Cloud <> '') and (not IsHttpUrl(Cloud)) then
-  begin
-    MsgBox('Dia chi Worker API phai bat dau bang https:// (hoac http://).', mbError, MB_OK);
-    Result := False;
-    Exit;
-  end;
-  if (Trim(SrvPage.Values[6]) <> '') and (not IsHttpUrl(Trim(SrvPage.Values[6]))) then
-  begin
-    MsgBox('URL cong khai cua VPS phai bat dau bang https:// (hoac http://).', mbError, MB_OK);
-    Result := False;
-    Exit;
-  end;
-  if (Fb <> '') and (not IsHttpUrl(Fb)) then
-  begin
-    MsgBox('URL web du phong phai bat dau bang https:// (hoac http://).', mbError, MB_OK);
-    Result := False;
-    Exit;
-  end;
-  if (Sync <> '') and (Length(Sync) < 32) then
-  begin
-    MsgBox('SYNC_TOKEN phai dai it nhat 32 ky tu (trung voi SYNC_TOKEN cua Worker).', mbError, MB_OK);
-    Result := False;
-    Exit;
-  end;
-  if (Cloud <> '') and (Sync = '') then
-  begin
-    if MsgBox('Co dia chi Worker nhung chua co SYNC_TOKEN: dong bo sang Cloudflare se bi tat.' + #13#10 +
-              'Tiep tuc cai dat?', mbConfirmation, MB_YESNO) = IDNO then
+    Cloud := StripSlash(CloudPage.Values[0]);
+    Sync := Trim(CloudPage.Values[1]);
+    if (Cloud <> '') and (not IsHttpUrl(Cloud)) then
+    begin
+      MsgBox('Địa chỉ Worker API phải bắt đầu bằng https:// (hoặc http://).', mbError, MB_OK);
       Result := False;
+      Exit;
+    end;
+    if (Sync <> '') and (Length(Sync) < 32) then
+    begin
+      MsgBox('SYNC_TOKEN phải dài ít nhất 32 ký tự (trùng SYNC_TOKEN của Worker).', mbError, MB_OK);
+      Result := False;
+      Exit;
+    end;
+    if (Sync <> '') and (Sync <> Trim(CloudPage.Values[2])) then
+    begin
+      MsgBox('Hai lần nhập SYNC_TOKEN không khớp. Gõ nhầm một ký tự là Worker sẽ từ chối (403).', mbError, MB_OK);
+      Result := False;
+      Exit;
+    end;
+    if (Sync <> '') and (Cloud = '') then
+    begin
+      MsgBox('Đã có SYNC_TOKEN nhưng chưa có địa chỉ Worker API.', mbError, MB_OK);
+      Result := False;
+      Exit;
+    end;
+    if (Cloud <> '') and (Sync = '') then
+    begin
+      if MsgBox('Có địa chỉ Worker nhưng chưa có SYNC_TOKEN: đồng bộ sang Cloudflare và Quick Tunnel sẽ bị tắt.' + #13#10 +
+                'Tiếp tục cài đặt?', mbConfirmation, MB_YESNO) = IDNO then
+        Result := False;
+    end;
+    Exit;
+  end;
+  if CurPageID = SrvPage.ID then
+  begin
+    Port := StrToIntDef(Trim(SrvPage.Values[2]), 0);
+    if Trim(SrvPage.Values[0]) = '' then
+    begin
+      MsgBox('Hãy nhập tên máy chủ.', mbError, MB_OK);
+      Result := False;
+      Exit;
+    end;
+    if (Port < 1) or (Port > 65535) then
+    begin
+      MsgBox('Cổng HTTP phải là số từ 1 đến 65535.', mbError, MB_OK);
+      Result := False;
+    end;
+    Exit;
+  end;
+  if CurPageID = AdvPage.ID then
+  begin
+    if (Trim(AdvPage.Values[0]) <> '') and (not IsHttpUrl(Trim(AdvPage.Values[0]))) then
+    begin
+      MsgBox('URL web dự phòng phải bắt đầu bằng https:// (hoặc http://).', mbError, MB_OK);
+      Result := False;
+      Exit;
+    end;
+    if (Trim(AdvPage.Values[1]) <> '') and (not IsHttpUrl(Trim(AdvPage.Values[1]))) then
+    begin
+      MsgBox('URL công khai của VPS phải bắt đầu bằng https:// (hoặc http://).', mbError, MB_OK);
+      Result := False;
+    end;
   end;
 end;
 
@@ -354,14 +396,14 @@ begin
     'AZ_SRV_NAME=' + Trim(SrvPage.Values[0]) + #13#10 +
     'AZ_SRV_LOCATION=' + Trim(SrvPage.Values[1]) + #13#10 +
     '# Token Gateway la token ca nhan azt_... do quan tri vien cap (token.cmd), khong dat trong tep nay.' + #13#10 +
-    'AZ_SYNC_TOKEN=' + Trim(SrvPage.Values[5]) + #13#10 +
-    'AZ_CLOUD_URL=' + Trim(SrvPage.Values[3]) + #13#10 +
-    'AZ_FALLBACK_URL=' + Trim(SrvPage.Values[4]) + #13#10 +
-    'AZ_PUBLIC_URL=' + Trim(SrvPage.Values[6]) + #13#10;
+    'AZ_SYNC_TOKEN=' + Trim(CloudPage.Values[1]) + #13#10 +
+    'AZ_CLOUD_URL=' + StripSlash(CloudPage.Values[0]) + #13#10 +
+    'AZ_FALLBACK_URL=' + StripSlash(AdvPage.Values[0]) + #13#10 +
+    'AZ_PUBLIC_URL=' + StripSlash(AdvPage.Values[1]) + #13#10;
   { Plug and play (Plan 3H): co Worker + SYNC_TOKEN, khong co URL cong khai/token tunnel co ten -> tu bat Quick Tunnel
     (khong can ten mien); Gateway tu tim tunnel moi qua Worker, khong ai phai lam gi khi VPS reset. }
-  if (Trim(SrvPage.Values[3]) <> '') and (Length(Trim(SrvPage.Values[5])) >= 32) and
-     (Trim(SrvPage.Values[6]) = '') and (Trim(SrvPage.Values[7]) = '') then
+  if (StripSlash(CloudPage.Values[0]) <> '') and (Length(Trim(CloudPage.Values[1])) >= 32) and
+     (Trim(AdvPage.Values[1]) = '') and (Trim(AdvPage.Values[2]) = '') then
     Env := Env + 'AZ_QUICK_TUNNEL=1' + #13#10;
   SaveStringToFile(EnvPath, Env, False);
 end;
@@ -389,10 +431,10 @@ procedure SetupTunnel;
 var
   RC: Integer;
 begin
-  if Trim(SrvPage.Values[7]) = '' then Exit;
+  if Trim(AdvPage.Values[2]) = '' then Exit;
   Exec('powershell.exe',
     '-NoProfile -ExecutionPolicy Bypass -File "' + ExpandConstant('{app}\setup-tunnel.ps1') + '" -AppDir "' +
-    ExpandConstant('{app}') + '" -TunnelToken "' + Trim(SrvPage.Values[7]) + '"', '', SW_HIDE, ewWaitUntilTerminated, RC);
+    ExpandConstant('{app}') + '" -TunnelToken "' + Trim(AdvPage.Values[2]) + '"', '', SW_HIDE, ewWaitUntilTerminated, RC);
 end;
 
 { Cai luon Gateway cho Admin: cap token cho admin (id 1), cai im lang Gateway noi thang vao Server qua loopback,
@@ -416,7 +458,7 @@ begin
   P := Pos('azt_', S);
   if P = 0 then Exit;
   Tok := Copy(S, P, 36);
-  Fb := Trim(SrvPage.Values[3]);
+  Fb := StripSlash(CloudPage.Values[0]);
   if Fb <> '' then
   begin
     StringChangeEx(Fb, 'https://', 'wss://', True);
@@ -437,7 +479,7 @@ var
   RC, P: Integer;
   List, One: String;
 begin
-  List := Trim(SrvPage.Values[8]);
+  List := Trim(AdvPage.Values[3]);
   if List = '' then Exit;
   while List <> '' do
   begin

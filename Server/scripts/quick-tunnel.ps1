@@ -18,7 +18,13 @@ $data = Join-Path $(if ($env:ProgramData) { $env:ProgramData } else { 'C:\Progra
 
 if ($Show) {
   $f = Join-Path $data 'tunnel-url.txt'
-  if (Test-Path -LiteralPath $f) { Get-Content -LiteralPath $f } else { Write-Host 'Chua co dia chi tunnel (Server chua chay hoac chua bat Quick Tunnel).' }
+  if (Test-Path -LiteralPath $f) { Get-Content -LiteralPath $f; exit 0 }
+  Write-Host 'Chua co dia chi tunnel (Server chua chay, chua bat Quick Tunnel, hoac cloudflared chua len).'
+  $log = Join-Path $data 'logs\server.log'
+  if (Test-Path -LiteralPath $log) {
+    Write-Host 'Cac dong log tunnel gan nhat (spawn EFTYPE = cloudflared khong hop he dieu hanh):'
+    Get-Content -LiteralPath $log -Tail 60 | Where-Object { $_ -match 'tunnel|cloudflared' } | Select-Object -Last 8
+  }
   exit 0
 }
 if (-not (Test-Path -LiteralPath $envFile)) { throw "Khong thay $envFile" }

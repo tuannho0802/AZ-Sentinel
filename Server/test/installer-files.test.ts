@@ -140,6 +140,52 @@ describe('Quick Tunnel (Plan 3G)', () => {
   })
 })
 
+describe('bộ cài Server: giao diện không bị khuất và chạy được ngay trên Windows cũ', () => {
+  it('mỗi trang nhập liệu tối đa 4 ô (Inno không có thanh cuộn nên nhiều ô sẽ bị cắt ở đáy)', () => {
+    const pages = [...serverIss.matchAll(/(\w+) := CreateInputQueryPage/g)].map(
+      (m) => m[1] as string,
+    )
+    expect(pages.length).toBeGreaterThanOrEqual(4)
+    for (const page of pages) {
+      const fields = serverIss.match(new RegExp(`\\b${page}\\.Add\\(`, 'g'))?.length ?? 0
+      expect(fields, `trang ${page} có ${fields} ô`).toBeGreaterThan(0)
+      expect(fields, `trang ${page} có ${fields} ô, quá nhiều`).toBeLessThanOrEqual(4)
+    }
+  })
+
+  it('cửa sổ cài đặt được phóng to và kéo giãn được', () => {
+    expect(serverIss).toMatch(/^WizardSizePercent=1[1-9]\d,1[1-9]\d$/m)
+    expect(serverIss).toMatch(/^WizardResizable=yes$/m)
+  })
+
+  it('"Cài nhanh" vẫn hỏi Worker + SYNC_TOKEN (để bật Quick Tunnel), chỉ trang nâng cao mới bị ẩn', () => {
+    const skip = serverIss.match(/function ShouldSkipPage[\s\S]*?\nend;/)?.[0] ?? ''
+    const advancedLine = skip.split('\n').find((l) => l.includes('WantAdvanced')) ?? ''
+    expect(advancedLine).not.toContain('CloudPage')
+    expect(advancedLine).toContain('SrvPage')
+    expect(advancedLine).toContain('AdvPage')
+    expect(skip).toContain('CloudPage.ID')
+  })
+
+  it('check-server nhận thư mục cài để tự đăng ký lại tác vụ và chờ Quick Tunnel', () => {
+    expect(serverIss).toMatch(/check-server\.ps1""[^\n]*-AppDir ""\{app\}""/)
+    const check = read('Server/scripts/check-server.ps1')
+    expect(check).toContain('install-task.ps1')
+    expect(check).toContain('tunnel-url.txt')
+    expect(check).toContain('AZ_QUICK_TUNNEL')
+  })
+
+  it('install-task.ps1 có đường dự phòng schtasks.exe cho Windows cũ', () => {
+    expect(read('Server/scripts/install-task.ps1')).toContain('schtasks.exe')
+  })
+
+  it('cloudflared cho Windows cũ được ghim bản Go 1.20 (2023.10.0), bản mới nhất không chạy trên Server 2012 R2', () => {
+    const src = read('Server/src/tunnel.ts')
+    expect(src).toContain("LEGACY_WINDOWS_VERSION = '2023.10.0'")
+    expect(src).toContain('cloudflaredRuns')
+  })
+})
+
 describe('bộ cài Server: hằng số {app} chỉ dùng sau khi đã chốt thư mục cài', () => {
   // InitializeWizard và ShouldSkipPage chạy TRƯỚC trang chọn thư mục; lúc đó expand {app} làm Inno báo
   // "An attempt was made to expand the app constant before it was initialized" và bộ cài dừng ngay.
@@ -219,9 +265,12 @@ describe('bộ cài Server: cú pháp [Code] (Pascal Script)', () => {
   })
 
   it('bộ quét thật sự bắt được đúng lỗi từng làm hỏng bản build', () => {
-    const bad = "[Code]\n{ khong dung ExpandConstant('{app}') o day }\nfunction F: String;\nbegin\nend;\n"
+    const bad =
+      "[Code]\n{ khong dung ExpandConstant('{app}') o day }\nfunction F: String;\nbegin\nend;\n"
     expect(scanPascal(bad).length).toBeGreaterThan(0)
-    expect(scanPascal("[Code]\n// ExpandConstant('{app}') chi la chu thich\nvar A: Integer;\n")).toEqual([])
+    expect(
+      scanPascal("[Code]\n// ExpandConstant('{app}') chi la chu thich\nvar A: Integer;\n"),
+    ).toEqual([])
     expect(scanPascal("[Code]\nvar S: String;\nbegin\n  S := 'it''s {app}';\nend;\n")).toEqual([])
   })
 })

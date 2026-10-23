@@ -35,7 +35,7 @@ describe('cấu hình Quick Tunnel plug and play (Plan 3H)', () => {
       'utf8',
     )
     expect(iss).toContain("'AZ_QUICK_TUNNEL=1'")
-    expect(iss).toMatch(/Length\(Trim\(SrvPage\.Values\[5\]\)\) >= 32/)
+    expect(iss).toMatch(/Length\(Trim\(CloudPage\.Values\[1\]\)\) >= 32/)
   })
 
   it('bản dự phòng mặc định là địa chỉ Worker (Worker phục vụ luôn giao diện); đặt tay thì giữ nguyên', () => {

@@ -142,6 +142,7 @@ async function main() {
     tunnel = new QuickTunnel({
       port: cfg.port,
       binPath: cfg.cloudflaredPath || path.join(cfg.dataDir, exe),
+      managedBin: !cfg.cloudflaredPath,
       urlFile: path.join(cfg.dataDir, 'tunnel-url.txt'),
       log,
       onChange: (url) => {

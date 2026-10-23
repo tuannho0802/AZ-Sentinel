@@ -72,3 +72,10 @@ Gỡ tác vụ và quy tắc firewall. Giữ lại `C:\ProgramData\AZSentinelSer
 | `Server/scripts/token.cmd`, `token-shell.ps1` | Quản lý token (dòng lệnh, tự xin quyền Administrator) |
 | `Server/scripts/stop-server.ps1`, `open-firewall.ps1`, `check-server.ps1` | Dừng bản cũ, mở/gỡ firewall, đợi Server lên |
 | `.github/workflows/release-server.yml` | Build và phát hành theo `[release-server]` |
+
+## Ghi chú Server 0.2.2 (Windows cũ, giao diện bộ cài)
+
+- Cửa sổ bộ cài lớn hơn 15% và kéo giãn được. Mỗi trang nhập liệu tối đa 4 ô (Inno Setup không có thanh cuộn nên nhiều ô sẽ bị cắt ở đáy): **Tài khoản quản trị** → **Kết nối Cloudflare** (Worker + SYNC_TOKEN, nhập hai lần) → (Tùy chỉnh nâng cao) **Cấu hình AZ Server** → **Thiết lập nâng cao** → **Truy cập từ máy khác**.
+- "Cài nhanh" cũng hỏi trang Cloudflare: điền Worker + SYNC_TOKEN thì `server.env` tự có `AZ_QUICK_TUNNEL=1`, không cần chạy `quick-tunnel.ps1`.
+- Bước cuối của bộ cài (`check-server.ps1`) kiểm tác vụ "AZ Server" (thiếu thì tự đăng ký lại và in lỗi thật), chờ `/api/health`, rồi chờ địa chỉ Quick Tunnel và in ra màn hình. `install-task.ps1` có đường dự phòng `schtasks.exe`.
+- Windows 8.1 / Server 2012 R2: Server tự dùng `cloudflared` 2023.10.0 (xem `AZ_Sentinel_Quick_Tunnel.md`).
