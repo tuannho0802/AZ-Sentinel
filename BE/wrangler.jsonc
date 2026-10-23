@@ -13,7 +13,7 @@
       "database_name": "az-sentinel-db",
       // Local dev/test dùng ID giả này. Trước khi deploy (P1-20) thay bằng ID thật
       // từ `wrangler d1 create`.
-      "database_id": "00000000-0000-0000-0000-000000000000",
+         "database_id": "7f75dc57-e487-4a58-b1a6-0e449d13b186",
       "migrations_dir": "migrations"
     }
   ],
