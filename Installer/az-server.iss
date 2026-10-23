@@ -152,8 +152,14 @@ begin
   Result := (Pos('https://', Lowercase(U)) = 1) or (Pos('http://', Lowercase(U)) = 1);
 end;
 
+{ Windows 8.1 / Server 2012 R2: Node (trong az-gateway.exe, node.exe) tu choi chay neu khong bo qua kiem tra nen tang.
+  Dat bien nay cho tien trinh bo cai de moi lenh con (check-code, check-token...) chay duoc; cac tac vu tu chay
+  dat lai trong run-*.cmd. }
+function SetEnvironmentVariableW(Name, Value: String): Boolean; external 'SetEnvironmentVariableW@kernel32.dll stdcall';
+
 procedure InitializeWizard;
 begin
+  SetEnvironmentVariableW('NODE_SKIP_PLATFORM_CHECK', '1');
   FreshInstall := WillWriteEnv;
   ModePage := CreateInputOptionPage(wpWelcome, 'Chọn cách cài đặt',
     'Bạn muốn cài AZ Server theo cách nào?',

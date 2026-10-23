@@ -9,6 +9,8 @@ rem Ten co va thu muc phai khop voi Gateway\src\config.ts (OFF_FLAG_NAME) va scr
 rem
 rem Dung ping thay timeout vi timeout loi khi chay nen khong co console.
 set "AZ_GW_SUPERVISED=1"
+rem Windows 8.1 / Server 2012 R2: Node tu choi chay neu khong bo qua kiem tra nen tang.
+set "NODE_SKIP_PLATFORM_CHECK=1"
 set "DATA=%ProgramData%\AZSentinel"
 if defined AZ_GW_DATA set "DATA=%AZ_GW_DATA%"
 cd /d "%~dp0"

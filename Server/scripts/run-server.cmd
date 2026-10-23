@@ -9,6 +9,8 @@ if defined AZ_DATA set "DATA=%AZ_DATA%"
 cd /d "%~dp0"
 if not defined AZ_ENV_FILE if exist "%~dp0server.env" set "AZ_ENV_FILE=%~dp0server.env"
 set "NODE=node"
+rem Windows 8.1 / Server 2012 R2: Node tu choi chay neu khong bo qua kiem tra nen tang.
+set "NODE_SKIP_PLATFORM_CHECK=1"
 if exist "%~dp0node.exe" set "NODE=%~dp0node.exe"
 :loop
 "%NODE%" --disable-warning=ExperimentalWarning "%~dp0server.mjs"

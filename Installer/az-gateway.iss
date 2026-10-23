@@ -227,10 +227,16 @@ begin
   ShowManualFields(ManualChk.Checked);
 end;
 
+{ Windows 8.1 / Server 2012 R2: Node (trong az-gateway.exe, node.exe) tu choi chay neu khong bo qua kiem tra nen tang.
+  Dat bien nay cho tien trinh bo cai de moi lenh con (check-code, check-token...) chay duoc; cac tac vu tu chay
+  dat lai trong run-*.cmd. }
+function SetEnvironmentVariableW(Name, Value: String): Boolean; external 'SetEnvironmentVariableW@kernel32.dll stdcall';
+
 procedure InitializeWizard;
 var
   Json: String;
 begin
+  SetEnvironmentVariableW('NODE_SKIP_PLATFORM_CHECK', '1');
   MigrateMode := NeedsTokenMigration;
   CfgPage := CreateInputQueryPage(wpWelcome, 'Kết nối với AZ Sentinel',
     'Chỉ cần dán mã kết nối do quản trị viên gửi cho bạn',
