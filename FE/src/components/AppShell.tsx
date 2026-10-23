@@ -52,6 +52,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                 <>
                   <NavLink href="/users">{strings.navUsers}</NavLink>
                   <NavLink href="/tokens">{strings.navTokens}</NavLink>
+                  <NavLink href="/ip">{strings.navIp}</NavLink>
                 </>
               )}
             </nav>

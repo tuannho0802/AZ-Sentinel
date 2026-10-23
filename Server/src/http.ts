@@ -2,6 +2,7 @@ import type { IncomingMessage, Server } from 'node:http'
 import type { Duplex } from 'node:stream'
 import { serve } from '@hono/node-server'
 import { WebSocketServer } from 'ws'
+import type { IpGuard } from './ip-guard'
 import { PAIR_HEADER, takePair } from './shim/cloudflare-workers'
 
 export type Handler = (req: Request) => Response | Promise<Response>
@@ -12,6 +13,8 @@ export type HttpServerOptions = {
   handler: Handler
   /** Gọi sau khi một Gateway hoàn tất bắt tay WebSocket (để đồng bộ kéo sớm). */
   onGatewayConnected?: () => void
+  /** Whitelist IP (Plan 3F); không truyền = không kiểm tra. */
+  guard?: IpGuard
 }
 
 const IP_HEADER = 'cf-connecting-ip'
@@ -39,6 +42,28 @@ function withClientIp(req: Request, ip: string): Request {
   return new Request(req, { headers })
 }
 
+const forbidden = (ip: string) =>
+  Response.json(
+    {
+      error: {
+        code: 'FORBIDDEN',
+        message: `IP ${ip} chưa được cho phép truy cập máy chủ này. Nhờ quản trị viên thêm IP này vào whitelist.`,
+      },
+    },
+    { status: 403 },
+  )
+
+const tooManyConnections = (max: number) =>
+  Response.json(
+    {
+      error: {
+        code: 'RATE_LIMITED',
+        message: `IP này đã đủ ${max} kết nối. Đóng bớt kết nối cũ hoặc nhờ quản trị viên tăng giới hạn.`,
+      },
+    },
+    { status: 429 },
+  )
+
 /** Trả một phản hồi HTTP thường qua socket thô (khi yêu cầu nâng cấp WebSocket bị từ chối). */
 async function writeRaw(socket: Duplex, res: Response): Promise<void> {
   const body = Buffer.from(await res.arrayBuffer())
@@ -63,7 +88,12 @@ export function startHttpServer(opts: HttpServerOptions): Server {
       hostname: opts.host,
       fetch: (req, env) => {
         const incoming = (env as { incoming?: IncomingMessage } | undefined)?.incoming
-        return opts.handler(incoming ? withClientIp(req, clientIp(incoming)) : req)
+        const ip = incoming ? clientIp(incoming) : ''
+        if (opts.guard && !opts.guard.decide(ip, new URL(req.url).pathname).allow) {
+          opts.guard.noteBlocked(ip)
+          return forbidden(ip)
+        }
+        return opts.handler(incoming ? withClientIp(req, ip) : req)
       },
     },
     () => {},
@@ -82,6 +112,15 @@ export function startHttpServer(opts: HttpServerOptions): Server {
         const ip = clientIp(incoming)
         if (ip) headers.set(IP_HEADER, ip)
         const url = `http://${incoming.headers.host ?? 'localhost'}${incoming.url ?? '/'}`
+        const decision = opts.guard?.decide(ip, new URL(url).pathname) ?? {
+          allow: true,
+          maxConns: null,
+        }
+        if (!decision.allow) {
+          opts.guard?.noteBlocked(ip)
+          await writeRaw(socket, forbidden(ip))
+          return
+        }
         const res = await opts.handler(new Request(url, { method: 'GET', headers }))
         const id = res.headers.get(PAIR_HEADER)
         const pair = id ? takePair(id) : null
@@ -89,7 +128,15 @@ export function startHttpServer(opts: HttpServerOptions): Server {
           await writeRaw(socket, res)
           return
         }
+        // IP trong whitelist bị giới hạn số kết nối WebSocket đồng thời (mặc định 5).
+        const release =
+          decision.maxConns === null ? null : (opts.guard?.acquire(ip, decision.maxConns) ?? null)
+        if (decision.maxConns !== null && release === null) {
+          await writeRaw(socket, tooManyConnections(decision.maxConns))
+          return
+        }
         wss.handleUpgrade(incoming, socket, head, (real) => {
+          if (release) real.on('close', release)
           pair.bind(real)
           if (pair.tags.includes('gw')) opts.onGatewayConnected?.()
         })

@@ -6,6 +6,7 @@ import { createLiveWsRoutes } from './live/routes/live-ws'
 import { resolveViewer, type ViewerAuth } from './live/viewer-auth'
 import { notFound, onError } from './middleware/error-handler'
 import { requestLogger } from './middleware/request-logger'
+import { createAdminIpRoutes } from './routes/admin-ip'
 import { createAdminTokenRoutes } from './routes/admin-tokens'
 import { createAdminUserRoutes } from './routes/admin-users'
 import { createAuthRoutes } from './routes/auth'
@@ -52,6 +53,7 @@ export function createApp(opts: AppOptions = {}) {
   // Plan 4B: người dùng, đăng nhập thật và quản lý người dùng.
   app.route('/api', createAuthRoutes(opts.viewerAuth ?? resolveViewer))
   app.route('/api/admin/users', createAdminUserRoutes(opts.viewerAuth ?? resolveViewer))
+  app.route('/api/admin/ip-rules', createAdminIpRoutes(opts.viewerAuth ?? resolveViewer))
   app.route('/api/links', createLinkRoutes(opts.viewerAuth ?? resolveViewer))
   // DEV Part 1: quản lý liên kết không cần đăng nhập, chỉ bật bằng DEV_LINKS_API. Xóa khi có Part 2/3.
   app.route('/api/dev', devLinks)

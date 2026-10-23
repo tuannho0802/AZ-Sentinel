@@ -7,6 +7,8 @@ import type { Bindings } from '../../BE/src/types'
 import { loadConfig } from './config'
 import { CpuMeter, createHostHooks, describeNode } from './host'
 import { startHttpServer } from './http'
+import { runIpCli } from './ip-cli'
+import { IpGuard } from './ip-guard'
 import { createLogger } from './log'
 import { runMigrations } from './migrate'
 import { ShimState } from './shim/cloudflare-workers'
@@ -30,6 +32,11 @@ async function main() {
   if (process.argv[2] === 'user') {
     mkdirSync(cfg.dataDir, { recursive: true })
     process.exit(await runUserCli(cfg, process.argv.slice(3)))
+  }
+  // `node server.mjs ip <lệnh>`: quản lý whitelist IP bằng dòng lệnh (cứu hộ khi tự khóa mình ngoài web).
+  if (process.argv[2] === 'ip') {
+    mkdirSync(cfg.dataDir, { recursive: true })
+    process.exit(await runIpCli(cfg, process.argv.slice(3)))
   }
   mkdirSync(cfg.dataDir, { recursive: true })
   const log = createLogger(cfg.logLevel, `${cfg.dataDir}/logs`)
@@ -109,6 +116,7 @@ async function main() {
     port: cfg.port,
     host: cfg.host,
     handler,
+    guard: new IpGuard(db.sqlite, Date.now, (m) => log.warn(m)),
     onGatewayConnected: () => sync?.nudgePull(),
   })
   server.on('listening', () => log.info(`đang nghe ${cfg.host}:${cfg.port}`))

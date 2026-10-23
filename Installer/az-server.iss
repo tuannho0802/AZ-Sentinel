@@ -194,6 +194,7 @@ begin
   SrvPage.Add('Bi mat dong bo SYNC_TOKEN (>= 32 ky tu, trung voi Worker, tuy chon):', True);
   SrvPage.Add('URL cong khai cua VPS nay (https://..., de tao ma ket noi Gateway, tuy chon):', False);
   SrvPage.Add('Token Cloudflare Tunnel (tuy chon, bo cai tu cai cloudflared de VPS co HTTPS cong khai):', True);
+  SrvPage.Add('IP duoc phep truy cap (cach nhau dau phay, tuy chon; co dien thi chi cac IP nay moi vao duoc - nho them IP cua ban):', False);
   SrvPage.Values[0] := ExpandConstant('{param:NAME|{computername}}');
   SrvPage.Values[1] := ExpandConstant('{param:LOCATION|}');
   SrvPage.Values[2] := ExpandConstant('{param:PORT|8080}');
@@ -202,6 +203,7 @@ begin
   SrvPage.Values[5] := ExpandConstant('{param:SYNCTOKEN|}');
   SrvPage.Values[6] := ExpandConstant('{param:PUBLICURL|}');
   SrvPage.Values[7] := ExpandConstant('{param:TUNNELTOKEN|}');
+  SrvPage.Values[8] := ExpandConstant('{param:IPS|}');
 
   NetPage := CreateInputOptionPage(SrvPage.ID, 'Truy cap tu may khac',
     'Mac dinh Server chi nghe 127.0.0.1 (di qua Cloudflare Tunnel hoac reverse proxy)',
@@ -417,6 +419,36 @@ begin
   Exec(Setup, Args, '', SW_HIDE, ewWaitUntilTerminated, RC);
 end;
 
+{ Nap whitelist IP ban dau (neu co dien) roi bat che do "chi IP trong danh sach". Danh sach nam trong co so du
+  lieu cua Server nen con nguyen khi VPS khoi dong lai; chinh sua tiep tren web (muc Whitelist IP) hoac ip.cmd. }
+procedure SeedWhitelist;
+var
+  RC, P: Integer;
+  List, One: String;
+begin
+  List := Trim(SrvPage.Values[8]);
+  if List = '' then Exit;
+  while List <> '' do
+  begin
+    P := Pos(',', List);
+    if P = 0 then
+    begin
+      One := Trim(List);
+      List := '';
+    end
+    else
+    begin
+      One := Trim(Copy(List, 1, P - 1));
+      Delete(List, 1, P);
+    end;
+    if One <> '' then
+      Exec(ExpandConstant('{cmd}'), '/S /C ""' + ExpandConstant('{app}\ip.cmd') + '" add "' + One + '" "Bo cai""',
+        ExpandConstant('{app}'), SW_HIDE, ewWaitUntilTerminated, RC);
+  end;
+  Exec(ExpandConstant('{cmd}'), '/S /C ""' + ExpandConstant('{app}\ip.cmd') + '" on"',
+    ExpandConstant('{app}'), SW_HIDE, ewWaitUntilTerminated, RC);
+end;
+
 procedure CurStepChanged(CurStep: TSetupStep);
 var
   RC: Integer;
@@ -440,6 +472,7 @@ begin
       CreateAdmin;
       SetupTunnel;
       InstallAdminGateway;
+      SeedWhitelist;
     end;
   end;
 end;

@@ -1,0 +1,24 @@
+# Whitelist IP (Plan 3F)
+
+Mục tiêu: Admin và vài người tin cậy vào web / nối Gateway thẳng vào VPS 24/7, người lạ thì không, mà không cần thao tác kỹ thuật.
+
+## Cách hoạt động
+- Danh sách nằm trong SQLite của Server (`ip_rules`), công tắc ở `server_meta` (`ip_guard`). **Mặc định TẮT**: cài mới không ai bị khóa.
+- **Tắt**: ai cũng vào được; IP có trong danh sách vẫn bị giới hạn số kết nối WebSocket (Gateway + trang live), mặc định **5**.
+- **Bật**: chỉ IP khớp luật mới vào được (cả web lẫn Gateway). Máy chạy Server (loopback) và `/api/health` luôn vào được. IP lạ nhận 403 kèm đúng IP của họ để họ gửi cho Admin.
+- Luật nhận IP (`1.2.3.4`), dải IPv4 (`1.2.3.0/24`) hoặc IPv6 đầy đủ. Qua Cloudflare Tunnel Server dùng IP thật trong `CF-Connecting-IP`.
+- Danh sách còn nguyên khi Server/VPS khởi động lại (tác vụ "AZ Server" tự chạy lại): Gateway của các IP trong danh sách tự nối lại và tracking tiếp, không phải làm gì thêm.
+
+## Admin dùng thế nào
+1. Web → **Whitelist IP**. Bấm **Thêm IP của tôi** (IP hiện tại của bạn), thêm IP VPS của User (ví dụ A9), đặt nhãn và số kết nối tối đa.
+2. Bấm **Bật bảo vệ**. Hệ thống từ chối bật nếu IP của bạn chưa có trong danh sách (chống tự khóa) và từ chối xóa luật cuối cùng của IP bạn khi đang bật.
+3. User báo không vào được: IP của họ hiện ở **IP bị chặn gần đây**, bấm **Cho phép**.
+4. Tự khóa mình ngoài web: trên VPS, PowerShell Administrator trong thư mục cài: `ip.cmd off` (hoặc `ip.cmd add <ip>`, `ip.cmd list`, `ip.cmd remove <ip>`, `ip.cmd on`).
+
+Bộ cài Server có ô **IP được phép truy cập** (tùy chọn, cách nhau dấu phẩy; cài im lặng `/IPS=`). Có điền thì bộ cài nạp danh sách và bật bảo vệ luôn. Nhớ điền cả IP của bạn.
+
+## Giới hạn cần biết
+- Chặn chạy ở **Server VPS**. Bản dự phòng Cloudflare không áp whitelist (Gateway/Cloudflare dùng token); danh sách chưa đồng bộ sang Cloudflare.
+- Nếu người dùng vào qua địa chỉ Worker (Worker chuyển tiếp sang VPS), VPS thấy IP do Worker chuyển, nên whitelist chỉ thật sự đúng với truy cập thẳng/qua Tunnel.
+- IP điện thoại (4G/5G) hay đổi: cân nhắc thêm dải CIDR của nhà mạng hoặc dùng dải rộng hơn cho thiết bị di động.
+- Chưa chạy test và chưa thử thật trên VPS; cần thử: bật bảo vệ, truy cập từ IP lạ (403), thêm bằng nút "Cho phép", kết nối thứ 6 của một IP (429).

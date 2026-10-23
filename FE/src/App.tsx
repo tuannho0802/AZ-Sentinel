@@ -1,6 +1,7 @@
 import { Route, Switch } from 'wouter'
 import { RequireAuth } from './features/auth/RequireAuth'
 import { DashboardPage } from './pages/DashboardPage'
+import { IpPage } from './pages/IpPage'
 import { LinkDetailPage } from './pages/LinkDetailPage'
 import { LinksPage } from './pages/LinksPage'
 import { LoginPage } from './pages/LoginPage'
@@ -30,6 +31,11 @@ export function App() {
       <Route path="/tokens">
         <RequireAuth>
           <TokensPage />
+        </RequireAuth>
+      </Route>
+      <Route path="/ip">
+        <RequireAuth>
+          <IpPage />
         </RequireAuth>
       </Route>
       <Route path="/users">
