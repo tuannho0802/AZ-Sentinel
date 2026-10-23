@@ -46,4 +46,26 @@ describe('cấu hình Quick Tunnel plug and play (Plan 3H)', () => {
     ).toBe('https://az.example.com')
     expect(loadConfig({ ...base }).fallbackUrl).toBe('')
   })
+
+  it('AZ_CLOUD_URL sai định dạng: không đặt địa chỉ công khai/dự phòng bừa, Server vẫn khởi động được', () => {
+    const cfg = loadConfig({ ...base, AZ_QUICK_TUNNEL: '1', AZ_CLOUD_URL: 'khong-phai-url' })
+    expect(cfg.publicUrl).toBe('')
+    expect(cfg.fallbackUrl).toBe('')
+  })
+
+  it('tunnel có tên (AZ_PUBLIC_URL) cùng Worker: địa chỉ chính là VPS, dự phòng là Worker, hai địa chỉ khác nhau', () => {
+    const cfg = loadConfig({
+      ...base,
+      AZ_CLOUD_URL: WORKER,
+      AZ_PUBLIC_URL: 'https://az.example.com',
+    })
+    expect(cfg.publicUrl).toBe('https://az.example.com')
+    expect(cfg.fallbackUrl).toBe(WORKER)
+  })
+
+  it('Quick Tunnel: địa chỉ chính và dự phòng cùng là Worker (mã kết nối sẽ gộp thành một địa chỉ)', () => {
+    const cfg = loadConfig({ ...base, AZ_QUICK_TUNNEL: '1', AZ_CLOUD_URL: WORKER })
+    expect(cfg.publicUrl).toBe(WORKER)
+    expect(cfg.fallbackUrl).toBe(WORKER)
+  })
 })

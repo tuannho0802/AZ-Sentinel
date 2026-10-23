@@ -98,9 +98,19 @@ export class CloudClient {
     return this.learned ?? this.opts.url
   }
 
+  /**
+   * Địa chỉ dự phòng: cấu hình riêng nếu có. Không có (Quick Tunnel: mã kết nối chỉ mang địa chỉ Worker, vì dự phòng
+   * trùng chính nên bị bỏ) mà đã học được tunnel từ danh bạ thì chính Worker `opts.url` là dự phòng, nếu không Gateway
+   * sẽ kẹt nối lại tunnel đã chết (danh bạ còn trỏ địa chỉ cũ tới khi VPS báo tunnel mới) và dữ liệu không vào được hub.
+   */
+  private fallbackTarget(): string | null {
+    if (this.opts.fallbackUrl) return this.opts.fallbackUrl
+    return this.learned !== null ? this.opts.url : null
+  }
+
   /** Địa chỉ đang dùng (chính hoặc dự phòng). */
   private currentUrl(): string {
-    return this.urlIndex === 1 && this.opts.fallbackUrl ? this.opts.fallbackUrl : this.primaryUrl()
+    return (this.urlIndex === 1 ? this.fallbackTarget() : null) ?? this.primaryUrl()
   }
 
   private directories(): string[] {
@@ -250,7 +260,7 @@ export class CloudClient {
    * không tốn request khi VPS sập lâu. `primaryRetryMs` (nếu đặt) cố định nhịp.
    */
   private startProbingPrimary(): void {
-    if (this.probing || !this.opts.fallbackUrl) return
+    if (this.probing || !this.fallbackTarget()) return
     this.probing = true
     this.probeTicks = 0
     const next = () => {
@@ -265,6 +275,12 @@ export class CloudClient {
       this.probeTicks++
       await this.askDirectory()
       if (this.stopped || this.urlIndex !== 1) return
+      if (!this.fallbackTarget()) {
+        // Danh bạ báo "không có tunnel": địa chỉ chính giờ chính là Worker đang nối, không còn gì để quay về.
+        this.urlIndex = 0
+        this.stopProbing()
+        return
+      }
       let probe: WebSocket
       try {
         probe = this.open(this.primaryUrl())
@@ -339,7 +355,7 @@ export class CloudClient {
 
   private scheduleReconnect(): void {
     if (this.stopped) return
-    if (this.opts.fallbackUrl && this.urlIndex === 0 && this.failStreak >= 2) {
+    if (this.fallbackTarget() && this.urlIndex === 0 && this.failStreak >= 2) {
       this.log.warn('địa chỉ chính không nối được, chuyển sang dự phòng')
       this.urlIndex = 1
       this.failStreak = 0

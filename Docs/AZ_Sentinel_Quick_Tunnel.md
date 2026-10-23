@@ -19,7 +19,7 @@ Gateway chỉ cần **mã kết nối** (địa chỉ Worker + token), không c�
 
 ## 2. Hành vi khi VPS reset
 
-1. VPS sập: kết nối Gateway tới tunnel rớt. Gateway **hỏi danh bạ ngay**; chưa có tunnel mới thì sau 2 lần nối hỏng chuyển sang **Worker dự phòng** (Cloudflare hub, vẫn nhận dữ liệu).
+1. VPS sập: kết nối Gateway tới tunnel rớt. Gateway **hỏi danh bạ ngay**; chưa có tunnel mới thì sau 2 lần nối hỏng chuyển sang **Worker dự phòng** (Cloudflare hub, vẫn nhận dữ liệu). Mã kết nối Quick Tunnel chỉ mang một địa chỉ (Worker, vì địa chỉ dự phòng trùng địa chỉ chính nên bị bỏ), nên khi đã học được tunnel từ danh bạ, **chính địa chỉ Worker là dự phòng**: tunnel chết mà danh bạ còn trỏ địa chỉ cũ thì Gateway vẫn xuống Worker, không kẹt ở tunnel chết.
 2. VPS lên lại: tác vụ "AZ Server" tự chạy lúc khởi động máy (và `run-server.cmd` tự bật lại Server nếu nó thoát), Server dọn `cloudflared` sót, mở Quick Tunnel mới, đọc địa chỉ (thường 5-15 giây).
 3. Server báo địa chỉ mới cho Worker ngay (thử lại 5 giây, giãn dần, tối đa 12 lần), không chờ nhịp sống 2 phút. Worker ghi D1 và dùng ngay trong isolate đó; isolate khác thấy sau tối đa 10 giây.
 4. Gateway đang ở dự phòng **hỏi danh bạ mỗi 15 giây** (2 phút đầu, sau đó 60 giây) rồi thử nối tunnel; được thì tự về, không cần thao tác. Gateway đang nối thẳng mà tunnel đổi thì hỏi danh bạ ngay và nối sang tunnel mới, không phải rơi xuống dự phòng.
