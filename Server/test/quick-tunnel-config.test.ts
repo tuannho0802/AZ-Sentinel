@@ -1,6 +1,7 @@
 import { mkdtempSync, readFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { loadConfig } from '../src/config'
 
@@ -30,10 +31,7 @@ describe('cấu hình Quick Tunnel plug and play (Plan 3H)', () => {
 
   it('bộ cài tự ghi AZ_QUICK_TUNNEL=1 khi có Worker + SYNC_TOKEN và không có URL công khai/token tunnel có tên', () => {
     const iss = readFileSync(
-      path.resolve(
-        path.dirname(new URL(import.meta.url).pathname),
-        '../../Installer/az-server.iss',
-      ),
+      path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../Installer/az-server.iss'),
       'utf8',
     )
     expect(iss).toContain("'AZ_QUICK_TUNNEL=1'")
