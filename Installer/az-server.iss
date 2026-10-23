@@ -84,9 +84,12 @@ var
   NetPage: TInputOptionWizardPage;
   AdmPage: TInputQueryWizardPage;
 
+{ KHONG dung ExpandConstant('{app}') o day: InitializeWizard va ShouldSkipPage goi ham nay TRUOC khi thu muc cai duoc chot,
+  luc do {app} chua co gia tri ("An attempt was made to expand the app constant before it was initialized").
+  WizardDirValue (thu muc dang chon, hoac /DIR=, hoac thu muc ban cu khi nang cap) dung duoc moi luc. }
 function EnvPath: String;
 begin
-  Result := ExpandConstant('{app}\server.env');
+  Result := AddBackslash(WizardDirValue) + 'server.env';
 end;
 
 { Cai moi, hoac chay lai voi /RECONFIGURE=1: ghi lai server.env. Con lai giu nguyen (nang cap khong hoi lai). }
@@ -231,6 +234,8 @@ var
   Cloud, Fb, Sync: String;
 begin
   Result := True;
+  { Doi thu muc cai thi server.env co the co/khong co o cho moi: tinh lai de trang cuoi noi dung. }
+  if CurPageID = wpSelectDir then FreshInstall := WillWriteEnv;
   if CurPageID = NetPage.ID then
   begin
     { Firewall chi co nghia khi mo cho LAN. }

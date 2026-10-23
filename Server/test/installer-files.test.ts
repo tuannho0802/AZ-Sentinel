@@ -139,3 +139,31 @@ describe('Quick Tunnel (Plan 3G)', () => {
     expect(read('Server/scripts/stop-server.ps1')).toContain('cloudflared.exe')
   })
 })
+
+describe('bộ cài Server: hằng số {app} chỉ dùng sau khi đã chốt thư mục cài', () => {
+  // InitializeWizard và ShouldSkipPage chạy TRƯỚC trang chọn thư mục; lúc đó expand {app} làm Inno báo
+  // "An attempt was made to expand the app constant before it was initialized" và bộ cài dừng ngay.
+  const body = (name: string) => {
+    const m = serverIss.match(new RegExp(`function ${name}[^\\n]*\\n([\\s\\S]*?)\\nend;`))
+    return m?.[1] ?? ''
+  }
+
+  it('EnvPath (được InitializeWizard/ShouldSkipPage gọi sớm) dùng WizardDirValue, không dùng {app}', () => {
+    const env = body('EnvPath')
+    expect(env).toContain('WizardDirValue')
+    expect(env).not.toContain('{app}')
+  })
+
+  it('các hàm chạy trước khi chốt thư mục không expand {app} (trực tiếp)', () => {
+    for (const fn of ['WillWriteEnv', 'WantAdvanced', 'PortValue', 'ShouldSkipPage']) {
+      expect(body(fn), `${fn} không được dùng {app}`).not.toContain('{app}')
+    }
+    const init = serverIss.match(/procedure InitializeWizard;[\s\S]*?\nend;/)?.[0] ?? ''
+    expect(init.length).toBeGreaterThan(100)
+    expect(init).not.toContain('{app}')
+  })
+
+  it('đổi thư mục cài thì tính lại FreshInstall (trang cuối nói đúng)', () => {
+    expect(serverIss).toMatch(/CurPageID = wpSelectDir then FreshInstall := WillWriteEnv/)
+  })
+})
