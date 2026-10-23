@@ -10,11 +10,20 @@ const NOTE_EVERY_MS = 30_000
 const KEEP_BLOCKED = 50
 
 /**
+ * Đường luôn vào được dù whitelist đang bật (không phụ thuộc IP):
+ * - `/api/health`: dò sống/chết.
+ * - `/api/server-info/self`: Worker Cloudflare gọi bằng token dịch vụ `SYNC_TOKEN` (đường tự yêu cầu token, sai
+ *   thì 401) để lấy thông tin VPS. Request này đi từ IP của Cloudflare, không bao giờ có trong whitelist; bị
+ *   chặn thì Worker coi VPS đã sập và hiện banner "Máy chủ chính không hoạt động" dù VPS vẫn chạy.
+ */
+const ALWAYS_ALLOWED_PATHS = new Set(['/api/health', '/api/server-info/self'])
+
+/**
  * Whitelist IP của máy chủ VPS (Plan 3F). Luật nằm trong SQLite (`ip_rules`, công tắc ở `server_meta`) nên
  * còn nguyên khi Server khởi động lại hoặc VPS reset: Gateway của các IP trong danh sách tự nối lại là vào
  * được ngay, không phải làm gì thêm. Đọc luật có đệm 5 giây để admin sửa trên web có hiệu lực nhanh mà
  * không phải đọc DB mỗi request.
- * - Máy chạy Server (loopback không qua tunnel) và `/api/health` luôn vào được.
+ * - Máy chạy Server (loopback không qua tunnel), `/api/health` và `/api/server-info/self` (cần token dịch vụ) luôn vào được.
  * - Công tắc tắt: ai cũng vào, nhưng IP có trong danh sách vẫn bị giới hạn số kết nối WebSocket.
  * - Công tắc bật: chỉ IP khớp luật mới vào; IP lạ bị chặn và ghi vào `ip_blocked` để admin cho phép.
  */
@@ -32,7 +41,7 @@ export class IpGuard {
   ) {}
 
   decide(ip: string, pathname: string): Decision {
-    if (ip === '' || isLoopbackIp(ip) || pathname === '/api/health') {
+    if (ip === '' || isLoopbackIp(ip) || ALWAYS_ALLOWED_PATHS.has(pathname)) {
       return { allow: true, maxConns: null }
     }
     this.load()
