@@ -38,7 +38,7 @@ describe('connect-code', () => {
 
   it('đổi URL https/http sang ws và nhận biết máy chủ chỉ-cục-bộ', () => {
     expect(httpToGatewayWsUrl('https://vps.example.com')).toBe(
-      P.replace('/api/gw/ws', '') + '/api/gw/ws',
+      `${P.replace('/api/gw/ws', '')}/api/gw/ws`,
     )
     expect(httpToGatewayWsUrl('http://10.0.0.5:8080/x')).toBe('ws://10.0.0.5:8080/api/gw/ws')
     expect(httpToGatewayWsUrl('ftp://a')).toBeNull()
