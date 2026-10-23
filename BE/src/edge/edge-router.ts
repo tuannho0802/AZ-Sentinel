@@ -1,4 +1,4 @@
-import { FAILOVER } from '@az-sentinel/shared'
+import { FAILOVER, GW_TUNNEL_PATH } from '@az-sentinel/shared'
 import type { MiddlewareHandler } from 'hono'
 import { AppError } from '../lib/app-error'
 import { nowUnix } from '../lib/time'
@@ -9,7 +9,7 @@ import { sharedOriginStore, type VpsOriginStore } from './vps-origin'
 import { type ProbeRegistry, probeFor, type VpsProbe } from './vps-probe'
 
 /** Route luôn do chính Worker xử lý, kể cả khi VPS sống (chúng tự ghép thông tin hai phía). */
-const LOCAL_ONLY = ['/api/server-info', '/api/sync']
+const LOCAL_ONLY = ['/api/server-info', '/api/sync', GW_TUNNEL_PATH]
 
 /** Mã của tunnel/proxy khi VPS không với tới được: coi như VPS sập. */
 const UPSTREAM_DOWN = new Set([502, 503, 504, 521, 522, 523, 524, 530])

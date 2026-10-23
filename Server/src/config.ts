@@ -98,5 +98,15 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
     const i = parsed.error.issues[0]
     throw new Error(`Cấu hình không hợp lệ: ${i?.path.join('.')} ${i?.message}`)
   }
-  return parsed.data
+  const cfg = parsed.data
+  // Plan 3H: Quick Tunnel đổi địa chỉ mỗi lần nên mã kết nối Gateway phải mang địa chỉ Worker (cố định); không phải
+  // đặt AZ_PUBLIC_URL tay. Gateway tự hỏi Worker để tìm tunnel hiện tại và nối thẳng.
+  if (cfg.quickTunnel === '1' && cfg.publicUrl === '' && cfg.cloudUrl !== '') {
+    try {
+      cfg.publicUrl = new URL(cfg.cloudUrl).origin
+    } catch {
+      // AZ_CLOUD_URL sai định dạng: giữ trống, phần đồng bộ sẽ báo lỗi riêng
+    }
+  }
+  return cfg
 }

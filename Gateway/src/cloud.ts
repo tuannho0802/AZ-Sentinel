@@ -1,4 +1,4 @@
-import { GW, gwServerMessageSchema } from '@az-sentinel/shared'
+import { GW, gwServerMessageSchema, type TunnelDirectoryReply } from '@az-sentinel/shared'
 import type { Gateway } from './gateway'
 import { type Logger, silentLogger } from './log'
 
@@ -13,6 +13,14 @@ export type CloudOptions = {
   primaryRetryMs?: number
   /** Token Gateway cá nhân `azt_...` (quản trị viên cấp riêng cho từng người), gửi bằng `Authorization: Bearer`. */
   token?: string
+  /**
+   * Plan 3H: các địa chỉ HTTP của "danh bạ tunnel" (Worker, `/api/gw/tunnel`), thử lần lượt. Có thì Gateway hỏi
+   * danh bạ khi khởi động, khi mất kết nối và khi đang dùng dự phòng, rồi nối THẲNG vào Quick Tunnel hiện tại của
+   * VPS (không qua Worker nên không tốn hạn mức request). Không có = như cũ (địa chỉ cố định).
+   */
+  directoryUrls?: string[]
+  /** Chỉ để kiểm thử: thay `fetch` gọi danh bạ. */
+  fetchFn?: typeof fetch
   log?: Logger
   /** Chỉ để kiểm thử: nhân bản bộ ngẫu nhiên cho jitter. */
   random?: () => number
@@ -38,6 +46,13 @@ export class CloudClient {
   private urlIndex = 0
   private failStreak = 0
   private probeTimer: NodeJS.Timeout | null = null
+  /** Địa chỉ WebSocket tunnel học từ danh bạ; ưu tiên hơn `opts.url` (null = dùng `opts.url`). */
+  private learned: string | null = null
+  private probeTicks = 0
+  private probing = false
+  private asking: Promise<boolean> | null = null
+  /** Đang chủ động đổi địa chỉ (không cần hỏi danh bạ ở lần đóng kế). */
+  private switching = false
   private readonly log: Logger
   private readonly rand: () => number
   private readonly pingMs: number
@@ -55,15 +70,21 @@ export class CloudClient {
 
   start(): void {
     this.stopped = false
-    this.connect()
+    // Biết địa chỉ tunnel mới nhất trước khi nối (tối đa 5 giây), để khởi động xong là nối thẳng được.
+    if (this.directories().length === 0) {
+      this.connect()
+      return
+    }
+    void this.askDirectory(5000).finally(() => this.connect())
   }
 
   stop(): void {
     this.stopped = true
     if (this.retryTimer) clearTimeout(this.retryTimer)
     if (this.pingTimer) clearInterval(this.pingTimer)
-    if (this.probeTimer) clearInterval(this.probeTimer)
+    if (this.probeTimer) clearTimeout(this.probeTimer)
     this.retryTimer = this.pingTimer = this.probeTimer = null
+    this.probing = false
     const ws = this.ws
     this.ws = null
     if (ws) {
@@ -72,9 +93,65 @@ export class CloudClient {
     }
   }
 
+  /** Địa chỉ chính hiện tại: tunnel học từ danh bạ nếu có, không thì địa chỉ cấu hình. */
+  private primaryUrl(): string {
+    return this.learned ?? this.opts.url
+  }
+
   /** Địa chỉ đang dùng (chính hoặc dự phòng). */
   private currentUrl(): string {
-    return this.urlIndex === 1 && this.opts.fallbackUrl ? this.opts.fallbackUrl : this.opts.url
+    return this.urlIndex === 1 && this.opts.fallbackUrl ? this.opts.fallbackUrl : this.primaryUrl()
+  }
+
+  private directories(): string[] {
+    return [...new Set(this.opts.directoryUrls ?? [])]
+  }
+
+  /**
+   * Hỏi danh bạ tunnel; trả true khi địa chỉ chính ĐỔI. Lỗi mạng/Worker sập thì bỏ qua (trả false). Không chạy
+   * hai lần cùng lúc.
+   */
+  private askDirectory(timeoutMs = 8000): Promise<boolean> {
+    if (this.directories().length === 0) return Promise.resolve(false)
+    if (this.asking) return this.asking
+    const run = async (): Promise<boolean> => {
+      const doFetch = this.opts.fetchFn ?? fetch
+      const headers: Record<string, string> = this.opts.token
+        ? { Authorization: `Bearer ${this.opts.token}` }
+        : {}
+      for (const url of this.directories()) {
+        try {
+          const res = await doFetch(url, { headers, signal: AbortSignal.timeout(timeoutMs) })
+          if (!res.ok) {
+            await res.body?.cancel()
+            continue
+          }
+          const body = (await res.json()) as Partial<TunnelDirectoryReply>
+          if (body.ok !== true) continue
+          // Chỉ nhận wss:// (ws:// chỉ cho loopback khi thử nghiệm): danh bạ không được hạ Gateway xuống đường không mã hóa.
+          const next =
+            typeof body.wsUrl === 'string' &&
+            /^(wss:\/\/|ws:\/\/(127\.0\.0\.1|localhost)[:/])[^\s"\\]+$/i.test(body.wsUrl)
+              ? body.wsUrl
+              : null
+          if (next === this.learned) return false
+          this.learned = next
+          this.log.info(
+            next
+              ? `danh bạ báo tunnel mới: ${next}`
+              : 'danh bạ không có tunnel, dùng địa chỉ cấu hình',
+          )
+          return true
+        } catch {
+          // thử địa chỉ danh bạ kế tiếp
+        }
+      }
+      return false
+    }
+    this.asking = run().finally(() => {
+      this.asking = null
+    })
+    return this.asking
   }
 
   /** Mở một WebSocket tới `url` kèm token (WebSocket toàn cục của Node/undici nhận `headers`). */
@@ -128,8 +205,14 @@ export class CloudClient {
       else this.log.warn('bỏ qua tin cloud không hợp lệ')
     })
 
-    ws.addEventListener('close', (ev) => {
-      if (ev.code === 4003) {
+    // Kết nối THẤT BẠI (cổng đóng, tunnel chết trả HTTP 530...) có runtime chỉ bắn `error` mà không bắn `close`
+    // (Node 22 thấy ở đây): nếu chờ `close` thì Gateway treo vĩnh viễn. Nên lỗi lúc chưa mở cũng tính là kết thúc;
+    // `ended` bảo đảm mỗi kết nối chỉ xử lý một lần dù cả hai sự kiện cùng tới.
+    let ended = false
+    const end = (code?: number) => {
+      if (ended) return
+      ended = true
+      if (code === 4003) {
         this.log.warn(
           'token Gateway đã bị thu hồi hoặc đặt lại: xin quản trị viên token mới rồi nhập vào Cài đặt',
         )
@@ -137,9 +220,16 @@ export class CloudClient {
         this.log.warn('không nối được cloud (sai địa chỉ, mạng, hoặc token bị từ chối/thu hồi)')
       }
       this.onClosed(ws, opened)
-    })
+    }
+    ws.addEventListener('close', (ev) => end(ev.code))
     ws.addEventListener('error', () => {
-      // `close` luôn theo sau `error`; xử lý ở đó để không lên lịch nối lại hai lần.
+      if (opened || ended) return // đã mở: `close` luôn theo sau
+      end() // đặt `ended` trước: `ws.close()` lúc đang nối có thể bắn lại `error`
+      try {
+        ws.close()
+      } catch {
+        // đã đóng
+      }
     })
   }
 
@@ -154,33 +244,59 @@ export class CloudClient {
   }
 
   /**
-   * Thử mở địa chỉ chính trong lúc đang dùng dự phòng; mở được thì đóng thử và đóng kết nối dự phòng để
-   * `onClosed` nối lại vào địa chỉ chính. Kết nối thử không gửi `hello` nên hub tự đóng sau vài giây.
+   * Trong lúc dùng dự phòng: hỏi danh bạ (nếu có) để biết tunnel mới, rồi thử mở địa chỉ chính; mở được thì đóng
+   * thử và đóng kết nối dự phòng để `onClosed` nối lại vào địa chỉ chính. Kết nối thử không gửi `hello` nên hub tự
+   * đóng sau vài giây. Nhịp thử: 15 giây trong 2 phút đầu (VPS reset thường lên lại nhanh), sau đó 60 giây để
+   * không tốn request khi VPS sập lâu. `primaryRetryMs` (nếu đặt) cố định nhịp.
    */
   private startProbingPrimary(): void {
-    if (this.probeTimer || !this.opts.fallbackUrl) return
-    this.probeTimer = setInterval(() => {
+    if (this.probing || !this.opts.fallbackUrl) return
+    this.probing = true
+    this.probeTicks = 0
+    const next = () => {
+      const fixed = this.opts.primaryRetryMs
+      const delay = fixed ?? (this.probeTicks < 8 ? 15_000 : 60_000)
+      this.probeTimer = setTimeout(() => void tick(), delay)
+      this.probeTimer.unref?.()
+    }
+    const tick = async () => {
+      this.probeTimer = null
+      if (this.stopped || this.urlIndex !== 1) return
+      this.probeTicks++
+      await this.askDirectory()
       if (this.stopped || this.urlIndex !== 1) return
       let probe: WebSocket
       try {
-        probe = this.open(this.opts.url)
+        probe = this.open(this.primaryUrl())
       } catch {
-        return
+        return next()
       }
-      const giveUp = setTimeout(() => probe.close(), 8000)
-      probe.addEventListener('open', () => {
+      let done = false
+      const finish = (ok: boolean) => {
+        if (done) return
+        done = true
         clearTimeout(giveUp)
-        probe.close(1000, 'probe')
-        this.log.info('địa chỉ chính đã sống lại, chuyển về')
-        this.switchTo(0)
-      })
-      probe.addEventListener('error', () => clearTimeout(giveUp))
-    }, this.opts.primaryRetryMs ?? 60_000)
-    this.probeTimer.unref?.()
+        try {
+          probe.close(ok ? 1000 : undefined, ok ? 'probe' : undefined)
+        } catch {
+          // đã đóng
+        }
+        if (ok) {
+          this.log.info('địa chỉ chính đã sống lại, chuyển về')
+          this.switchTo(0)
+        } else if (!this.stopped && this.urlIndex === 1 && !this.probeTimer) next()
+      }
+      const giveUp = setTimeout(() => finish(false), 8000)
+      probe.addEventListener('open', () => finish(true))
+      probe.addEventListener('error', () => finish(false))
+      probe.addEventListener('close', () => finish(false))
+    }
+    next()
   }
 
   private stopProbing(): void {
-    if (this.probeTimer) clearInterval(this.probeTimer)
+    this.probing = false
+    if (this.probeTimer) clearTimeout(this.probeTimer)
     this.probeTimer = null
   }
 
@@ -189,6 +305,7 @@ export class CloudClient {
     this.urlIndex = index
     this.failStreak = 0
     this.attempt = 0
+    this.switching = true
     if (index === 0) this.stopProbing()
     this.ws?.close(1000, 'switch')
   }
@@ -202,12 +319,32 @@ export class CloudClient {
     if (this.stopped) return
     // Đã nối được rồi rớt tính 1 lần lỗi; không nối được tính thêm 1: hai lần liền thì đổi địa chỉ.
     this.failStreak = opened ? 1 : this.failStreak + 1
+    const wasSwitching = this.switching
+    this.switching = false
+    // Mất kết nối vào địa chỉ chính: hỏi danh bạ ngay (VPS có thể vừa reset và đổi tunnel). Có tunnel mới thì
+    // nối lại liền, không chờ backoff và không phải rơi xuống dự phòng.
+    if (!wasSwitching && this.urlIndex === 0 && this.directories().length > 0) {
+      void this.askDirectory().then((changed) => {
+        if (this.stopped || this.ws) return
+        if (changed) {
+          this.failStreak = 0
+          this.attempt = 0
+          this.connect()
+        } else this.scheduleReconnect()
+      })
+      return
+    }
+    this.scheduleReconnect()
+  }
+
+  private scheduleReconnect(): void {
+    if (this.stopped) return
     if (this.opts.fallbackUrl && this.urlIndex === 0 && this.failStreak >= 2) {
       this.log.warn('địa chỉ chính không nối được, chuyển sang dự phòng')
       this.urlIndex = 1
       this.failStreak = 0
       this.attempt = 0
-    } else if (this.urlIndex === 1 && !opened && this.failStreak >= 2) {
+    } else if (this.urlIndex === 1 && this.failStreak >= 2) {
       // Dự phòng cũng hỏng: thử lại địa chỉ chính (VPS có thể đã sống lại).
       this.urlIndex = 0
       this.failStreak = 0

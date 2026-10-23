@@ -10,7 +10,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { createApp } from '../../src/app'
 import type { FetchFn } from '../../src/edge/timed-fetch'
 import { VpsOriginStore } from '../../src/edge/vps-origin'
-import { resetDb } from '../helpers'
+import { resetDb, seedToken } from '../helpers'
 
 const TOKEN = 'sync-token-0123456789'
 const baseEnv = { DB: env.DB, LIVE_HUB: env.LIVE_HUB, SYNC_TOKEN: TOKEN }
@@ -173,5 +173,60 @@ describe('Quick Tunnel: Worker tự theo địa chỉ VPS báo lên (Plan 3G)', 
     const fwd = t.vps.calls.find((c) => c.path === '/api/y')
     expect(fwd?.headers.get(EDGE_IP_HEADER)).toBe('203.0.113.9')
     expect(fwd?.headers.get(EDGE_SIG_HEADER)).toBeNull()
+  })
+})
+
+describe('Danh bạ tunnel cho Gateway: GET /api/gw/tunnel (Plan 3H)', () => {
+  const bearer = (t: string) => ({ Authorization: `Bearer ${t}` })
+
+  it('cần token Gateway: thiếu hoặc sai thì 401, không lộ địa chỉ tunnel', async () => {
+    const t = make([NEW])
+    await t.beat({ tunnelUrl: NEW })
+    expect((await t.get('/api/gw/tunnel')).status).toBe(401)
+    expect(
+      (await t.get('/api/gw/tunnel', baseEnv, bearer('azt_sai-0123456789abcdef'))).status,
+    ).toBe(401)
+    // SYNC_TOKEN không thay được token Gateway
+    expect((await t.get('/api/gw/tunnel', baseEnv, auth)).status).toBe(401)
+  })
+
+  it('có token: trả địa chỉ tunnel VPS đã báo và địa chỉ WebSocket tương ứng, không đệm', async () => {
+    const t = make([NEW])
+    const { token } = await seedToken(7)
+    const none = await t.get('/api/gw/tunnel', baseEnv, bearer(token))
+    expect(await none.json()).toEqual({ ok: true, origin: null, wsUrl: null })
+
+    await t.beat({ tunnelUrl: NEW })
+    const res = await t.get('/api/gw/tunnel', baseEnv, bearer(token))
+    expect(res.headers.get('Cache-Control')).toBe('no-store')
+    expect(await res.json()).toEqual({
+      ok: true,
+      origin: NEW,
+      wsUrl: 'wss://new-lake-222.trycloudflare.com/api/gw/ws',
+    })
+  })
+
+  it('VPS reset đổi địa chỉ: danh bạ trả địa chỉ mới ngay', async () => {
+    const t = make([OLD, NEW])
+    const { token } = await seedToken(7)
+    await t.beat({ tunnelUrl: OLD })
+    expect(
+      ((await (await t.get('/api/gw/tunnel', baseEnv, bearer(token))).json()) as { origin: string })
+        .origin,
+    ).toBe(OLD)
+    await t.beat({ tunnelUrl: NEW })
+    expect(
+      ((await (await t.get('/api/gw/tunnel', baseEnv, bearer(token))).json()) as { origin: string })
+        .origin,
+    ).toBe(NEW)
+  })
+
+  it('luôn do Worker tự trả lời, không chuyển tiếp sang VPS (không tốn lượt VPS, không lộ token)', async () => {
+    const t = make([NEW])
+    const { token } = await seedToken(7)
+    await t.beat({ tunnelUrl: NEW })
+    t.vps.calls.length = 0
+    await t.get('/api/gw/tunnel', baseEnv, bearer(token))
+    expect(t.vps.calls.filter((c) => c.path === '/api/gw/tunnel')).toHaveLength(0)
   })
 })

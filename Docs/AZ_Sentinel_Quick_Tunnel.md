@@ -1,30 +1,32 @@
 # Quick Tunnel tự theo (Plan 3G): không cần tên miền, VPS reset vẫn vào được
 
-> v0.1 · 23/10/2026 · **Chưa thử trên Windows/Cloudflare thật.** Phần Node/TypeScript đã có test và đã chạy thử với `cloudflared` giả; việc tải `cloudflared.exe`, tác vụ "AZ Server" và Worker thật cần chạy thử trên VPS (mục 6).
+> v0.2 · 23/10/2026 (Plan 3H: Gateway tự tìm tunnel và nối thẳng) · **Chưa thử trên Windows/Cloudflare thật.** Phần Node/TypeScript đã có test và đã chạy thử với `cloudflared` giả; việc tải `cloudflared.exe`, tác vụ "AZ Server" và Worker thật cần chạy thử trên VPS (mục 6).
 
 ## 1. Vấn đề và cách giải
 
-Quick Tunnel (`*.trycloudflare.com`) miễn phí, không cần tên miền, nhưng **địa chỉ đổi mỗi lần `cloudflared` chạy lại** (VPS reset, Server khởi động lại). Cách giải: dùng **Worker Cloudflare làm cửa trước có địa chỉ cố định** (`*.workers.dev`, miễn phí). Mỗi khi địa chỉ tunnel đổi, VPS tự báo địa chỉ mới cho Worker; Worker chuyển tiếp mọi request `/api/*` (kể cả WebSocket của Gateway) tới địa chỉ hiện tại.
+Quick Tunnel (`*.trycloudflare.com`) miễn phí, không cần tên miền, nhưng **địa chỉ đổi mỗi lần `cloudflared` chạy lại** (VPS reset, Server khởi động lại). Cách giải (Plan 3H): **Worker Cloudflare chỉ làm hai việc nhẹ**: (1) là máy chủ dự phòng khi VPS sập, (2) là **danh bạ tunnel**: VPS báo địa chỉ tunnel mới cho Worker, Gateway hỏi Worker "tunnel hiện tại là gì?" rồi **nối THẲNG vào tunnel**. Lưu lượng thật (WebSocket Gateway, dữ liệu live) không đi qua Worker nên **không tốn hạn mức request**.
 
 ```
-Người dùng / Gateway ──► Worker (workers.dev, CỐ ĐỊNH)
-                              │  chuyển tiếp tới địa chỉ tunnel "hiện tại" (lưu trong D1)
-                              ▼
-                    xxxx.trycloudflare.com ──► VPS (Server)
+Gateway ──(1 request nhỏ: GET /api/gw/tunnel, chỉ lúc khởi động / mất kết nối)──► Worker (danh bạ + dự phòng)
+Gateway ══(WebSocket, nối THẲNG)══► xxxx.trycloudflare.com ──► VPS (Server)
 
 VPS khởi động ─► Server chạy cloudflared ─► đọc địa chỉ mới ─► POST /api/sync/heartbeat ─► Worker nhớ địa chỉ mới
 ```
 
-Người dùng và Gateway **chỉ dùng địa chỉ Worker**, nên không biết và không cần biết địa chỉ tunnel đã đổi.
+Gateway chỉ cần **mã kết nối** (địa chỉ Worker + token), không cần biết địa chỉ tunnel và không phải nhập lại khi nó đổi. Mã kết nối mang địa chỉ Worker (cố định); Server tự lấy `AZ_CLOUD_URL` làm `AZ_PUBLIC_URL` khi bật Quick Tunnel.
+
+> Worker vẫn có thể chuyển tiếp trình duyệt/Gateway cũ sang VPS như Plan 3E (mỗi request tính vào hạn mức). Gateway mới không dùng đường này.
 
 ## 2. Hành vi khi VPS reset
 
-1. VPS sập: Worker không tới được địa chỉ cũ nên tự chạy **chế độ dự phòng** (đúng như Plan 3E: xem được dữ liệu, ghi bị chặn trừ khi bật `FALLBACK_WRITABLE`).
-2. VPS lên lại, tác vụ "AZ Server" tự chạy, Server dọn `cloudflared` sót, mở Quick Tunnel mới và đọc địa chỉ (thường 5-15 giây).
-3. Server báo địa chỉ mới cho Worker; nếu Worker chưa nhận được thì thử lại sau 5 giây, giãn dần (tối đa 12 lần). Worker ghi vào D1 và dùng ngay trong isolate đó; các isolate khác thấy sau tối đa 10 giây.
-4. Worker quay về chuyển tiếp sang VPS. Gateway tự nối lại (Gateway thử địa chỉ chính rồi dự phòng, cả hai đều là địa chỉ Worker).
+1. VPS sập: kết nối Gateway tới tunnel rớt. Gateway **hỏi danh bạ ngay**; chưa có tunnel mới thì sau 2 lần nối hỏng chuyển sang **Worker dự phòng** (Cloudflare hub, vẫn nhận dữ liệu).
+2. VPS lên lại: tác vụ "AZ Server" tự chạy lúc khởi động máy (và `run-server.cmd` tự bật lại Server nếu nó thoát), Server dọn `cloudflared` sót, mở Quick Tunnel mới, đọc địa chỉ (thường 5-15 giây).
+3. Server báo địa chỉ mới cho Worker ngay (thử lại 5 giây, giãn dần, tối đa 12 lần), không chờ nhịp sống 2 phút. Worker ghi D1 và dùng ngay trong isolate đó; isolate khác thấy sau tối đa 10 giây.
+4. Gateway đang ở dự phòng **hỏi danh bạ mỗi 15 giây** (2 phút đầu, sau đó 60 giây) rồi thử nối tunnel; được thì tự về, không cần thao tác. Gateway đang nối thẳng mà tunnel đổi thì hỏi danh bạ ngay và nối sang tunnel mới, không phải rơi xuống dự phòng.
 
-Khoảng gián đoạn ≈ thời gian VPS khởi động + 15-30 giây tunnel. Trong lúc đó người dùng vẫn mở được bản dự phòng.
+Khoảng gián đoạn ≈ thời gian VPS khởi động + 15-30 giây tunnel + tối đa ~15 giây Gateway hỏi lại. Trong lúc đó dữ liệu vẫn vào bản dự phòng.
+
+**Chi phí request Worker:** Gateway ổn định = 0 request (chỉ 1 request lúc khởi động). Khi VPS sập: ≤ 8 request trong 2 phút đầu rồi 1 request/phút cho mỗi Gateway; VPS sập cả ngày với 10 Gateway ≈ 15.000 request, dưới hạn 100.000/ngày của gói free. Cộng nhịp sống VPS ≈ 720 request/ngày.
 
 Server còn tự kiểm tra tunnel mỗi 60 giây (gọi `/api/health` qua chính địa chỉ tunnel, bỏ qua 30 giây đầu); hỏng 3 lần liên tiếp thì tự khởi động lại `cloudflared` và báo địa chỉ mới.
 
@@ -36,20 +38,22 @@ Server còn tự kiểm tra tunnel mỗi 60 giây (gọi `/api/health` qua chín
 2. **Không đặt `VPS_ORIGIN`** (Worker tự học địa chỉ từ VPS). Nếu đã đặt thì địa chỉ VPS báo lên vẫn thắng; VPS báo "không dùng Quick Tunnel" thì quay về `VPS_ORIGIN`.
 3. Ghi địa chỉ Worker (ví dụ `https://az-sentinel-api.<tài-khoản>.workers.dev`) để dùng ở bước dưới.
 
-**Trên VPS** (đã cài bộ cài Server, `server.env` đã có `AZ_CLOUD_URL` = địa chỉ Worker API và `AZ_SYNC_TOKEN` trùng với Worker). PowerShell Administrator, trong thư mục cài:
+**Trên VPS, cách nhanh nhất: dùng bộ cài Server.** Điền địa chỉ Worker API và `SYNC_TOKEN` (>= 32 ký tự, trùng Worker), **để trống** "URL công khai" và "Token Cloudflare Tunnel": bộ cài tự ghi `AZ_QUICK_TUNNEL=1`. Xong, không cần làm gì thêm.
+
+Đã cài từ trước thì PowerShell Administrator, trong thư mục cài:
 
 ```powershell
-.\quick-tunnel.ps1 -WorkerUrl https://az-sentinel-api.<tài-khoản>.workers.dev
+.\quick-tunnel.ps1            # lấy AZ_CLOUD_URL trong server.env; thêm -WorkerUrl https://... để đổi
 .\quick-tunnel.ps1 -Show      # sau 30-60 giây: xem địa chỉ tunnel hiện tại
 ```
 
-Script đặt `AZ_QUICK_TUNNEL=1` và `AZ_PUBLIC_URL=<địa chỉ Worker>` trong `server.env` rồi khởi động lại "AZ Server". Làm tay cũng được: sửa hai dòng đó, khởi động lại tác vụ. Tắt: `.\quick-tunnel.ps1 -Off`.
+Script đặt `AZ_QUICK_TUNNEL=1` (và `AZ_PUBLIC_URL=<địa chỉ Worker>`) trong `server.env` rồi khởi động lại "AZ Server". Làm tay cũng được. Tắt: `.\quick-tunnel.ps1 -Off`.
 
-- `AZ_PUBLIC_URL` phải là **địa chỉ Worker** (cố định), không phải địa chỉ `trycloudflare.com`, vì đó là địa chỉ đưa vào mã kết nối Gateway.
+- `AZ_PUBLIC_URL` để trống thì Server tự lấy địa chỉ Worker (`AZ_CLOUD_URL`). Nếu tự đặt thì phải là **địa chỉ Worker** (cố định), không phải địa chỉ `trycloudflare.com`, vì đó là địa chỉ đưa vào mã kết nối Gateway.
 - `cloudflared.exe` tự tải về `C:\ProgramData\AZSentinelServer` lần chạy đầu (cần VPS ra được `github.com`). Đặt `AZ_CLOUDFLARED` nếu muốn dùng tệp có sẵn. Tệp `tunnel-url.txt` cùng thư mục ghi địa chỉ hiện tại.
 - Cài đè bằng bộ cài với `/RECONFIGURE=1` sẽ ghi lại `server.env` và làm mất hai dòng này (xem `AZ_Sentinel_Server_Installer.md`): chạy lại `quick-tunnel.ps1`.
 
-**Cấp Gateway:** Start menu > Quản lý token Gateway > `token issue ...`; mã kết nối/Cloud URL của Gateway dùng địa chỉ Worker (`wss://<worker>/api/gw/ws`), ô dự phòng cũng điền địa chỉ Worker.
+**Cấp Gateway:** Start menu > Quản lý token Gateway > `token issue ...`; gửi **mã kết nối** cho người dùng (đã mang địa chỉ Worker). Gateway tự hỏi Worker tìm tunnel hiện tại. Nếu nhập tay: Cloud URL = `wss://<worker>/api/gw/ws`, ô dự phòng cũng là địa chỉ Worker (đó là nơi Gateway hỏi danh bạ).
 
 ## 4. Whitelist IP khi đi qua Worker
 
@@ -62,9 +66,10 @@ Qua Worker, VPS chỉ thấy IP của Cloudflare. Worker chuyển IP thật củ
 
 ## 5. Giới hạn và rủi ro
 
-- **Mọi truy cập đi qua Worker nên tính vào hạn mức request của gói free Cloudflare.** Plan 3E cũng nêu điều này. Theo dõi mức dùng; vượt thì Worker bị giới hạn và cả web lẫn Gateway chịu ảnh hưởng.
+- **Trình duyệt vẫn đi qua Worker nếu mở web bằng địa chỉ Worker** (mỗi request tính vào hạn mức free). Lưu lượng Gateway thì không (nối thẳng tunnel). Nếu cần giảm nữa, cho người dùng mở web bằng địa chỉ tunnel hiện tại (`-Show`) hoặc dùng tunnel có tên + tên miền (Plan 3E).
+- **Tunnel đi thẳng nên IP Gateway/người dùng là IP thật** (cloudflared gửi `CF-Connecting-IP`); Whitelist IP (Plan 3F) áp dụng như bình thường, nhớ thêm IP của các Gateway nếu bật Whitelist.
 - **Quick Tunnel do Cloudflare ghi rõ là chỉ để thử nghiệm và phát triển, không cam kết SLA hay thời gian hoạt động** (tài liệu `developers.cloudflare.com/tunnel/get-started/quick-tunnels/`). Muốn ổn định lâu dài hãy dùng tunnel có tên và tên miền (Plan 3E).
-- Mỗi Quick Tunnel nhận tối đa **200 request đồng thời**, vượt thì trả HTTP 429. Quick Tunnel **không hỗ trợ SSE**, nhưng dự án này không dùng SSE (Gateway và trang live dùng WebSocket; `pnpm dev:public` của repo cũng cho Gateway nối WebSocket qua Quick Tunnel). Việc WebSocket chạy ổn qua Worker rồi qua Quick Tunnel trên VPS thật vẫn cần thử (mục 6).
+- Mỗi Quick Tunnel nhận tối đa **200 request đồng thời**, vượt thì trả HTTP 429. Quick Tunnel **không hỗ trợ SSE**, nhưng dự án này không dùng SSE (Gateway và trang live dùng WebSocket; `pnpm dev:public` của repo cũng cho Gateway nối WebSocket qua Quick Tunnel). Việc WebSocket Gateway nối thẳng Quick Tunnel trên VPS thật vẫn cần thử (mục 6).
 - Quick Tunnel không chạy đúng nếu thư mục `.cloudflared` của tài khoản chạy Server (SYSTEM) có sẵn `config.yaml` (do tunnel có tên cấu hình tay để lại). Server cài bằng `setup-tunnel.ps1` (token) không tạo tệp này; nếu từng cấu hình tay thì xóa/đổi tên tệp đó.
 - Có khoảng gián đoạn ngắn mỗi lần reset (mục 2). Gateway nối vào Worker trong lúc dự phòng vẫn được nhận (token đã đồng bộ sang D1).
 - Địa chỉ báo lên phải là `https`, không IP thô/`localhost`/cổng lạ/tài khoản trong URL. Ai giữ `SYNC_TOKEN` có thể đổi nơi Worker chuyển tiếp, nên **giữ bí mật `SYNC_TOKEN`** như một khóa quản trị.
@@ -76,7 +81,9 @@ Qua Worker, VPS chỉ thấy IP của Cloudflare. Worker chuyển IP thật củ
 - [ ] Mở `https://<worker>/api/health` từ điện thoại (4G) thấy `ok`, header `X-AZ-Served-By: vps`.
 - [ ] Khởi động lại VPS, không đăng nhập RDP: sau 1-2 phút địa chỉ Worker vẫn dùng được, `-Show` ra địa chỉ **khác** trước.
 - [ ] Task Manager chỉ có **một** `cloudflared.exe` của Server sau nhiều lần khởi động lại (không tích tụ tiến trình sót).
-- [ ] Gateway của User tự nối lại và tracking tiếp sau khi VPS reset.
+- [ ] Gateway của User tự nối lại và tracking tiếp sau khi VPS reset (log Gateway có dòng `danh bạ báo tunnel mới`).
+- [ ] Trong Cloudflare Dashboard, request Worker khi Gateway ổn định gần như chỉ còn nhịp sống VPS (~720/ngày), không tăng theo số Gateway.
+- [ ] Tắt hẳn VPS 3 phút rồi bật lại: Gateway sang dự phòng rồi tự về tunnel mới, không thao tác.
 - [ ] Bật Whitelist: IP lạ qua Worker nhận 403 kèm đúng IP; IP trong danh sách vào được.
 - [ ] Theo dõi mức request Worker trong Cloudflare Dashboard sau vài ngày.
 
@@ -90,5 +97,8 @@ Qua Worker, VPS chỉ thấy IP của Cloudflare. Worker chuyển IP thật củ
 | `BE/src/edge/vps-origin.ts` | Worker nhớ địa chỉ VPS báo lên (D1, đệm 10 giây) |
 | `BE/src/edge/edge-router.ts`, `edge-sign.ts` | Chuyển tiếp tới địa chỉ hiện tại, ký IP thật |
 | `BE/src/routes/sync.ts` | `/api/sync/heartbeat` nhận `tunnelUrl` |
+| `BE/src/live/routes/gw-ws.ts` | `GET /api/gw/tunnel`: danh bạ tunnel cho Gateway (cần token Gateway, Worker tự trả lời) |
+| `Gateway/src/cloud.ts` | Hỏi danh bạ khi khởi động/mất kết nối/đang dự phòng, nối thẳng tunnel; coi lỗi nối là kết thúc (Node không luôn bắn `close`) |
+| `Shared/src/tunnel-directory.ts` | Đường dẫn và kiểu trả lời của danh bạ |
 | `Shared/src/edge-auth.ts` | Tên header, thông điệp ký, kiểm địa chỉ tunnel |
 | `Server/scripts/quick-tunnel.ps1` | Bật/tắt/xem địa chỉ |

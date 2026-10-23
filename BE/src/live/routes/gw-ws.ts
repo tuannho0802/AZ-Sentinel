@@ -1,5 +1,6 @@
-import { looksLikeGwToken } from '@az-sentinel/shared'
+import { looksLikeGwToken, type TunnelDirectoryReply, tunnelWsUrl } from '@az-sentinel/shared'
 import { type Context, Hono } from 'hono'
+import { sharedOriginStore, type VpsOriginStore } from '../../edge/vps-origin'
 import { AppError } from '../../lib/app-error'
 import { sha256Hex } from '../../lib/crypto'
 import { nowUnix } from '../../lib/time'
@@ -32,17 +33,31 @@ async function authenticateGatewayToken(c: Context<AppEnv>): Promise<GwTokenRow>
 
 /**
  * - `GET /api/gw/check`: bộ cài/Gateway hỏi nhanh token còn dùng được không (200 hoặc 401).
+ * - `GET /api/gw/tunnel` (Plan 3H): danh bạ tunnel. Gateway có token hỏi địa chỉ Quick Tunnel hiện tại của VPS rồi nối
+ *   thẳng vào đó. Chỉ 1 lần đọc D1 (token) cộng đọc đệm địa chỉ; không chuyển tiếp gì sang VPS.
  * - `GET /api/gw/ws`: Gateway giữ một WebSocket tới đây (Plan 3C mục 4). Mức kết nối dùng token cá
  *   nhân; quyền dữ liệu từng liên kết vẫn đi qua khóa trong tin `bind`, hub kiểm lại bằng D1 và đòi
  *   liên kết phải thuộc chủ của token. Trình duyệt luôn gửi `Origin`; Gateway thì không.
  */
-export function createGwWsRoutes() {
+export function createGwWsRoutes(origins: VpsOriginStore = sharedOriginStore) {
   const routes = new Hono<AppEnv>()
 
   routes.get('/check', async (c) => {
     const row = await authenticateGatewayToken(c)
     c.header('Cache-Control', 'no-store')
     return c.json({ ok: true, owner_id: row.owner_id })
+  })
+
+  routes.get('/tunnel', async (c) => {
+    await authenticateGatewayToken(c)
+    const origin = await origins.resolve(c.env)
+    const body: TunnelDirectoryReply = {
+      ok: true,
+      origin,
+      wsUrl: origin ? tunnelWsUrl(origin) : null,
+    }
+    c.header('Cache-Control', 'no-store')
+    return c.json(body)
   })
 
   routes.get('/ws', async (c) => {

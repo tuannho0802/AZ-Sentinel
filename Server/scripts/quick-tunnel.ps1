@@ -1,7 +1,7 @@
 <#
   Bat/tat Quick Tunnel (Plan 3G): VPS tu mo dia chi *.trycloudflare.com (mien phi, khong can ten mien) va TU BAO
   dia chi moi cho Worker Cloudflare moi khi VPS khoi dong lai. Nguoi dung chi dung dia chi cua Worker (co dinh).
-  Bat:  .\quick-tunnel.ps1 -WorkerUrl https://ten-worker.tai-khoan.workers.dev
+  Bat:  .\quick-tunnel.ps1            (dung AZ_CLOUD_URL trong server.env; hoac them -WorkerUrl https://... de doi)
   Tat:  .\quick-tunnel.ps1 -Off
   Xem dia chi tunnel hien tai: .\quick-tunnel.ps1 -Show
   Chay PowerShell bang quyen Administrator. Can AZ_CLOUD_URL va AZ_SYNC_TOKEN da co trong server.env.
@@ -39,7 +39,11 @@ $lines = [string[]](Get-Content -LiteralPath $envFile)
 if ($Off) {
   $lines = Set-EnvKey $lines 'AZ_QUICK_TUNNEL' ''
 } else {
-  if ($WorkerUrl -notmatch '^https://[A-Za-z0-9.-]+$') { throw 'Can -WorkerUrl dang https://ten-worker.tai-khoan.workers.dev (khong co / o cuoi)' }
+  if ($WorkerUrl -eq '') {
+    $m = [regex]::Match(($lines -join "`n"), '(?m)^\s*AZ_CLOUD_URL\s*=\s*(https://[A-Za-z0-9.-]+)')
+    if ($m.Success) { $WorkerUrl = $m.Groups[1].Value }
+  }
+  if ($WorkerUrl -notmatch '^https://[A-Za-z0-9.-]+$') { throw 'Chua co AZ_CLOUD_URL trong server.env: them -WorkerUrl https://ten-worker.tai-khoan.workers.dev (khong co / o cuoi)' }
   $joined = $lines -join "`n"
   if ($joined -notmatch '(?m)^\s*AZ_CLOUD_URL\s*=\s*https://\S+' -or $joined -notmatch '(?m)^\s*AZ_SYNC_TOKEN\s*=\s*\S{32,}') {
     throw 'server.env can AZ_CLOUD_URL va AZ_SYNC_TOKEN (>= 32 ky tu) de bao dia chi tunnel cho Worker'

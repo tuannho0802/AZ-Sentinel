@@ -1,5 +1,6 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs'
 import path from 'node:path'
+import { tunnelDirectoryUrl } from '@az-sentinel/shared'
 import { runCheckToken } from './check-token'
 import { CloudClient } from './cloud'
 import { defaultDataDir, loadConfig, saveEditableConfig, writeOffFlag } from './config'
@@ -93,6 +94,10 @@ async function main() {
     cloud = new CloudClient(gw, {
       url: cfg.cloudUrl,
       ...(cfg.cloudFallbackUrl ? { fallbackUrl: cfg.cloudFallbackUrl } : {}),
+      // Plan 3H: Worker là danh bạ tunnel; Gateway tự tìm Quick Tunnel mới của VPS rồi nối thẳng.
+      directoryUrls: [cfg.cloudFallbackUrl, cfg.cloudUrl]
+        .map((u) => (u ? tunnelDirectoryUrl(u) : null))
+        .filter((u): u is string => u !== null),
       token: cfg.cloudToken,
       log,
     })

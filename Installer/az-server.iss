@@ -352,6 +352,11 @@ begin
     'AZ_CLOUD_URL=' + Trim(SrvPage.Values[3]) + #13#10 +
     'AZ_FALLBACK_URL=' + Trim(SrvPage.Values[4]) + #13#10 +
     'AZ_PUBLIC_URL=' + Trim(SrvPage.Values[6]) + #13#10;
+  { Plug and play (Plan 3H): co Worker + SYNC_TOKEN, khong co URL cong khai/token tunnel co ten -> tu bat Quick Tunnel
+    (khong can ten mien); Gateway tu tim tunnel moi qua Worker, khong ai phai lam gi khi VPS reset. }
+  if (Trim(SrvPage.Values[3]) <> '') and (Length(Trim(SrvPage.Values[5])) >= 32) and
+     (Trim(SrvPage.Values[6]) = '') and (Trim(SrvPage.Values[7]) = '') then
+    Env := Env + 'AZ_QUICK_TUNNEL=1' + #13#10;
   SaveStringToFile(EnvPath, Env, False);
 end;
 

@@ -47,7 +47,7 @@ export function createApp(opts: AppOptions = {}) {
   app.route('/api/sync', createSyncRoutes(opts.edge?.origins))
   app.route('/api/ea/v1', createEaRoutes(opts.getHub ?? defaultHub))
   app.route('/api/live', createLiveWsRoutes(opts.viewerAuth ?? resolveViewer))
-  app.route('/api/gw', createGwWsRoutes())
+  app.route('/api/gw', createGwWsRoutes(opts.edge?.origins))
   // Plan 4: quản trị viên cấp, đặt lại, thu hồi token Gateway cá nhân.
   app.route('/api/admin/gw-tokens', createAdminTokenRoutes(opts.viewerAuth ?? resolveViewer))
   // Plan 4B: người dùng, đăng nhập thật và quản lý người dùng.
