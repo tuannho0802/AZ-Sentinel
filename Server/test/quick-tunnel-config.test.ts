@@ -39,4 +39,13 @@ describe('cấu hình Quick Tunnel plug and play (Plan 3H)', () => {
     expect(iss).toContain("'AZ_QUICK_TUNNEL=1'")
     expect(iss).toMatch(/Length\(Trim\(SrvPage\.Values\[5\]\)\) >= 32/)
   })
+
+  it('bản dự phòng mặc định là địa chỉ Worker (Worker phục vụ luôn giao diện); đặt tay thì giữ nguyên', () => {
+    expect(loadConfig({ ...base, AZ_CLOUD_URL: `${WORKER}/` }).fallbackUrl).toBe(WORKER)
+    expect(
+      loadConfig({ ...base, AZ_CLOUD_URL: WORKER, AZ_FALLBACK_URL: 'https://az.example.com' })
+        .fallbackUrl,
+    ).toBe('https://az.example.com')
+    expect(loadConfig({ ...base }).fallbackUrl).toBe('')
+  })
 })

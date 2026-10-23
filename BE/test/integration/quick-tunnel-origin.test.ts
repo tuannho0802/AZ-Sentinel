@@ -131,6 +131,32 @@ describe('Quick Tunnel: Worker tự theo địa chỉ VPS báo lên (Plan 3G)', 
     expect(await (await t.get('/api/x')).json()).toEqual({ from: NEW })
   })
 
+  it('server-info gợi ý giao diện địa chỉ tunnel VPS vừa báo (không phải PRIMARY_URL cũ), kể cả khi VPS đang sập', async () => {
+    const viewer = { Cookie: 'az_mock_session=admin@az.local' }
+    const e = { ...baseEnv, DEV_LINKS_API: '1', PRIMARY_URL: OLD }
+    const t = make([NEW])
+    const read = async () => (await t.get('/api/server-info', e, viewer)).json()
+
+    // Chưa có địa chỉ báo lên: dùng PRIMARY_URL cấu hình tay.
+    expect(((await read()) as { primaryUrl: string }).primaryUrl).toBe(OLD)
+
+    await t.beat({ tunnelUrl: NEW })
+    const up = (await read()) as { mode: string; primaryUrl: string }
+    expect(up.primaryUrl).toBe(NEW)
+
+    // VPS reset: tunnel cũ chết, tunnel mới chưa báo. Giao diện dự phòng vẫn biết địa chỉ gần nhất.
+    const down = make([])
+    await down.beat({ tunnelUrl: OLD })
+    const res = (await (await down.get('/api/server-info', e, viewer)).json()) as {
+      mode: string
+      primaryUrl: string
+      primary: { status: string }
+    }
+    expect(res.mode).toBe('fallback')
+    expect(res.primaryUrl).toBe(OLD)
+    expect(res.primary.status).toBe('down')
+  })
+
   it('từ chối địa chỉ không an toàn và yêu cầu không có token', async () => {
     const t = make([NEW])
     for (const bad of [

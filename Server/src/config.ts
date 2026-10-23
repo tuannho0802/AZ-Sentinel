@@ -108,5 +108,14 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
       // AZ_CLOUD_URL sai định dạng: giữ trống, phần đồng bộ sẽ báo lỗi riêng
     }
   }
+  // Plan 3I: Worker API phục vụ luôn giao diện, nên bản dự phòng mặc định chính là địa chỉ Worker (AZ_CLOUD_URL);
+  // không phải điền AZ_FALLBACK_URL. Địa chỉ `az-sentinel-web` (chỉ có tệp tĩnh, khác origin với API) không dùng được để đăng nhập.
+  if (cfg.fallbackUrl === '' && cfg.cloudUrl !== '') {
+    try {
+      cfg.fallbackUrl = new URL(cfg.cloudUrl).origin
+    } catch {
+      // AZ_CLOUD_URL sai định dạng: giữ trống
+    }
+  }
   return cfg
 }

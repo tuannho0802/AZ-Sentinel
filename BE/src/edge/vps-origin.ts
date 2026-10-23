@@ -26,21 +26,25 @@ export class VpsOriginStore {
     this.entry = null
   }
 
-  async resolve(env: Pick<Bindings, 'DB' | 'VPS_ORIGIN'>): Promise<string | null> {
-    const fixed = normalizeOrigin(env.VPS_ORIGIN)
+  /** Địa chỉ tunnel VPS đã báo lên (không tính `VPS_ORIGIN` cấu hình tay); null nếu chưa có. */
+  async learned(env: Pick<Bindings, 'DB'>): Promise<string | null> {
     const cached = this.entry
-    if (cached && this.now() - cached.at < CACHE_MS) return cached.origin ?? fixed
+    if (cached && this.now() - cached.at < CACHE_MS) return cached.origin
     try {
       const row = await env.DB.prepare('SELECT v FROM server_meta WHERE k = ?')
         .bind(TUNNEL_ORIGIN_KEY)
         .first<{ v: string }>()
       const origin = normalizeTunnelOrigin(row?.v)
       this.entry = { origin, at: this.now() }
-      return origin ?? fixed
+      return origin
     } catch {
-      // D1 lỗi tạm thời: dùng giá trị đã nhớ (kể cả cũ) rồi mới tới địa chỉ cấu hình tay.
-      return cached?.origin ?? fixed
+      // D1 lỗi tạm thời: dùng giá trị đã nhớ (kể cả cũ).
+      return cached?.origin ?? null
     }
+  }
+
+  async resolve(env: Pick<Bindings, 'DB' | 'VPS_ORIGIN'>): Promise<string | null> {
+    return (await this.learned(env)) ?? normalizeOrigin(env.VPS_ORIGIN)
   }
 }
 

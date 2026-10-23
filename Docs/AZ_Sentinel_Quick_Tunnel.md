@@ -30,6 +30,17 @@ Khoảng gián đoạn ≈ thời gian VPS khởi động + 15-30 giây tunnel +
 
 Server còn tự kiểm tra tunnel mỗi 60 giây (gọi `/api/health` qua chính địa chỉ tunnel, bỏ qua 30 giây đầu); hỏng 3 lần liên tiếp thì tự khởi động lại `cloudflared` và báo địa chỉ mới.
 
+### 2.1. Giao diện web khi VPS reset (Plan 3I)
+
+Worker API phục vụ **luôn giao diện** (static assets, `/api/*` vẫn chạy mã Worker) nên địa chỉ Worker là bản dự phòng đầy đủ: cùng origin với API, đăng nhập và WebSocket chạy được. Địa chỉ Worker là địa chỉ **cố định** để đánh dấu trang (bookmark) hoặc gửi cho người dùng; địa chỉ tunnel đổi mỗi lần.
+
+1. Người dùng đang mở web bằng địa chỉ tunnel, VPS sập: lời gọi API lỗi mạng, banner đỏ báo mất kết nối và đếm ngược 9 giây (dò lại mỗi 3 giây, nên mạng chớp thì không chuyển).
+2. Hết thời gian chờ: trang kiểm bản dự phòng có trả lời không, có thì tự chuyển sang địa chỉ Worker, **giữ nguyên trang đang xem**. Bản dự phòng chưa trả lời thì báo và dò tiếp. Địa chỉ dự phòng lấy từ `fallbackUrl` của `/api/server-info` (nhớ trong trình duyệt để dùng được cả khi chưa kịp gọi); VPS mặc định đặt bằng địa chỉ Worker (`AZ_CLOUD_URL`), không phải điền `AZ_FALLBACK_URL`.
+3. Ở bản dự phòng: phiên đăng nhập là của origin Worker nên **người dùng đăng nhập lại một lần** (tài khoản đã đồng bộ sang Cloudflare). Chế độ dự phòng chỉ cho xem, thao tác ghi liên kết/token bị khóa (như Plan 3E).
+4. VPS lên lại: Worker chuyển tiếp `/api/*` về VPS (tính request Worker) nên trang tự hết chế độ dự phòng, không cần làm gì. Muốn bỏ chi phí request này, banner hiện nút **Mở máy chủ chính** trỏ thẳng tunnel mới (poll 10 giây khi đang dự phòng); không tự ép chuyển để không làm mất việc đang làm, vì phiên của tunnel là phiên riêng.
+
+Không cứu được: trình duyệt **tải mới** một địa chỉ tunnel đã chết (chỉ thấy trang lỗi của trình duyệt vì không còn máy chủ nào trả lời). Vì vậy hãy phát địa chỉ Worker cho người dùng làm địa chỉ chính.
+
 ## 3. Cài đặt (làm một lần)
 
 **Trên Cloudflare** (Worker của dự án này, `az-sentinel-api`, và web `az-sentinel-web`, deploy bằng tag deploy như `AZ_Sentinel_CI_Tags_And_Gateway_Power.md`):
@@ -84,6 +95,8 @@ Qua Worker, VPS chỉ thấy IP của Cloudflare. Worker chuyển IP thật củ
 - [ ] Gateway của User tự nối lại và tracking tiếp sau khi VPS reset (log Gateway có dòng `danh bạ báo tunnel mới`).
 - [ ] Trong Cloudflare Dashboard, request Worker khi Gateway ổn định gần như chỉ còn nhịp sống VPS (~720/ngày), không tăng theo số Gateway.
 - [ ] Tắt hẳn VPS 3 phút rồi bật lại: Gateway sang dự phòng rồi tự về tunnel mới, không thao tác.
+- [ ] Mở web bằng địa chỉ tunnel, đăng nhập, rồi tắt VPS: sau khoảng 10 giây trang tự sang địa chỉ Worker (đúng trang đang xem), đăng nhập lại được, banner vàng báo dự phòng.
+- [ ] Bật VPS lại: banner có nút **Mở máy chủ chính** với địa chỉ tunnel mới, bấm vào mở đúng trang.
 - [ ] Bật Whitelist: IP lạ qua Worker nhận 403 kèm đúng IP; IP trong danh sách vào được.
 - [ ] Theo dõi mức request Worker trong Cloudflare Dashboard sau vài ngày.
 
@@ -96,6 +109,8 @@ Qua Worker, VPS chỉ thấy IP của Cloudflare. Worker chuyển IP thật củ
 | `Server/src/edge-ip.ts`, `Server/src/http.ts` | Kiểm chữ ký, tin IP thật do Worker chuyển |
 | `BE/src/edge/vps-origin.ts` | Worker nhớ địa chỉ VPS báo lên (D1, đệm 10 giây) |
 | `BE/src/edge/edge-router.ts`, `edge-sign.ts` | Chuyển tiếp tới địa chỉ hiện tại, ký IP thật |
+| `FE/src/features/server/FailoverWatcher.tsx`, `FailoverBanner.tsx`, `FE/src/lib/failover.ts` | Giao diện dò lại, đếm ngược, tự chuyển sang dự phòng, nút mở tunnel mới |
+| `BE/wrangler.jsonc` (`assets`) | Worker API phục vụ giao diện, `/api/*` chạy mã Worker |
 | `BE/src/routes/sync.ts` | `/api/sync/heartbeat` nhận `tunnelUrl` |
 | `BE/src/live/routes/gw-ws.ts` | `GET /api/gw/tunnel`: danh bạ tunnel cho Gateway (cần token Gateway, Worker tự trả lời) |
 | `Gateway/src/cloud.ts` | Hỏi danh bạ khi khởi động/mất kết nối/đang dự phòng, nối thẳng tunnel; coi lỗi nối là kết thúc (Node không luôn bắn `close`) |

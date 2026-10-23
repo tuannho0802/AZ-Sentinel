@@ -331,6 +331,13 @@ export const strings = {
   lostBannerText:
     'Không gọi được máy chủ. Có thể VPS vừa sập hoặc mạng bị ngắt; trang sẽ tự thử lại.',
   lostOpenFallback: 'Mở bản dự phòng (Cloudflare)',
+  lostAutoSwitch: (sec: number) =>
+    sec > 0
+      ? `Nếu chưa kết nối lại được, trang tự chuyển sang bản dự phòng sau ${sec} giây.`
+      : 'Đang chuyển sang bản dự phòng…',
+  lostFallbackDown: 'Bản dự phòng cũng chưa trả lời; trang sẽ tiếp tục thử.',
+  lostNoFallback:
+    'Chưa biết địa chỉ bản dự phòng. Hãy mở địa chỉ dự phòng (Cloudflare) mà quản trị viên đã gửi.',
   serverUnitMb: 'MB',
 
   roles: { root_admin: 'rootAdmin', admin: 'Admin', user: 'User' },

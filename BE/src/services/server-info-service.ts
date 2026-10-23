@@ -105,7 +105,11 @@ export async function buildServerInfo(
     }
   }
 
-  const origin = await (deps.origins ?? sharedOriginStore).resolve(c.env)
+  const store = deps.origins ?? sharedOriginStore
+  const origin = await store.resolve(c.env)
+  // Plan 3I: Quick Tunnel đổi địa chỉ mỗi lần chạy, nên "địa chỉ máy chủ chính" gợi ý cho người dùng là địa chỉ
+  // tunnel VPS vừa báo (nếu có), không phải `PRIMARY_URL` cấu hình tay (có thể đã chết).
+  const primaryUrl = (await store.learned(c.env)) ?? normalizeUrl(c.env.PRIMARY_URL)
   if (!origin) {
     const self = await describeSelf(c)
     return {
@@ -116,7 +120,7 @@ export async function buildServerInfo(
       gateways: self.gateways,
       viewers: self.viewers,
       checkedAt,
-      primaryUrl: normalizeUrl(c.env.PRIMARY_URL),
+      primaryUrl,
       fallbackUrl: normalizeUrl(c.env.FALLBACK_URL),
     }
   }
@@ -134,7 +138,7 @@ export async function buildServerInfo(
         gateways: remote.gateways,
         viewers: remote.viewers,
         checkedAt,
-        primaryUrl: normalizeUrl(c.env.PRIMARY_URL),
+        primaryUrl,
         fallbackUrl: remote.fallbackUrl ?? normalizeUrl(c.env.FALLBACK_URL),
       }
     }
@@ -159,7 +163,7 @@ export async function buildServerInfo(
     gateways: self.gateways,
     viewers: self.viewers,
     checkedAt,
-    primaryUrl: normalizeUrl(c.env.PRIMARY_URL),
+    primaryUrl,
     fallbackUrl: normalizeUrl(c.env.FALLBACK_URL),
   }
 }

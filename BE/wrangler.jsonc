@@ -20,6 +20,10 @@
   // Plan 3B: hub live. Gói free bắt buộc SQLite-backed (new_sqlite_classes); hub không dùng
   // storage nên không tốn dòng ghi của DO.
   "durable_objects": { "bindings": [{ "name": "LIVE_HUB", "class_name": "LiveHub" }] },
-  "migrations": [{ "tag": "v1-live-hub", "new_sqlite_classes": ["LiveHub"] }]
+  "migrations": [{ "tag": "v1-live-hub", "new_sqlite_classes": ["LiveHub"] }],
+  // Plan 3I: Worker API phục vụ luôn giao diện, nên bản dự phòng cùng origin với /api (đăng nhập, cookie, WebSocket chạy được).
+  // Thư mục giao diện được truyền lúc deploy (`wrangler deploy --assets ../FE/dist`, xem scripts.deploy) để test và
+  // `wrangler dev` không cần có sẵn FE/dist. Tệp tĩnh không tính hạn mức request; `/api/*` luôn chạy mã Worker.
+  "assets": { "not_found_handling": "single-page-application", "run_worker_first": ["/api/*"] }
   // Part 4: thêm "routes" khi có domain; Part 5: thêm "triggers.crons".
 }
