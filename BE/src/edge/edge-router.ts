@@ -1,9 +1,12 @@
 import { FAILOVER } from '@az-sentinel/shared'
 import type { MiddlewareHandler } from 'hono'
 import { AppError } from '../lib/app-error'
+import { nowUnix } from '../lib/time'
 import type { AppEnv } from '../types'
+import { applyEdgeClientIp } from './edge-sign'
 import { type FetchFn, realFetch, timedFetch } from './timed-fetch'
-import { normalizeOrigin, type ProbeRegistry, probeFor, type VpsProbe } from './vps-probe'
+import { sharedOriginStore, type VpsOriginStore } from './vps-origin'
+import { type ProbeRegistry, probeFor, type VpsProbe } from './vps-probe'
 
 /** Route luôn do chính Worker xử lý, kể cả khi VPS sống (chúng tự ghép thông tin hai phía). */
 const LOCAL_ONLY = ['/api/server-info', '/api/sync']
@@ -15,6 +18,8 @@ export type EdgeRouterOptions = {
   /** Chỉ để kiểm thử: thay `fetch` ra ngoài và sổ đăng ký trạng thái dò. */
   fetchFn?: FetchFn
   registry?: ProbeRegistry
+  /** Chỉ để kiểm thử: nơi nhớ địa chỉ tunnel VPS báo lên. */
+  origins?: VpsOriginStore
 }
 
 const isLocalOnly = (path: string) =>
@@ -30,6 +35,7 @@ const isLocalOnly = (path: string) =>
  */
 export function createEdgeRouter(opts: EdgeRouterOptions = {}): MiddlewareHandler<AppEnv> {
   const fetchFn = opts.fetchFn ?? realFetch
+  const origins = opts.origins ?? sharedOriginStore
   return async (c, next) => {
     // Đang chạy trên chính VPS (Node): không chuyển tiếp đi đâu.
     if (c.env.HOST) {
@@ -37,7 +43,7 @@ export function createEdgeRouter(opts: EdgeRouterOptions = {}): MiddlewareHandle
       c.set('mode', 'primary')
       return next()
     }
-    const origin = normalizeOrigin(c.env.VPS_ORIGIN)
+    const origin = await origins.resolve(c.env)
     if (!origin) {
       c.set('mode', 'standalone')
       return next()
@@ -47,7 +53,7 @@ export function createEdgeRouter(opts: EdgeRouterOptions = {}): MiddlewareHandle
 
     const probe = probeFor(origin, opts.registry, fetchFn)
     if (await probe.isUp()) {
-      const res = await forward(c.req.raw, origin, probe, fetchFn)
+      const res = await forward(c.req.raw, origin, probe, fetchFn, c.env.SYNC_TOKEN)
       if (res) {
         c.set('servedBy', 'vps')
         c.set('mode', 'primary')
@@ -89,13 +95,13 @@ async function forward(
   origin: string,
   probe: VpsProbe,
   fetchFn: FetchFn,
+  secret: string | undefined,
 ): Promise<Response | null> {
   const url = new URL(req.url)
   const headers = new Headers(req.headers)
   headers.delete('Host')
-  // VPS không thấy IP và host thật của người dùng, nên Worker chuyển lại bằng header riêng.
-  const ip = req.headers.get('CF-Connecting-IP')
-  if (ip) headers.set('X-AZ-Client-IP', ip)
+  // VPS không thấy IP và host thật của người dùng, nên Worker chuyển lại bằng header riêng (có ký, Plan 3G).
+  await applyEdgeClientIp(headers, req.headers.get('CF-Connecting-IP'), secret, nowUnix())
   headers.set('X-Forwarded-Host', url.host)
   headers.set('X-Forwarded-Proto', url.protocol.replace(':', ''))
   const hasBody = req.method !== 'GET' && req.method !== 'HEAD'

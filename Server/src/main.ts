@@ -1,4 +1,5 @@
 import { mkdirSync } from 'node:fs'
+import path from 'node:path'
 import { createApp } from '../../BE/src/app'
 import { LiveHub } from '../../BE/src/live/live-hub'
 import { ensureDevToken } from '../../BE/src/services/gw-token-service'
@@ -16,6 +17,7 @@ import { openDatabase } from './shim/d1'
 import { createStaticHandler } from './static'
 import { SyncAgent } from './sync-agent'
 import { runTokenCli } from './token-cli'
+import { QuickTunnel } from './tunnel'
 import { runUserCli } from './user-cli'
 
 /**
@@ -68,11 +70,20 @@ async function main() {
   if (cfg.cloudUrl !== '' && cfg.syncToken === '') {
     log.warn('có AZ_CLOUD_URL nhưng thiếu AZ_SYNC_TOKEN: tắt đồng bộ sang Cloudflare')
   }
+  // Plan 3G: Quick Tunnel (địa chỉ đổi mỗi lần). Cần đồng bộ bật để báo địa chỉ mới cho Worker.
+  const wantTunnel = cfg.quickTunnel === '1'
+  if (wantTunnel && !canSync) {
+    log.warn(
+      'AZ_QUICK_TUNNEL=1 nhưng chưa bật đồng bộ (thiếu AZ_CLOUD_URL/AZ_SYNC_TOKEN): Worker sẽ không biết địa chỉ tunnel',
+    )
+  }
+  let tunnel: QuickTunnel | null = null
   const sync = canSync
     ? new SyncAgent(db, {
         cloudOrigin: new URL(cfg.cloudUrl).origin,
         token: cfg.syncToken,
         describe: () => describeNode(cfg, cpu),
+        tunnelUrl: wantTunnel ? () => tunnel?.url() ?? null : undefined,
         log,
       })
     : null
@@ -117,6 +128,7 @@ async function main() {
     host: cfg.host,
     handler,
     guard: new IpGuard(db.sqlite, Date.now, (m) => log.warn(m)),
+    edgeSecret: cfg.syncToken,
     onGatewayConnected: () => sync?.nudgePull(),
   })
   server.on('listening', () => log.info(`đang nghe ${cfg.host}:${cfg.port}`))
@@ -125,10 +137,24 @@ async function main() {
     process.exit(1)
   })
   sync?.start()
+  if (wantTunnel) {
+    const exe = process.platform === 'win32' ? 'cloudflared.exe' : 'cloudflared'
+    tunnel = new QuickTunnel({
+      port: cfg.port,
+      binPath: cfg.cloudflaredPath || path.join(cfg.dataDir, exe),
+      urlFile: path.join(cfg.dataDir, 'tunnel-url.txt'),
+      log,
+      onChange: (url) => {
+        if (url) void sync?.deliverTunnel()
+      },
+    })
+    tunnel.start()
+  }
 
   const shutdown = (signal: string) => {
     log.info(`nhận ${signal}, đang dừng`)
     sync?.stop()
+    tunnel?.stop()
     cpu.stop()
     for (const ws of state.getWebSockets()) ws.close(1001, 'server_restart')
     server.close()

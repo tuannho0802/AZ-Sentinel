@@ -159,3 +159,55 @@ describe('SyncAgent: token Gateway', () => {
     expect(outboxTokens(db)).toBe(1)
   })
 })
+
+describe('SyncAgent: địa chỉ Quick Tunnel trong nhịp sống (Plan 3G)', () => {
+  function heartbeatBodies(tunnelUrl?: () => string | null, fail = 0) {
+    const bodies: Record<string, unknown>[] = []
+    let left = fail
+    const fetchFn = (async (input: string | URL | Request, init?: RequestInit) => {
+      if (new URL(String(input)).pathname === '/api/sync/heartbeat') {
+        bodies.push(JSON.parse(String(init?.body)))
+        if (left-- > 0) return new Response('x', { status: 503 })
+      }
+      return Response.json({ ok: true })
+    }) as typeof fetch
+    const db = openDatabase(':memory:')
+    runMigrations(db, migrations)
+    const agent = new SyncAgent(db, {
+      cloudOrigin: 'https://cf.test',
+      token: 'sync',
+      describe: () => node,
+      tunnelUrl,
+      log,
+      fetchFn,
+    })
+    return { agent, bodies }
+  }
+
+  it('không dùng Quick Tunnel: gửi tunnelUrl = null để Worker bỏ địa chỉ cũ', async () => {
+    const { agent, bodies } = heartbeatBodies()
+    expect(await agent.heartbeat()).toBe(true)
+    expect(bodies[0]).toHaveProperty('tunnelUrl', null)
+  })
+
+  it('có địa chỉ tunnel: gửi kèm; chưa có (đang khởi động) thì không gửi để Worker giữ nguyên', async () => {
+    const a = heartbeatBodies(() => 'https://abc-def.trycloudflare.com')
+    await a.agent.heartbeat()
+    expect(a.bodies[0]).toHaveProperty('tunnelUrl', 'https://abc-def.trycloudflare.com')
+    const b = heartbeatBodies(() => null)
+    await b.agent.heartbeat()
+    expect(b.bodies[0]).not.toHaveProperty('tunnelUrl')
+  })
+
+  it('deliverTunnel thử lại cho tới khi Worker nhận', async () => {
+    const { agent, bodies } = heartbeatBodies(() => 'https://abc-def.trycloudflare.com', 1)
+    const wait = globalThis.setTimeout
+    globalThis.setTimeout = ((fn: () => void) => wait(fn, 0)) as typeof setTimeout
+    try {
+      expect(await agent.deliverTunnel(3)).toBe(true)
+    } finally {
+      globalThis.setTimeout = wait
+    }
+    expect(bodies).toHaveLength(2)
+  })
+})

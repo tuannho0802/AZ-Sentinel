@@ -1,8 +1,14 @@
-import { FAILOVER, syncApplySchema, syncHeartbeatSchema } from '@az-sentinel/shared'
+import {
+  FAILOVER,
+  normalizeTunnelOrigin,
+  syncApplySchema,
+  syncHeartbeatSchema,
+} from '@az-sentinel/shared'
 import { zValidator } from '@hono/zod-validator'
 import { type Context, Hono } from 'hono'
 import { bodyLimit } from 'hono/body-limit'
 import { z } from 'zod'
+import { saveTunnelOrigin, sharedOriginStore, type VpsOriginStore } from '../edge/vps-origin'
 import { AppError, errorBody } from '../lib/app-error'
 import { requireServiceToken } from '../lib/service-auth'
 import { nowUnix } from '../lib/time'
@@ -59,7 +65,7 @@ const invalid = (result: { success: boolean; error?: unknown }, c: Context) => {
  * - `GET /tokens`: VPS kéo token Gateway lần khởi động đầu (Plan 4).
  * - `GET /trades`: VPS kéo các lệnh Cloudflare đã ghi trong lúc dự phòng.
  */
-export function createSyncRoutes() {
+export function createSyncRoutes(origins: VpsOriginStore = sharedOriginStore) {
   const routes = new Hono<AppEnv>()
 
   routes.use('*', async (c, next) => {
@@ -72,10 +78,22 @@ export function createSyncRoutes() {
   })
 
   routes.post('/heartbeat', zValidator('json', syncHeartbeatSchema, invalid), async (c) => {
-    const { node } = c.req.valid('json')
+    const { node, tunnelUrl } = c.req.valid('json')
     if (node.role !== 'vps')
       throw new AppError(400, 'VALIDATION_FAILED', 'Chỉ nhận nhịp sống của VPS')
     await saveHeartbeat(c.env.DB, node, nowUnix())
+    // Plan 3G: VPS dùng Quick Tunnel báo địa chỉ mới để Worker chuyển tiếp đúng chỗ (null = bỏ địa chỉ đã nhớ).
+    if (tunnelUrl !== undefined) {
+      const origin = tunnelUrl === null ? null : normalizeTunnelOrigin(tunnelUrl)
+      if (tunnelUrl !== null && origin === null) {
+        throw new AppError(
+          400,
+          'VALIDATION_FAILED',
+          'Địa chỉ tunnel không hợp lệ (cần https, không IP thô)',
+        )
+      }
+      await saveTunnelOrigin(c.env.DB, origin, nowUnix(), origins)
+    }
     return c.json({ ok: true, now: nowUnix() })
   })
 

@@ -14,5 +14,10 @@ Get-CimInstance Win32_Process | Where-Object {
 Get-CimInstance Win32_Process -Filter "Name = 'node.exe'" | Where-Object {
   $_.ExecutablePath -and $_.ExecutablePath.StartsWith($root, [StringComparison]::OrdinalIgnoreCase)
 } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
+# Quick Tunnel (Plan 3G): cloudflared do Server tu chay nam trong thu muc du lieu, khong tu chet khi node bi tat.
+$data = Join-Path $(if ($env:ProgramData) { $env:ProgramData } else { 'C:\ProgramData' }) 'AZSentinelServer\cloudflared.exe'
+Get-CimInstance Win32_Process -Filter "Name = 'cloudflared.exe'" | Where-Object {
+  $_.ExecutablePath -and ($_.ExecutablePath -ieq $data)
+} | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
 Start-Sleep -Milliseconds 800
 exit 0

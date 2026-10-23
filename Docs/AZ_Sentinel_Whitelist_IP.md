@@ -19,6 +19,6 @@ Bộ cài Server có ô **IP được phép truy cập** (tùy chọn, cách nha
 
 ## Giới hạn cần biết
 - Chặn chạy ở **Server VPS**. Bản dự phòng Cloudflare không áp whitelist (Gateway/Cloudflare dùng token); danh sách chưa đồng bộ sang Cloudflare.
-- Nếu người dùng vào qua địa chỉ Worker (Worker chuyển tiếp sang VPS), VPS thấy IP do Worker chuyển, nên whitelist chỉ thật sự đúng với truy cập thẳng/qua Tunnel.
+- Người dùng vào qua địa chỉ Worker (Worker chuyển tiếp sang VPS): Worker chuyển IP thật kèm chữ ký HMAC (khóa `SYNC_TOKEN`), VPS chỉ tin khi chữ ký đúng nên whitelist vẫn đúng. Cần `AZ_SYNC_TOKEN` trùng với Worker và đồng hồ VPS đúng giờ (lệch quá 5 phút thì chữ ký bị từ chối). Xem `AZ_Sentinel_Quick_Tunnel.md` mục 4.
 - IP điện thoại (4G/5G) hay đổi: cân nhắc thêm dải CIDR của nhà mạng hoặc dùng dải rộng hơn cho thiết bị di động.
 - Chưa chạy test và chưa thử thật trên VPS; cần thử: bật bảo vệ, truy cập từ IP lạ (403), thêm bằng nút "Cho phép", kết nối thứ 6 của một IP (429).

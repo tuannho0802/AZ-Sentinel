@@ -123,3 +123,19 @@ describe('bộ cài Gateway (az-gateway.iss) theo token cá nhân', () => {
     }
   })
 })
+
+describe('Quick Tunnel (Plan 3G)', () => {
+  it('biến cấu hình có trong config.ts và server.env.example; script bật/tắt được pack.mjs chép', () => {
+    const example = read('Server/scripts/server.env.example')
+    for (const k of ['AZ_QUICK_TUNNEL', 'AZ_CLOUDFLARED']) {
+      expect(configSrc, `${k} không có trong config.ts`).toContain(k)
+      expect(example, `${k} không có trong server.env.example`).toContain(k)
+    }
+    expect(existsSync(path.join(root, 'Server/scripts/quick-tunnel.ps1'))).toBe(true)
+    expect(packSrc).toContain("'quick-tunnel.ps1'")
+  })
+
+  it('stop-server.ps1 tắt cả cloudflared của Quick Tunnel (tiến trình con không tự chết theo node)', () => {
+    expect(read('Server/scripts/stop-server.ps1')).toContain('cloudflared.exe')
+  })
+})

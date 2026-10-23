@@ -44,7 +44,7 @@ export function createApp(opts: AppOptions = {}) {
   app.use('/api/*', createEdgeRouter(opts.edge))
   app.route('/api', health)
   app.route('/api/server-info', createServerInfoRoutes(opts.viewerAuth ?? resolveViewer, opts.edge))
-  app.route('/api/sync', createSyncRoutes())
+  app.route('/api/sync', createSyncRoutes(opts.edge?.origins))
   app.route('/api/ea/v1', createEaRoutes(opts.getHub ?? defaultHub))
   app.route('/api/live', createLiveWsRoutes(opts.viewerAuth ?? resolveViewer))
   app.route('/api/gw', createGwWsRoutes())

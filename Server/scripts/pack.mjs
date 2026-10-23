@@ -30,6 +30,7 @@ for (const f of [
   'open-firewall.ps1',
   'check-server.ps1',
   'setup-tunnel.ps1',
+  'quick-tunnel.ps1',
   'server.env.example',
 ]) {
   cpSync(here(`./${f}`), `${out}/${f}`)

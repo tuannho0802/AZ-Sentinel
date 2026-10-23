@@ -37,6 +37,11 @@ export type SyncAgentOptions = {
   cloudOrigin: string
   token: string
   describe: () => ServerNode
+  /**
+   * Plan 3G: địa chỉ Quick Tunnel hiện tại để báo cho Worker. Chuỗi = địa chỉ; null = chưa có (đang khởi động hoặc
+   * vừa rớt, Worker giữ nguyên); không truyền = không dùng Quick Tunnel (Worker bỏ địa chỉ đã nhớ).
+   */
+  tunnelUrl?: () => string | null
   log: Logger
   fetchFn?: typeof fetch
 }
@@ -56,6 +61,7 @@ export class SyncAgent {
   private lastSyncAt: number | null = null
   private lastError: string | null = null
   private flushing = false
+  private stopped = false
   private pulling = false
   private lastPullAt = 0
   private timers: NodeJS.Timeout[] = []
@@ -81,6 +87,7 @@ export class SyncAgent {
   }
 
   start(): void {
+    this.stopped = false
     const every = (fn: () => Promise<void>, sec: number) => {
       const t = setInterval(() => void fn().catch(() => {}), sec * 1000)
       t.unref()
@@ -88,11 +95,14 @@ export class SyncAgent {
     }
     void this.boot()
     every(() => this.flush(), FAILOVER.syncFlushSec)
-    every(() => this.heartbeat(), FAILOVER.heartbeatSec)
+    every(async () => {
+      await this.heartbeat()
+    }, FAILOVER.heartbeatSec)
     every(() => this.pull(), FAILOVER.pullSec)
   }
 
   stop(): void {
+    this.stopped = true
     for (const t of this.timers) clearInterval(t)
     this.timers = []
   }
@@ -202,8 +212,28 @@ export class SyncAgent {
 
   // ------------------------------------------------------------------ đẩy
 
-  async heartbeat(): Promise<void> {
-    await this.post('/api/sync/heartbeat', { node: this.opts.describe(), sentAt: nowSec() })
+  /** Gửi nhịp sống; trả true khi Cloudflare nhận. */
+  async heartbeat(): Promise<boolean> {
+    const body: Record<string, unknown> = { node: this.opts.describe(), sentAt: nowSec() }
+    if (!this.opts.tunnelUrl) body.tunnelUrl = null
+    else {
+      const url = this.opts.tunnelUrl()
+      if (url !== null) body.tunnelUrl = url
+    }
+    return (await this.post('/api/sync/heartbeat', body)).ok
+  }
+
+  /**
+   * Báo địa chỉ tunnel mới cho Worker, thử lại nhanh (5 giây, giãn dần) cho tới khi được nhận; không đợi
+   * nhịp sống kế tiếp (2 phút) để khoảng gián đoạn sau khi VPS reset ngắn nhất có thể.
+   */
+  async deliverTunnel(attempts = 12): Promise<boolean> {
+    for (let i = 0; i < attempts; i++) {
+      if (this.stopped) return false
+      if (await this.heartbeat()) return true
+      await new Promise((r) => setTimeout(r, Math.min(30_000, 5_000 * (i + 1))))
+    }
+    return false
   }
 
   async flush(): Promise<void> {

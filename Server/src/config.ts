@@ -29,6 +29,10 @@ const schema = z.object({
   publicUrl: z.string().default(''),
   /** URL công khai của bản dự phòng cho người dùng (hiện ở UI khi VPS mất kết nối). */
   fallbackUrl: z.string().default(''),
+  /** "1" = Server tự chạy Quick Tunnel (trycloudflare.com, địa chỉ đổi mỗi lần) và báo địa chỉ mới cho Worker (Plan 3G). */
+  quickTunnel: z.string().default(''),
+  /** Đường dẫn cloudflared cho Quick Tunnel. Rỗng = `<dataDir>/cloudflared(.exe)`, chưa có thì tự tải. */
+  cloudflaredPath: z.string().default(''),
   liveAllowedOrigins: z.string().default(''),
   /** "1" = bật /api/dev/* (quản lý liên kết không đăng nhập; chỉ dùng khi thử). */
   devLinksApi: z.string().default(''),
@@ -82,6 +86,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
     cloudUrl: merged.AZ_CLOUD_URL || undefined,
     fallbackUrl: merged.AZ_FALLBACK_URL || undefined,
     publicUrl: merged.AZ_PUBLIC_URL || undefined,
+    quickTunnel: merged.AZ_QUICK_TUNNEL || undefined,
+    cloudflaredPath: merged.AZ_CLOUDFLARED || undefined,
     liveAllowedOrigins: merged.AZ_LIVE_ALLOWED_ORIGINS || undefined,
     devLinksApi: merged.AZ_DEV_LINKS_API || undefined,
     liveIntervalSec: merged.AZ_LIVE_INTERVAL_SEC || undefined,

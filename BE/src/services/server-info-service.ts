@@ -8,8 +8,9 @@ import {
 } from '@az-sentinel/shared'
 import type { Context } from 'hono'
 import { type FetchFn, realFetch, timedFetch } from '../edge/timed-fetch'
+import { sharedOriginStore, type VpsOriginStore } from '../edge/vps-origin'
 import type { ProbeRegistry } from '../edge/vps-probe'
-import { normalizeOrigin, probeFor } from '../edge/vps-probe'
+import { probeFor } from '../edge/vps-probe'
 import { cloudflareNode } from '../lib/node-info'
 import { nowUnix } from '../lib/time'
 import { HUB_NAME } from '../live/routes/live-ws'
@@ -73,7 +74,11 @@ export async function readHeartbeat(
   }
 }
 
-export type ServerInfoDeps = { fetchFn?: FetchFn; registry?: ProbeRegistry }
+export type ServerInfoDeps = {
+  fetchFn?: FetchFn
+  registry?: ProbeRegistry
+  origins?: VpsOriginStore
+}
 
 /**
  * Ghép `GET /api/server-info`:
@@ -100,7 +105,7 @@ export async function buildServerInfo(
     }
   }
 
-  const origin = normalizeOrigin(c.env.VPS_ORIGIN)
+  const origin = await (deps.origins ?? sharedOriginStore).resolve(c.env)
   if (!origin) {
     const self = await describeSelf(c)
     return {

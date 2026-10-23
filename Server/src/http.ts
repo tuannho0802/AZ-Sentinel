@@ -2,6 +2,7 @@ import type { IncomingMessage, Server } from 'node:http'
 import type { Duplex } from 'node:stream'
 import { serve } from '@hono/node-server'
 import { WebSocketServer } from 'ws'
+import { EDGE_HEADERS, verifyEdgeClientIp } from './edge-ip'
 import type { IpGuard } from './ip-guard'
 import { PAIR_HEADER, takePair } from './shim/cloudflare-workers'
 
@@ -15,6 +16,8 @@ export type HttpServerOptions = {
   onGatewayConnected?: () => void
   /** Whitelist IP (Plan 3F); không truyền = không kiểm tra. */
   guard?: IpGuard
+  /** Bí mật chung với Worker (`SYNC_TOKEN`) để tin IP thật do Worker chuyển (Plan 3G). Rỗng = không tin. */
+  edgeSecret?: string
 }
 
 const IP_HEADER = 'cf-connecting-ip'
@@ -28,7 +31,10 @@ function isLoopback(addr: string | undefined): boolean {
  * Chỉ tin header do Cloudflare Tunnel/reverse proxy gửi khi kết nối tới từ loopback; kết nối trực tiếp
  * (LAN) thì dùng địa chỉ socket để client không tự giả IP.
  */
-function clientIp(incoming: IncomingMessage): string {
+function clientIp(incoming: IncomingMessage, edgeSecret = ''): string {
+  // Qua Worker của mình: IP thật nằm trong header có chữ ký (CF-Connecting-IP lúc này chỉ là IP của Worker).
+  const viaEdge = verifyEdgeClientIp(edgeSecret, incoming.headers)
+  if (viaEdge) return viaEdge
   const remote = incoming.socket.remoteAddress
   const given = incoming.headers[IP_HEADER]
   const first = Array.isArray(given) ? given[0] : given
@@ -38,6 +44,7 @@ function clientIp(incoming: IncomingMessage): string {
 function withClientIp(req: Request, ip: string): Request {
   const headers = new Headers(req.headers)
   headers.delete(IP_HEADER)
+  for (const h of EDGE_HEADERS) headers.delete(h)
   if (ip) headers.set(IP_HEADER, ip)
   return new Request(req, { headers })
 }
@@ -88,7 +95,7 @@ export function startHttpServer(opts: HttpServerOptions): Server {
       hostname: opts.host,
       fetch: (req, env) => {
         const incoming = (env as { incoming?: IncomingMessage } | undefined)?.incoming
-        const ip = incoming ? clientIp(incoming) : ''
+        const ip = incoming ? clientIp(incoming, opts.edgeSecret) : ''
         if (opts.guard && !opts.guard.decide(ip, new URL(req.url).pathname).allow) {
           opts.guard.noteBlocked(ip)
           return forbidden(ip)
@@ -108,8 +115,9 @@ export function startHttpServer(opts: HttpServerOptions): Server {
           if (value === undefined) continue
           for (const v of Array.isArray(value) ? value : [value]) headers.append(key, v)
         }
+        const ip = clientIp(incoming, opts.edgeSecret)
         headers.delete(IP_HEADER)
-        const ip = clientIp(incoming)
+        for (const h of EDGE_HEADERS) headers.delete(h)
         if (ip) headers.set(IP_HEADER, ip)
         const url = `http://${incoming.headers.host ?? 'localhost'}${incoming.url ?? '/'}`
         const decision = opts.guard?.decide(ip, new URL(url).pathname) ?? {

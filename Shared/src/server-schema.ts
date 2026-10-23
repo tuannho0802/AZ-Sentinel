@@ -178,6 +178,11 @@ export type SyncApply = z.infer<typeof syncApplySchema>
 export const syncHeartbeatSchema = z.object({
   node: serverNodeSchema,
   sentAt: z.number().int(),
+  /**
+   * Plan 3G (Quick Tunnel): địa chỉ tunnel hiện tại của VPS, Worker dùng làm điểm chuyển tiếp thay cho `VPS_ORIGIN`.
+   * Không gửi (undefined) = giữ nguyên; null = VPS không dùng Quick Tunnel, Worker bỏ địa chỉ đã nhớ.
+   */
+  tunnelUrl: z.string().max(256).nullable().optional(),
 })
 export type SyncHeartbeat = z.infer<typeof syncHeartbeatSchema>
 

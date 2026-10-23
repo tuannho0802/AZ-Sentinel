@@ -36,7 +36,7 @@ AZSentinel-Server-Setup.exe /VERYSILENT /NAME=VPS-MAIN /PORT=8080 ^
   /SYNCTOKEN=<>=32 ký tự> [/LOCATION=Singapore] [/LAN=1] [/FIREWALL=1] [/RECONFIGURE=1]
 ```
 
-Không có `/RECONFIGURE=1` thì `server.env` cũ được giữ (nâng cấp không hỏi lại). Có thì ghi lại toàn bộ `server.env` (tùy chọn nâng cao tự thêm tay sẽ mất, xem `server.env.example`).
+Muốn không cần tên miền (địa chỉ tự theo khi VPS reset), xem `AZ_Sentinel_Quick_Tunnel.md` (`quick-tunnel.ps1` sau khi cài). Không có `/RECONFIGURE=1` thì `server.env` cũ được giữ (nâng cấp không hỏi lại). Có thì ghi lại toàn bộ `server.env` (tùy chọn nâng cao tự thêm tay sẽ mất, xem `server.env.example`).
 
 ## 4. Phát hành (GitHub Releases)
 
