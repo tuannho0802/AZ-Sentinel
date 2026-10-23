@@ -167,3 +167,61 @@ describe('bộ cài Server: hằng số {app} chỉ dùng sau khi đã chốt th
     expect(serverIss).toMatch(/CurPageID = wpSelectDir then FreshInstall := WillWriteEnv/)
   })
 })
+
+/**
+ * Không có Inno Setup trên máy dev/CI Linux nên không biên dịch thử được; quét thô phần [Code] theo luật Pascal Script
+ * để bắt lỗi cú pháp hay gặp ngay trong test (ISCC "String error" làm hỏng cả bản phát hành mới phát hiện).
+ */
+function scanPascal(src: string): string[] {
+  const start = src.indexOf('[Code]')
+  const code = src.slice(start)
+  const base = src.slice(0, start).split('\n').length - 1
+  const problems: string[] = []
+  const lineAt = (i: number) => base + code.slice(0, i).split('\n').length
+  let i = 0
+  while (i < code.length) {
+    const c = code[i]
+    if (c === "'") {
+      const from = i
+      i++
+      for (;;) {
+        if (i >= code.length || code[i] === '\n') {
+          problems.push(`chuỗi chưa đóng ở dòng ${lineAt(from)}`)
+          break
+        }
+        if (code[i] === "'") {
+          if (code[i + 1] === "'") i += 2
+          else {
+            i++
+            break
+          }
+        } else i++
+      }
+    } else if (c === '/' && code[i + 1] === '/') {
+      while (i < code.length && code[i] !== '\n') i++
+    } else if (c === '{') {
+      const from = i
+      i++
+      while (i < code.length && code[i] !== '}') {
+        if (code[i] === '{') problems.push(`dấu { nằm trong chú thích { } ở dòng ${lineAt(from)}`)
+        i++
+      }
+      i++
+    } else i++
+  }
+  return problems
+}
+
+describe('bộ cài Server: cú pháp [Code] (Pascal Script)', () => {
+  it('không có chuỗi chưa đóng và không có chú thích { } chứa dấu { (ví dụ ghi hằng số trong chú thích)', () => {
+    expect(scanPascal(serverIss)).toEqual([])
+    expect(scanPascal(gatewayIss)).toEqual([])
+  })
+
+  it('bộ quét thật sự bắt được đúng lỗi từng làm hỏng bản build', () => {
+    const bad = "[Code]\n{ khong dung ExpandConstant('{app}') o day }\nfunction F: String;\nbegin\nend;\n"
+    expect(scanPascal(bad).length).toBeGreaterThan(0)
+    expect(scanPascal("[Code]\n// ExpandConstant('{app}') chi la chu thich\nvar A: Integer;\n")).toEqual([])
+    expect(scanPascal("[Code]\nvar S: String;\nbegin\n  S := 'it''s {app}';\nend;\n")).toEqual([])
+  })
+})

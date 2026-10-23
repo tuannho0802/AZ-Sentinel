@@ -84,9 +84,10 @@ var
   NetPage: TInputOptionWizardPage;
   AdmPage: TInputQueryWizardPage;
 
-{ KHONG dung ExpandConstant('{app}') o day: InitializeWizard va ShouldSkipPage goi ham nay TRUOC khi thu muc cai duoc chot,
-  luc do {app} chua co gia tri ("An attempt was made to expand the app constant before it was initialized").
-  WizardDirValue (thu muc dang chon, hoac /DIR=, hoac thu muc ban cu khi nang cap) dung duoc moi luc. }
+// KHONG expand hang so app (thu muc cai) o day: InitializeWizard va ShouldSkipPage goi ham nay TRUOC khi thu muc cai
+// duoc chot, luc do hang so app chua co gia tri (Inno bao "attempt was made to expand the app constant before it was
+// initialized"). WizardDirValue (thu muc dang chon, hoac /DIR=, hoac thu muc ban cu khi nang cap) dung duoc moi luc.
+// Dung viet dau ngoac nhon trong chu thich kieu { }: chu thich ket thuc o dau ngoac dong dau tien.
 function EnvPath: String;
 begin
   Result := AddBackslash(WizardDirValue) + 'server.env';
