@@ -80,6 +80,9 @@ describe('server-schema', () => {
       links_deleted: [],
       trades: [],
       trades_deleted: [],
+      alert_settings: [],
+      alert_states: [],
+      notifications: [],
     })
     const trade = syncTradeRowSchema.parse({
       link_id: 1,

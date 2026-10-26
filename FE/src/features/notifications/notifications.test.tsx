@@ -31,6 +31,7 @@ function open(
   const items = opts.items ?? []
   const view = renderApp('/', {
     'GET /api/me': () => json(200, me),
+    'GET /api/health': () => json(200, { status: 'ok' }),
     'GET /api/links': () => json(200, { links: [] }),
     'GET /api/notifications?limit=30': () =>
       json(200, {
@@ -42,7 +43,10 @@ function open(
     'PUT /api/settings/alerts': () =>
       opts.putStatus && opts.putStatus !== 200
         ? json(opts.putStatus, {
-            error: { code: 'READ_ONLY', message: 'Đang chạy dự phòng, tạm khóa ghi.' },
+            error: {
+              code: 'READ_ONLY_FALLBACK',
+              message: 'Đang chạy dự phòng trên Cloudflare: tạm thời chỉ cho xem, tạm khóa ghi',
+            },
           })
         : json(200, { loss_pct: 5, growth_mode: 'float' }),
   })
@@ -147,6 +151,8 @@ describe('cài đặt cảnh báo', () => {
     fireEvent.click(screen.getByRole('button', { name: strings.alertSave }))
     const alert = await screen.findByRole('alert')
     expect(within(alert).getByText(/tạm khóa ghi/)).toBeTruthy()
+    // Lỗi nằm trong ô cài đặt, không phải lỗi toàn trang "Không gọi được API".
+    expect(screen.queryByText(strings.apiError)).toBeNull()
   })
 })
 

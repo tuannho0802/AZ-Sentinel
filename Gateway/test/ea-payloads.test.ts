@@ -40,14 +40,14 @@ describe('payload EA sinh ra', () => {
   })
 
   it('alert breach (EA 0.4.0): đúng schema, không có closed_pl', () => {
-    const body = `{${ident},\"aseq\":1760000100,\"kind\":\"breach\",\"ts\":1760000100,\"bal\":10000.00,\"eq\":9400.00,\"fl\":-600.00,\"n\":3,\"ccy\":\"USC\"}`
+    const body = `{${ident},"aseq":1760000100,"kind":"breach","ts":1760000100,"bal":10000.00,"eq":9400.00,"fl":-600.00,"n":3,"ccy":"USC"}`
     const r = alertRequestSchema.parse(JSON.parse(body))
     expect(r).toMatchObject({ kind: 'breach', aseq: 1760000100, fl: -600, n: 3, ccy: 'USC' })
     expect(r.closed_pl).toBeUndefined()
   })
 
   it('alert clear: có closed_pl (âm), n = 0', () => {
-    const body = `{${ident},\"aseq\":1760000200,\"kind\":\"clear\",\"ts\":1760000200,\"bal\":9420.50,\"eq\":9420.50,\"fl\":0.00,\"n\":0,\"ccy\":\"USD\",\"closed_pl\":-579.50}`
+    const body = `{${ident},"aseq":1760000200,"kind":"clear","ts":1760000200,"bal":9420.50,"eq":9420.50,"fl":0.00,"n":0,"ccy":"USD","closed_pl":-579.50}`
     const r = alertRequestSchema.parse(JSON.parse(body))
     expect(r).toMatchObject({ kind: 'clear', n: 0, closed_pl: -579.5 })
   })
@@ -133,10 +133,10 @@ describe('EA phân tích phản hồi Gateway bằng tìm chuỗi', () => {
 
   it('alert_bp trong phản hồi ping và ack_aseq của /v1/alert', () => {
     const r =
-      '{\"ok\":true,\"bind\":\"ok\",\"code\":0,\"watch\":false,\"interval_ms\":1000,\"lease_ms\":15000,\"alert_bp\":500}'
+      '{"ok":true,"bind":"ok","code":0,"watch":false,"interval_ms":1000,"lease_ms":15000,"alert_bp":500}'
     expect(jsonInt(r, 'alert_bp')).toBe(500)
     expect(jsonInt(reply, 'alert_bp')).toBeNull() // Gateway cũ không có trường: EA dùng mặc định 0 (tắt)
-    expect(jsonInt('{\"ok\":true,\"ack_aseq\":1760000100}', 'ack_aseq')).toBe(1760000100)
+    expect(jsonInt('{"ok":true,"ack_aseq":1760000100}', 'ack_aseq')).toBe(1760000100)
   })
 
   it('ack_seq của /v1/event', () => {
