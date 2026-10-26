@@ -51,8 +51,9 @@ describe('máy chủ HTTP + whitelist qua Worker (Plan 3G)', () => {
     const seen: Record<string, string | null> = {}
     const guard = {
       decide: (ip: string) =>
-        allowed.includes(ip) ? { allow: true, maxConns: 5 } : { allow: false },
+        allowed.includes(ip) ? { allow: true, maxConns: 5 } : { allow: false, reason: 'ip' },
       noteBlocked: (ip: string) => blocked.push(ip),
+      describeBlock: (ip: string) => `IP ${ip} chưa được cho phép truy cập máy chủ này.`,
       acquire: () => () => {},
     } as unknown as IpGuard
     const server = startHttpServer({
