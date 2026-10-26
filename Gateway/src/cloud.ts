@@ -2,8 +2,10 @@ import {
   DEVICE_HEADER,
   GW,
   gwServerMessageSchema,
+  isApiErrorBody,
   type TunnelDirectoryReply,
 } from '@az-sentinel/shared'
+import { cloudCheckUrl } from './check-token'
 import type { Gateway } from './gateway'
 import { type Logger, silentLogger } from './log'
 
@@ -28,6 +30,8 @@ export type CloudOptions = {
   directoryUrls?: string[]
   /** Chỉ để kiểm thử: thay `fetch` gọi danh bạ. */
   fetchFn?: typeof fetch
+  /** Chỉ để kiểm thử: thay `fetch` dùng cho bước chẩn đoán lý do nối thất bại. */
+  probeFetchFn?: typeof fetch
   log?: Logger
   /** Chỉ để kiểm thử: nhân bản bộ ngẫu nhiên cho jitter. */
   random?: () => number
@@ -35,6 +39,9 @@ export type CloudOptions = {
   pingMs?: number
   silentMs?: number
 }
+
+/** Mỗi địa chỉ chỉ chẩn đoán lý do nối thất bại tối đa chừng này ms một lần (không tốn request Worker khi VPS sập lâu). */
+const EXPLAIN_EVERY_MS = 5 * 60_000
 
 /**
  * Một WebSocket bền từ Gateway ra `LiveHub` (Plan 3C mục 4). Nối lại theo backoff 1, 2, 4...
@@ -58,6 +65,8 @@ export class CloudClient {
   private probeTicks = 0
   private probing = false
   private asking: Promise<boolean> | null = null
+  /** Lần chẩn đoán gần nhất theo địa chỉ kiểm tra (để giãn nhịp). */
+  private readonly lastExplained = new Map<string, number>()
   /** Đang chủ động đổi địa chỉ (không cần hỏi danh bạ ở lần đóng kế). */
   private switching = false
   private readonly log: Logger
@@ -190,8 +199,9 @@ export class CloudClient {
     if (this.stopped) return
     let ws: WebSocket
     let opened = false
+    const target = this.currentUrl()
     try {
-      ws = this.open(this.currentUrl())
+      ws = this.open(target)
     } catch (e) {
       this.log.error(`URL cloud không hợp lệ: ${e instanceof Error ? e.message : String(e)}`)
       return
@@ -239,7 +249,10 @@ export class CloudClient {
           'token Gateway đã bị thu hồi hoặc đặt lại: xin quản trị viên token mới rồi nhập vào Cài đặt',
         )
       } else if (!opened) {
-        this.log.warn('không nối được cloud (sai địa chỉ, mạng, hoặc token bị từ chối/thu hồi)')
+        this.log.warn(
+          'không nối được cloud (sai địa chỉ, mạng, token bị từ chối/thu hồi, hoặc bị Whitelist IP/thiết bị chặn)',
+        )
+        this.explainFailure(target)
       }
       this.onClosed(ws, opened)
     }
@@ -253,6 +266,52 @@ export class CloudClient {
         // đã đóng
       }
     })
+  }
+
+  /**
+   * WebSocket thất bại không cho biết mã HTTP, nên hỏi lại bằng một request `GET /api/gw/check` với cùng token và mã
+   * thiết bị rồi ghi lý do thật vào log (token sai, IP/thiết bị bị chặn, tunnel chết, quá số kết nối). Giãn nhịp theo
+   * địa chỉ, và không bao giờ ghi token vào log.
+   */
+  private explainFailure(target: string): void {
+    const url = cloudCheckUrl(target)
+    if (!url) return
+    const now = Date.now()
+    if (now - (this.lastExplained.get(url) ?? 0) < EXPLAIN_EVERY_MS) return
+    this.lastExplained.set(url, now)
+    void this.diagnose(url)
+  }
+
+  private async diagnose(url: string): Promise<void> {
+    let reason: string
+    try {
+      const res = await (this.opts.probeFetchFn ?? fetch)(url, {
+        headers: this.requestHeaders(),
+        signal: AbortSignal.timeout(8000),
+      })
+      let detail = ''
+      if (res.ok) {
+        await res.body?.cancel()
+      } else {
+        try {
+          const body: unknown = await res.json()
+          if (isApiErrorBody(body)) detail = body.error.message.slice(0, 240)
+        } catch {
+          // thân phản hồi không phải JSON (trang lỗi của tunnel/proxy): chỉ báo mã
+        }
+      }
+      reason = describeStatus(res.status, detail)
+    } catch {
+      reason = 'không tới được máy chủ qua HTTP (mạng, DNS hoặc tường lửa chặn)'
+    }
+    if (this.stopped) return
+    let host = url
+    try {
+      host = new URL(url).host
+    } catch {
+      // giữ nguyên chuỗi
+    }
+    this.log.warn(`chẩn đoán ${host}: ${reason}`)
   }
 
   private keepAlive(ws: WebSocket): void {
@@ -384,4 +443,18 @@ export class CloudClient {
     this.log.warn(`mất cloud, nối lại sau ${delay}ms (lần ${this.attempt})`)
     this.retryTimer = setTimeout(() => this.connect(), delay)
   }
+}
+
+/** Diễn giải mã HTTP của `/api/gw/check` thành lý do dễ hiểu cho người vận hành. */
+export function describeStatus(status: number, detail: string): string {
+  if (status === 200)
+    return 'HTTP vào được và token hợp lệ nhưng WebSocket lỗi: kiểm tra tường lửa/proxy có chặn WebSocket không'
+  if (status === 401)
+    return 'token bị từ chối (sai, đã thu hồi hoặc đã đặt lại): xin quản trị viên token mới'
+  if (status === 403)
+    return `máy chủ chặn Gateway${detail ? `: ${detail}` : ' (Whitelist IP hoặc thiết bị chưa được duyệt)'}`
+  if (status === 429) return detail || 'IP này đã đủ số kết nối tối đa'
+  if ([502, 503, 504, 521, 522, 523, 524, 530].includes(status))
+    return `tunnel hoặc máy chủ không phản hồi (HTTP ${status})`
+  return `máy chủ trả HTTP ${status}${detail ? `: ${detail}` : ''}`
 }
