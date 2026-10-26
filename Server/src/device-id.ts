@@ -27,10 +27,19 @@ function cookieValue(header: string | undefined, name: string): string | undefin
   return undefined
 }
 
-/** Trình duyệt đang mở một trang (không phải script/công cụ) thì mới cấp cookie thiết bị mới. */
+/**
+ * Request do trình duyệt thật gửi thì mới được cấp cookie thiết bị mới (script/curl không gửi `Sec-Fetch-*`).
+ * Có hai kiểu: mở trang (`navigate`, khi vào thẳng VPS) và gọi API bằng fetch/XHR (`cors`/`same-origin` +
+ * dest `empty`). Kiểu thứ hai là bắt buộc khi đi qua Worker Cloudflare: giao diện web do Worker phục vụ nên
+ * lần mở trang không bao giờ tới VPS, chỉ có lời gọi `/api/*` tới. Thiếu kiểu này thì trình duyệt qua Worker
+ * không bao giờ có mã thiết bị, bị chặn mà cũng không hiện ở danh sách chờ duyệt.
+ */
 function looksLikeBrowserPage(h: IncomingHttpHeaders): boolean {
   const mode = one(h['sec-fetch-mode'])
-  if (mode) return mode === 'navigate'
+  if (mode) {
+    if (mode === 'navigate') return true
+    return (mode === 'cors' || mode === 'same-origin') && one(h['sec-fetch-dest']) === 'empty'
+  }
   return (one(h.accept) ?? '').includes('text/html')
 }
 
