@@ -1,5 +1,6 @@
 import { mkdirSync } from 'node:fs'
 import path from 'node:path'
+import { isReleaseVersion } from '@az-sentinel/shared'
 import { createApp } from '../../BE/src/app'
 import { LiveHub } from '../../BE/src/live/live-hub'
 import { ensureDevToken } from '../../BE/src/services/gw-token-service'
@@ -18,6 +19,7 @@ import { createStaticHandler } from './static'
 import { SyncAgent } from './sync-agent'
 import { runTokenCli } from './token-cli'
 import { QuickTunnel } from './tunnel'
+import { UpdateAgent } from './update-agent'
 import { runUserCli } from './user-cli'
 
 /**
@@ -89,6 +91,13 @@ async function main() {
     : null
   if (!canSync) log.warn('chưa bật đồng bộ: Cloudflare dự phòng sẽ không có liên kết/lệnh của VPS')
 
+  // Báo bản Server mới: chỉ khi chạy bản đóng gói (có số phiên bản thật) và chưa tắt bằng AZ_UPDATE_CHECK=0.
+  const builtVersion = process.env.AZ_SERVER_VERSION
+  const updates =
+    cfg.updateCheck !== '0' && isReleaseVersion(builtVersion)
+      ? new UpdateAgent({ current: builtVersion, log })
+      : null
+
   // Hub live: cùng lớp `LiveHub` của Worker, chạy trên shim Durable Object.
   const state = new ShimState()
   const env: Bindings = {
@@ -101,7 +110,12 @@ async function main() {
     DEV_LINKS_API: cfg.devLinksApi || undefined,
     LIVE_INTERVAL_SEC: cfg.liveIntervalSec || undefined,
     GATE_POLL_SEC: cfg.gatePollSec || undefined,
-    HOST: createHostHooks(cfg, cpu, () => sync?.status() ?? null),
+    HOST: createHostHooks(
+      cfg,
+      cpu,
+      () => sync?.status() ?? null,
+      updates ? () => updates.status() : undefined,
+    ),
   }
   const hub = new LiveHub(state as unknown as DurableObjectState, env)
   state.attach(hub as never, (error) => log.error(`hub lỗi: ${String(error).slice(0, 200)}`))
@@ -137,6 +151,7 @@ async function main() {
     process.exit(1)
   })
   sync?.start()
+  updates?.start()
   if (wantTunnel) {
     const exe = process.platform === 'win32' ? 'cloudflared.exe' : 'cloudflared'
     tunnel = new QuickTunnel({
@@ -155,6 +170,7 @@ async function main() {
   const shutdown = (signal: string) => {
     log.info(`nhận ${signal}, đang dừng`)
     sync?.stop()
+    updates?.stop()
     tunnel?.stop()
     cpu.stop()
     for (const ws of state.getWebSockets()) ws.close(1001, 'server_restart')

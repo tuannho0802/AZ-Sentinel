@@ -1,56 +1,61 @@
+import { latestRelease, RELEASES_API_URL, type UpdateInfo } from '@az-sentinel/shared'
+
 /**
- * Kiểm tra bản mới trên GitHub Releases. Chỉ để hiện thông báo trên giao diện: Gateway không tự
- * tải hay tự thay file (người dùng chạy bộ cài mới). Mọi lỗi mạng bị nuốt, không ảnh hưởng chạy.
+ * Kiểm tra bản Gateway mới trên GitHub Releases (tag `gateway-v*`). Chỉ để hiện thông báo trên giao diện cục bộ:
+ * Gateway không tự tải hay tự thay file (người dùng chạy bộ cài mới). Logic chọn bản mới nhất dùng chung với Server
+ * (`@az-sentinel/shared`); ở đây chỉ có phần gọi mạng.
  */
-export type UpdateInfo = { latest: string; url: string; available: boolean }
+export { compareVersions, type UpdateInfo } from '@az-sentinel/shared'
 
-const REPO = 'tuannho0802/AZ-Sentinel'
-const TAG_PREFIX = 'gateway-v'
+export type UpdateOutcome =
+  /** GitHub trả danh sách mới (`info` null nếu chưa có release Gateway nào). */
+  | { kind: 'updated'; info: UpdateInfo | null; etag: string | null }
+  /** 304: danh sách không đổi từ lần trước, giữ kết quả cũ. */
+  | { kind: 'unchanged' }
+  /** Lỗi mạng hoặc GitHub từ chối; `fullCycle` = đừng thử dày (hết hạn mức). */
+  | { kind: 'failed'; reason: string; fullCycle: boolean }
 
-/** So sánh `a` với `b` theo semver đơn giản (x.y.z). >0 nghĩa là a mới hơn. */
-export function compareVersions(a: string, b: string): number {
-  const pa = a
-    .replace(/^v/i, '')
-    .split('.')
-    .map((n) => Number.parseInt(n, 10) || 0)
-  const pb = b
-    .replace(/^v/i, '')
-    .split('.')
-    .map((n) => Number.parseInt(n, 10) || 0)
-  for (let i = 0; i < 3; i++) {
-    const d = (pa[i] ?? 0) - (pb[i] ?? 0)
-    if (d !== 0) return d
-  }
-  return 0
-}
+const REQUEST_TIMEOUT_MS = 10_000
 
-export async function checkForUpdate(
+export async function fetchUpdate(
   current: string,
-  fetchImpl: typeof fetch = fetch,
-): Promise<UpdateInfo | null> {
+  opts: { etag?: string | null; fetchImpl?: typeof fetch } = {},
+): Promise<UpdateOutcome> {
+  const fetchImpl = opts.fetchImpl ?? fetch
   try {
-    const res = await fetchImpl(`https://api.github.com/repos/${REPO}/releases?per_page=20`, {
-      headers: { accept: 'application/vnd.github+json', 'user-agent': 'az-gateway' },
-      signal: AbortSignal.timeout(8000),
+    const headers: Record<string, string> = {
+      accept: 'application/vnd.github+json',
+      'x-github-api-version': '2022-11-28',
+      'user-agent': `az-gateway/${current}`,
+    }
+    if (opts.etag) headers['if-none-match'] = opts.etag
+    const res = await fetchImpl(RELEASES_API_URL, {
+      headers,
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     })
-    if (!res.ok) return null
-    const list = (await res.json()) as Array<{
-      tag_name?: string
-      html_url?: string
-      draft?: boolean
-      prerelease?: boolean
-    }>
-    let best: UpdateInfo | null = null
-    for (const r of list) {
-      if (r.draft || r.prerelease || !r.tag_name?.startsWith(TAG_PREFIX)) continue
-      const v = r.tag_name.slice(TAG_PREFIX.length)
-      if (!best || compareVersions(v, best.latest) > 0) {
-        best = { latest: v, url: r.html_url ?? '', available: false }
+    if (res.status === 304) {
+      await res.body?.cancel()
+      return { kind: 'unchanged' }
+    }
+    if (!res.ok) {
+      await res.body?.cancel()
+      return {
+        kind: 'failed',
+        reason: `GitHub trả HTTP ${res.status}`,
+        fullCycle: res.status === 403 || res.status === 429,
       }
     }
-    if (best) best.available = compareVersions(best.latest, current) > 0
-    return best
-  } catch {
-    return null
+    const list: unknown = await res.json()
+    return {
+      kind: 'updated',
+      info: latestRelease(list, 'gateway', current),
+      etag: res.headers.get('etag'),
+    }
+  } catch (e) {
+    return {
+      kind: 'failed',
+      reason: (e instanceof Error ? e.message : String(e)).slice(0, 160),
+      fullCycle: false,
+    }
   }
 }

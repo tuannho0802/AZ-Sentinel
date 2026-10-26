@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { syncTokenRowSchema } from './token-schema'
+import { updateStatusSchema } from './update-check'
 import { syncUserRowSchema } from './user-schema'
 
 /**
@@ -99,6 +100,11 @@ export const serverInfoSchema = z.object({
   checkedAt: z.number().int(),
   primaryUrl: z.string().max(256).nullable().optional(),
   fallbackUrl: z.string().max(256).nullable().optional(),
+  /**
+   * Bản cập nhật bộ cài (Server/Gateway). Chỉ có khi giao diện được chính VPS phục vụ (bộ cài Server tự hỏi GitHub
+   * Releases); giao diện qua Worker không có trường này nên không hiện banner cập nhật.
+   */
+  update: updateStatusSchema.nullable().optional(),
 })
 export type ServerInfo = z.infer<typeof serverInfoSchema>
 

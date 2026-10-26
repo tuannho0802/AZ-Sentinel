@@ -78,10 +78,6 @@ export function LinksList() {
       </div>
       <LiveBanners status={live.status} kick={live.kick} onRetry={live.retry} />
 
-      <p className="rounded-md bg-notice-bg px-3 py-2 text-sm text-notice-ink">
-        {strings.linksDevBanner}
-      </p>
-
       {hasLinks && <LinksSummary summary={summary} />}
 
       <div className="flex flex-col gap-3 md:flex-row md:flex-wrap md:items-center md:justify-between">

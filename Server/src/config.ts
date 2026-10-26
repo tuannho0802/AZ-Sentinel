@@ -34,6 +34,8 @@ const schema = z.object({
   /** Đường dẫn cloudflared cho Quick Tunnel. Rỗng = `<dataDir>/cloudflared(.exe)`, chưa có thì tự tải. */
   cloudflaredPath: z.string().default(''),
   liveAllowedOrigins: z.string().default(''),
+  /** "0" = không hỏi GitHub Releases xem có bản Server mới (VPS không ra được internet, hoặc không muốn banner cập nhật). */
+  updateCheck: z.string().default(''),
   /** "1" = bật /api/dev/* (quản lý liên kết không đăng nhập; chỉ dùng khi thử). */
   devLinksApi: z.string().default(''),
   liveIntervalSec: z.string().default(''),
@@ -89,6 +91,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
     quickTunnel: merged.AZ_QUICK_TUNNEL || undefined,
     cloudflaredPath: merged.AZ_CLOUDFLARED || undefined,
     liveAllowedOrigins: merged.AZ_LIVE_ALLOWED_ORIGINS || undefined,
+    updateCheck: merged.AZ_UPDATE_CHECK || undefined,
     devLinksApi: merged.AZ_DEV_LINKS_API || undefined,
     liveIntervalSec: merged.AZ_LIVE_INTERVAL_SEC || undefined,
     gatePollSec: merged.AZ_GATE_POLL_SEC || undefined,

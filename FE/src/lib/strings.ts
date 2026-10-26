@@ -121,8 +121,6 @@ export const strings = {
     'Chưa có dữ liệu nào. Hãy xin quản trị viên một mã kết nối (azc1...), cài AZ Gateway trên VPS có MT5 của bạn, dán mã vào bộ cài. Gateway kết nối xong, tài khoản của bạn sẽ hiện ở đây.',
 
   linksPageTitle: 'Liên kết EA',
-  linksDevBanner:
-    'Chế độ thử (Part 1): quản lý liên kết chưa có phân quyền thật, chỉ chạy khi `pnpm dev`.',
   linksLoading: 'Đang tải danh sách liên kết...',
   linksError: 'Không tải được danh sách liên kết',
   linksDevOff: 'API quản lý liên kết (dev) chưa bật. Chạy BE bằng `pnpm dev`.',
@@ -347,6 +345,11 @@ export const strings = {
   lostNoFallback:
     'Chưa biết địa chỉ bản dự phòng. Hãy mở địa chỉ dự phòng (Cloudflare) mà quản trị viên đã gửi.',
   serverUnitMb: 'MB',
+  updateBannerTitle: (version: string) => `Có bản AZ Server mới: v${version}`,
+  updateBannerText:
+    'Chạy bộ cài mới trên VPS để cập nhật. Bộ cài giữ nguyên cấu hình và dữ liệu; Server khởi động lại trong vài giây.',
+  updateBannerGet: 'Tải bộ cài mới',
+  updateBannerLater: 'Để sau',
 
   roles: { root_admin: 'rootAdmin', admin: 'Admin', user: 'User' },
 

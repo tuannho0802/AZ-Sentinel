@@ -194,6 +194,6 @@ $('copy').addEventListener('click',async()=>{
   setTimeout(()=>{b.textContent='Sao chép chẩn đoán'},2000);
 });
 tick();loadCfg();loadUpd();loadLog();
-setInterval(tick,2000);setInterval(loadLog,3000);setInterval(loadCfg,15000);setInterval(loadUpd,3600000);
+setInterval(tick,2000);setInterval(loadLog,3000);setInterval(loadCfg,15000);setInterval(loadUpd,30000);
 </script></body></html>`
 }

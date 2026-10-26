@@ -102,6 +102,7 @@ export async function buildServerInfo(
       viewers: self.viewers,
       checkedAt,
       fallbackUrl: self.fallbackUrl ?? null,
+      update: c.env.HOST.updates?.() ?? null,
     }
   }
 

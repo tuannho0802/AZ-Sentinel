@@ -1,5 +1,5 @@
 import os from 'node:os'
-import type { ServerNode, StandbyStatus } from '@az-sentinel/shared'
+import type { ServerNode, StandbyStatus, UpdateStatus } from '@az-sentinel/shared'
 import { APP_VERSION } from '../../BE/src/lib/version'
 import type { HostHooks } from '../../BE/src/types'
 import type { ServerConfig } from './config'
@@ -56,7 +56,8 @@ export function describeNode(cfg: ServerConfig, cpu: CpuMeter): ServerNode {
     ),
     arch: os.arch(),
     runtime: `node ${process.version}`,
-    version: APP_VERSION,
+    // Bản đóng gói (build.mjs) gắn phiên bản thật từ Server/package.json; chạy dev thì dùng giá trị mặc định.
+    version: process.env.AZ_SERVER_VERSION || APP_VERSION,
     startedAt: BOOT_SEC,
     uptimeSec: Math.max(0, now - BOOT_SEC),
     cpuCount: os.cpus().length || null,
@@ -71,11 +72,13 @@ export function createHostHooks(
   cfg: ServerConfig,
   cpu: CpuMeter,
   standby: () => StandbyStatus | null,
+  updates?: () => UpdateStatus | null,
 ): HostHooks {
   return {
     role: 'vps',
     describe: () => describeNode(cfg, cpu),
     standby,
     fallbackUrl: cfg.fallbackUrl === '' ? null : cfg.fallbackUrl,
+    ...(updates ? { updates } : {}),
   }
 }

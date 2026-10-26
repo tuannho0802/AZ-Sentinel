@@ -3,6 +3,7 @@ import { Link, useRoute } from 'wouter'
 import { useLogout, useMe } from '../features/auth/api'
 import { FailoverBanner } from '../features/server/FailoverBanner'
 import { ServerBadge } from '../features/server/ServerBadge'
+import { UpdateBanner } from '../features/server/UpdateBanner'
 import { strings } from '../lib/strings'
 import { Button } from './Button'
 import { Icon, type IconName } from './Icon'
@@ -96,6 +97,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         className="mx-auto max-w-7xl px-3 pt-4 pb-28 outline-none sm:px-6 md:py-6"
       >
         <FailoverBanner />
+        <UpdateBanner />
         {children}
       </main>
     </div>

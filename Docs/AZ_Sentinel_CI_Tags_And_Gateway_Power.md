@@ -49,8 +49,24 @@ Dùng chung cho hai bộ cài; khác nhau ở thư mục `package.json`, tag tro
 Chi tiết: `AZ_Sentinel_Gateway_Installer.md` và `AZ_Sentinel_Server_Installer.md`.
 
 - Phiên bản lấy từ `package.json` tương ứng (không lấy từ tag Git), nên phải tăng **trước** khi commit có tag release.
-- Giao diện Gateway dựa vào tiền tố `gateway-v` để báo có bản mới; release Server dùng tiền tố `server-v` nên không lẫn vào.
 - Release đã tồn tại thì workflow dừng ngay, không ghi đè bộ cài đã phát hành.
+
+### Báo bản cập nhật cho người dùng
+
+Hai bộ cài tự hỏi GitHub Releases, không cần cấu hình gì thêm và không có bước nào phải làm trong workflow (chỉ cần release đúng tên tag ở bảng trên):
+
+| | Gateway | Server |
+|---|---|---|
+| Tìm tag | `gateway-v*` | `server-v*` |
+| Hỏi GitHub | Khi khởi động, rồi mỗi 5 phút | Khi khởi động, rồi mỗi 5 phút |
+| Banner hiện ở | Trang `http://127.0.0.1:47800/` của Gateway (trang hỏi lại mỗi 30 giây) | Giao diện web do VPS phục vụ, **chỉ cho Admin**; nút "Để sau" ẩn đúng phiên bản đó |
+| Tắt | Chạy chưa đóng gói (`pnpm dev`) thì không hỏi | `AZ_UPDATE_CHECK=0` trong `server.env`; chạy dev thì không hỏi |
+
+- Tiền tố `gateway-v` và `server-v` tách riêng hai bộ cài nên không lẫn vào nhau. Bản nháp (draft), bản thử (prerelease) và tag không đúng dạng `x.y.z` bị bỏ qua.
+- Request có ETag nên khi không có release mới GitHub trả 304 (không tính vào hạn mức 60 request/giờ/IP). Mất mạng thì thử lại sau 2 phút; hết hạn mức (403/429) thì chờ đủ một chu kỳ. Lỗi được ghi vào log (`gateway.log` / `server.log`) một lần mỗi loại lỗi.
+- Banner chỉ nhắc, không tự tải hay tự cài: người dùng tải bộ cài mới và chạy đè (giữ nguyên cấu hình và dữ liệu).
+- Giao diện qua Cloudflare Worker (`workers.dev`) không có banner này: Worker được triển khai bằng `[deploy]`, không dùng bộ cài.
+- Giới hạn hiện tại: máy chủ không biết từng Gateway của người dùng đang chạy bản nào (hub không lưu `gw_ver`), nên banner Gateway chỉ hiện trên trang cục bộ của chính Gateway đó.
 
 ## 4. Bật/Tắt Gateway
 

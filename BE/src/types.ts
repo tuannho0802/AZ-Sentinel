@@ -1,4 +1,10 @@
-import type { ServerMode, ServerNode, ServerRole, StandbyStatus } from '@az-sentinel/shared'
+import type {
+  ServerMode,
+  ServerNode,
+  ServerRole,
+  StandbyStatus,
+  UpdateStatus,
+} from '@az-sentinel/shared'
 import type { LiveHub } from './live/live-hub'
 import type { Viewer } from './live/viewer-auth'
 
@@ -38,6 +44,8 @@ export type HostHooks = {
   describe: () => ServerNode
   standby: () => StandbyStatus | null
   fallbackUrl?: string | null
+  /** Bản cập nhật bộ cài mà VPS đã thấy trên GitHub Releases; không có = VPS không kiểm tra. */
+  updates?: () => UpdateStatus | null
 }
 
 export type AppEnv = {

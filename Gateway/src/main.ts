@@ -1,6 +1,6 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs'
 import path from 'node:path'
-import { tunnelDirectoryUrl } from '@az-sentinel/shared'
+import { tunnelDirectoryUrl, UPDATE_CHECK_SEC, UPDATE_RETRY_SEC } from '@az-sentinel/shared'
 import { runCheckToken } from './check-token'
 import { CloudClient } from './cloud'
 import { defaultDataDir, loadConfig, saveEditableConfig, writeOffFlag } from './config'
@@ -10,9 +10,7 @@ import { GATEWAY_VERSION, Gateway } from './gateway'
 import { LocalServer, type UiHooks } from './local-server'
 import { createFileSink, createLogger } from './log'
 import { EventQueue } from './queue'
-import { checkForUpdate, type UpdateInfo } from './update-check'
-
-const UPDATE_CHECK_MS = 6 * 3600_000
+import { fetchUpdate, type UpdateInfo } from './update-check'
 
 async function main() {
   const cfg = loadConfig()
@@ -35,12 +33,35 @@ async function main() {
     idleFlushSec: cfg.idleFlushSec,
   })
 
+  // Báo bản mới: hỏi GitHub ngay khi khởi động rồi mỗi 5 phút (ETag: không đổi thì chỉ là 304). Lỗi mạng thì thử
+  // lại sau 2 phút và ghi log một lần (trước đây nuốt im lặng nên không biết vì sao không có banner).
+  // Chạy chưa đóng gói (pnpm dev, không có số phiên bản thật) thì bỏ qua để không báo "có bản mới" vô nghĩa.
   let update: UpdateInfo | null = null
-  const runUpdateCheck = () => {
-    void checkForUpdate(GATEWAY_VERSION).then((u) => {
-      if (u) update = u
-      if (u?.available) log.info(`có bản Gateway mới v${u.latest}: ${u.url}`)
-    })
+  let updateEtag: string | null = null
+  let updateFailure: string | null = null
+  let announced: string | null = null
+  const canCheckUpdate = Boolean(process.env.GW_BUILD_VERSION)
+  const runUpdateCheck = async () => {
+    let delaySec = UPDATE_RETRY_SEC
+    const r = await fetchUpdate(GATEWAY_VERSION, { etag: updateEtag })
+    if (r.kind === 'failed') {
+      if (r.reason !== updateFailure) log.warn(`không kiểm tra được bản Gateway mới: ${r.reason}`)
+      updateFailure = r.reason
+      if (r.fullCycle) delaySec = UPDATE_CHECK_SEC
+    } else {
+      if (updateFailure !== null) log.info('đã kiểm tra lại được bản Gateway mới')
+      updateFailure = null
+      delaySec = UPDATE_CHECK_SEC
+      if (r.kind === 'updated') {
+        update = r.info
+        updateEtag = r.etag
+        if (r.info?.available && announced !== r.info.latest) {
+          announced = r.info.latest
+          log.info(`có bản Gateway mới v${r.info.latest}: ${r.info.url}`)
+        }
+      }
+    }
+    setTimeout(() => void runUpdateCheck(), delaySec * 1000).unref()
   }
 
   let shuttingDown = false
@@ -110,8 +131,7 @@ async function main() {
     log.warn('chưa cấu hình cloudUrl: chỉ chạy cục bộ, không có live')
   }
 
-  runUpdateCheck()
-  setInterval(runUpdateCheck, UPDATE_CHECK_MS).unref()
+  if (canCheckUpdate) void runUpdateCheck()
 
   process.on('SIGINT', () => void shutdown())
   process.on('SIGTERM', () => void shutdown())

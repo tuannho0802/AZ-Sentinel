@@ -127,4 +127,4 @@ Các mục chưa thể kiểm trên Linux:
 | `Installer/scripts/*.ps1` | Đăng ký/gỡ tác vụ, phát hiện terminal và chép EA |
 | `.github/workflows/release-gateway.yml` | Build và phát hành tự động theo tag `gateway-v*` |
 | `Gateway/src/status-page.ts`, `local-server.ts` (`/v1/ui/*`) | Giao diện và API giao diện |
-| `Gateway/src/log.ts` (`createFileSink`), `config.ts` (`saveEditableConfig`), `update-check.ts` | Log xoay vòng, lưu cấu hình, báo bản mới |
+| `Gateway/src/log.ts` (`createFileSink`), `config.ts` (`saveEditableConfig`), `update-check.ts` (logic chọn bản mới ở `Shared/src/update-check.ts`) | Log xoay vòng, lưu cấu hình, báo bản mới |
