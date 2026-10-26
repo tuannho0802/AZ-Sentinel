@@ -8,6 +8,9 @@ export const LOGIN = 12345678
 
 export async function resetDb(): Promise<void> {
   await env.DB.batch([
+    env.DB.prepare('DELETE FROM notifications'),
+    env.DB.prepare('DELETE FROM alert_state'),
+    env.DB.prepare('DELETE FROM alert_settings'),
     env.DB.prepare('DELETE FROM events'),
     env.DB.prepare('DELETE FROM trades'),
     env.DB.prepare('DELETE FROM equity_m5'),

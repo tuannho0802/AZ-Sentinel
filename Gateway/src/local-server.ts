@@ -1,6 +1,7 @@
 import http from 'node:http'
 import type { AddressInfo } from 'node:net'
 import {
+  alertRequestSchema,
   eventRequestSchema,
   GW,
   type LocalErrorResponse,
@@ -71,6 +72,10 @@ export class LocalServer {
       '/v1/ping': this.parsed(pingRequestSchema, (b) => this.gw.handlePing(b)),
       '/v1/samples': this.parsed(samplesRequestSchema, (b) => this.gw.handleSamples(b)),
       '/v1/event': this.parsed(eventRequestSchema, (b) => this.gw.handleEvent(b)),
+      '/v1/alert': this.parsed(
+        alertRequestSchema,
+        (b) => this.gw.handleAlert(b) ?? fail(409, 'unknown_terminal'),
+      ),
     }
     this.server = http.createServer((req, res) => this.onRequest(routes, req, res))
     // Không giữ kết nối nhàn rỗi quá lâu: EA mở kết nối mới mỗi WebRequest.

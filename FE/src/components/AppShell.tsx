@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import { Link, useRoute } from 'wouter'
 import { useLogout, useMe } from '../features/auth/api'
+import { NotificationBell } from '../features/notifications/NotificationBell'
 import { FailoverBanner } from '../features/server/FailoverBanner'
 import { ServerBadge } from '../features/server/ServerBadge'
 import { UpdateBanner } from '../features/server/UpdateBanner'
@@ -79,6 +80,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           </div>
           <div className="flex shrink-0 items-center gap-1">
             <ServerBadge />
+            <NotificationBell />
             <ThemeToggle />
             {me.data && (
               <span className="hidden max-w-40 truncate px-1 text-sm text-muted sm:inline">

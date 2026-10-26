@@ -6,7 +6,7 @@ import { WebSocketServer, type WebSocket as WsSocket } from 'ws'
 import { CloudClient } from '../src/cloud'
 import { Gateway } from '../src/gateway'
 import { isLoopbackHost, LocalServer } from '../src/local-server'
-import { eventReq, ping, samplesReq } from './helpers'
+import { alertReq, eventReq, ping, samplesReq } from './helpers'
 
 /** Cloud giả: WebSocket server thật, ghi tin nhận được, trả "pong" cho "ping" như hub thật. */
 async function startCloud() {
@@ -90,7 +90,7 @@ describe('API loopback', () => {
     const text = await res.text()
     expect(res.status).toBe(200)
     expect(text).toBe(
-      '{"ok":true,"bind":"pending","code":0,"watch":false,"interval_ms":1000,"lease_ms":15000}',
+      '{"ok":true,"bind":"pending","code":0,"watch":false,"interval_ms":1000,"lease_ms":15000,"alert_bp":0}',
     )
   })
 
@@ -243,6 +243,35 @@ describe('E-22 và E-23 luồng live đầy đủ', () => {
     expect(gw.status().queued).toBe(1)
     cloud.push({ t: 'ack', tid, seq: ev?.seq ?? -1 })
     await until(() => gw.status().queued === 0)
+  })
+})
+
+describe('E-26 cảnh báo lỗ float', () => {
+  const tid = terminalId(111, 'Demo-1')
+
+  it('alert_cfg tới EA qua ping; /v1/alert đi cloud tới khi có alert_ack', async () => {
+    client.start()
+    await post(base, '/v1/ping', ping())
+    await until(() => cloud.of('bind').length === 1)
+    cloud.push({ t: 'bound', tid, link_id: 7 })
+    cloud.push({ t: 'alert_cfg', loss_bp: 500 })
+    await until(() => gw.status().alertBp === 500)
+    const pr = await post(base, '/v1/ping', ping())
+    expect(pr.json.alert_bp).toBe(500)
+
+    const r = await post(base, '/v1/alert', alertReq({ aseq: 42 }))
+    expect(r.json).toEqual({ ok: true, ack_aseq: 42 })
+    await until(() => cloud.of('alert').length === 1)
+    expect(cloud.of('alert')[0]).toMatchObject({ tid, aseq: 42, kind: 'breach' })
+    cloud.push({ t: 'alert_ack', tid, aseq: 42 })
+  })
+
+  it('terminal lạ: 409; body sai: 400', async () => {
+    const r = await post(base, '/v1/alert', alertReq())
+    expect(r.status).toBe(409)
+    expect(r.json).toEqual({ ok: false, error: 'unknown_terminal' })
+    const bad = await post(base, '/v1/alert', { v: 1 })
+    expect(bad.status).toBe(400)
   })
 })
 

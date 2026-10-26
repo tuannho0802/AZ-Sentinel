@@ -1,6 +1,10 @@
 import {
   ALERT,
   type AlertReportBody,
+  type AlertSettings,
+  bpToPct,
+  DEFAULT_GROWTH_MODE,
+  type GrowthMode,
   type MarkReadRequest,
   type NotificationData,
   type NotificationKind,
@@ -14,27 +18,43 @@ import { type AlertContext, type AlertState, decideAlert, EMPTY_STATE } from './
 // Cài đặt
 // ---------------------------------------------------------------------------
 
-/** Ngưỡng cảnh báo (basis point) của một người; 0 = tắt hoặc chưa đặt. */
-export async function loadAlertBp(db: D1Database, ownerId: number): Promise<number> {
+type SettingRow = { loss_bp: number; growth_mode: GrowthMode }
+
+/** Cài đặt cảnh báo của một người: ngưỡng (basis point; 0 = tắt hoặc chưa đặt) và cách tính "đã tăng X%". */
+export async function loadAlertSettings(
+  db: D1Database,
+  ownerId: number,
+): Promise<{ bp: number; mode: GrowthMode }> {
   const row = await db
-    .prepare('SELECT loss_bp FROM alert_settings WHERE owner_id = ?')
+    .prepare('SELECT loss_bp, growth_mode FROM alert_settings WHERE owner_id = ?')
     .bind(ownerId)
-    .first<{ loss_bp: number }>()
-  return row?.loss_bp ?? 0
+    .first<SettingRow>()
+  return { bp: row?.loss_bp ?? 0, mode: row?.growth_mode ?? DEFAULT_GROWTH_MODE }
 }
 
-export async function saveAlertBp(
+/** Ngưỡng cảnh báo (basis point) của một người; 0 = tắt hoặc chưa đặt. */
+export async function loadAlertBp(db: D1Database, ownerId: number): Promise<number> {
+  return (await loadAlertSettings(db, ownerId)).bp
+}
+
+export function toSettingsView(s: { bp: number; mode: GrowthMode }): AlertSettings {
+  return { loss_pct: bpToPct(s.bp), growth_mode: s.mode }
+}
+
+export async function saveAlertSettings(
   db: D1Database,
   ownerId: number,
   bp: number,
+  mode: GrowthMode,
   now: number,
 ): Promise<void> {
   await db
     .prepare(
-      `INSERT INTO alert_settings (owner_id, loss_bp, updated_at) VALUES (?, ?, ?)
-       ON CONFLICT(owner_id) DO UPDATE SET loss_bp = excluded.loss_bp, updated_at = excluded.updated_at`,
+      `INSERT INTO alert_settings (owner_id, loss_bp, growth_mode, updated_at) VALUES (?, ?, ?, ?)
+       ON CONFLICT(owner_id) DO UPDATE SET loss_bp = excluded.loss_bp, growth_mode = excluded.growth_mode,
+         updated_at = excluded.updated_at`,
     )
-    .bind(ownerId, bp, now)
+    .bind(ownerId, bp, mode, now)
     .run()
 }
 
@@ -77,8 +97,8 @@ export async function processAlertReport(
   report: AlertReportBody,
   now: number,
 ): Promise<NotificationKind | null> {
-  const [cfgBp, row] = await Promise.all([
-    loadAlertBp(db, term.ownerId),
+  const [cfg, row] = await Promise.all([
+    loadAlertSettings(db, term.ownerId),
     db
       .prepare(
         `SELECT episode_open, ep_started_at, last_notified_at, last_notified_fl, last_aseq
@@ -90,7 +110,7 @@ export async function processAlertReport(
   const state: AlertState = row
     ? { ...row, episode_open: row.episode_open === 1 ? 1 : 0 }
     : EMPTY_STATE
-  const decision = decideAlert(report, state, cfgBp, now, contextOf(term.tid))
+  const decision = decideAlert(report, state, cfg.bp, now, contextOf(term.tid), cfg.mode)
   if (decision.notify === null) return null
 
   const { notify, state: next } = decision

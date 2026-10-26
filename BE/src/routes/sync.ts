@@ -139,10 +139,14 @@ export function createSyncRoutes(origins: VpsOriginStore = sharedOriginStore) {
     return c.json(page)
   })
 
-  routes.get('/notifications', zValidator('query', notificationsQuerySchema, invalid), async (c) => {
-    const q = c.req.valid('query')
-    return c.json(await readNotificationsSince(c.env.DB, q.since, q.after, q.limit))
-  })
+  routes.get(
+    '/notifications',
+    zValidator('query', notificationsQuerySchema, invalid),
+    async (c) => {
+      const q = c.req.valid('query')
+      return c.json(await readNotificationsSince(c.env.DB, q.since, q.after, q.limit))
+    },
+  )
 
   routes.get('/alert-state', zValidator('query', alertStateQuerySchema, invalid), async (c) => {
     return c.json(await readAlertStatesSince(c.env.DB, c.req.valid('query').since))

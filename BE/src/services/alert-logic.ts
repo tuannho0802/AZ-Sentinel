@@ -4,6 +4,7 @@ import {
   formatDurationVi,
   formatMoney,
   formatPct,
+  type GrowthMode,
   lossBp,
   type NotificationData,
   type NotificationKind,
@@ -11,6 +12,21 @@ import {
 
 /** Đợt cảnh báo mở quá lâu mà EA không bao giờ báo `clear` (mất cờ trên terminal): coi như đợt mới. */
 export const STALE_EPISODE_SEC = 7 * 24 * 3600
+
+/**
+ * Mức lỗ tăng thêm (đơn vị %) giữa hai lần đo. `balance`: so với Balance hiện tại (0 nếu Balance không dương);
+ * `float`: so với mức lỗ lần báo trước (0 nếu lần trước không lỗ).
+ */
+export function lossGrowthPct(
+  prevLoss: number,
+  nowLoss: number,
+  balance: number,
+  mode: GrowthMode,
+): number {
+  const delta = nowLoss - prevLoss
+  const denom = mode === 'float' ? prevLoss : balance
+  return denom > 0 ? (delta / denom) * 100 : 0
+}
 
 /** Dòng `alert_state` (hoặc mặc định khi liên kết chưa có đợt nào). */
 export type AlertState = {
@@ -79,6 +95,7 @@ export function decideAlert(
   cfgBp: number,
   now: number,
   ctx: AlertContext,
+  mode: GrowthMode = 'balance',
 ): Decision {
   // Bản gửi lại của báo cáo cũ hơn lần đổi trạng thái gần nhất.
   if (report.aseq <= state.last_aseq) return NO
@@ -134,8 +151,7 @@ export function decideAlert(
   const since = now - last
   if (since < ALERT.cooldownSec) return NO
 
-  const prevLoss = -prev
-  const growth = ((-report.fl - prevLoss) / prevLoss) * 100
+  const growth = lossGrowthPct(-prev, -report.fl, report.bal, mode)
   if (growth < ALERT.minIncreasePct) return NO
 
   return {
@@ -149,6 +165,7 @@ export function decideAlert(
         thr_pct: thrPct,
         prev_fl: prev,
         growth_pct: growth,
+        growth_mode: mode,
         since_sec: since,
       },
     },

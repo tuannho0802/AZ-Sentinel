@@ -70,6 +70,7 @@ export const USER_COLS = [
 export const ALERT_SETTING_COLS = [
   'owner_id',
   'loss_bp',
+  'growth_mode',
   'updated_at',
 ] as const satisfies readonly (keyof SyncAlertSettingRow)[]
 

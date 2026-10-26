@@ -1,4 +1,5 @@
 import type {
+  AlertRequest,
   EventRequest,
   GwClientMessage,
   GwServerMessage,
@@ -48,6 +49,25 @@ export function eventReq(over: Partial<EventRequest> = {}): EventRequest {
     seq: 1,
     reason: ['trade_event'],
     events: [{ kind: 'close', deal_ticket: 9, position_id: 7, time: 1_760_000_000, profit: 3 }],
+    ...over,
+  }
+}
+
+export function alertReq(over: Partial<AlertRequest> = {}): AlertRequest {
+  return {
+    v: 1,
+    sid: 'S1',
+    key: KEY,
+    login: 111,
+    server: 'Demo-1',
+    aseq: 1_760_000_000,
+    kind: 'breach',
+    ts: 1_760_000_000,
+    bal: 1000,
+    eq: 900,
+    fl: -100,
+    n: 2,
+    ccy: 'USC',
     ...over,
   }
 }

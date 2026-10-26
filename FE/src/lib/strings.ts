@@ -351,6 +351,33 @@ export const strings = {
   updateBannerGet: 'Tải bộ cài mới',
   updateBannerLater: 'Để sau',
 
+  notifBellLabel: (unread: number) => (unread > 0 ? `Thông báo, ${unread} chưa đọc` : 'Thông báo'),
+  notifTitle: 'Thông báo',
+  notifMarkAll: 'Đọc tất cả',
+  notifLoading: 'Đang tải thông báo...',
+  notifError: 'Không tải được thông báo.',
+  notifEmpty:
+    'Chưa có thông báo nào. Khi Float P/L lỗ vượt ngưỡng bạn đặt, thông báo sẽ hiện ở đây.',
+  notifUnread: 'Chưa đọc',
+  notifOpenSettings: 'Cài đặt cảnh báo',
+  notifBackToList: 'Quay lại thông báo',
+  alertSettingsTitle: 'Cảnh báo lỗ Float P/L',
+  alertLoading: 'Đang tải cài đặt...',
+  alertLoadError: 'Không tải được cài đặt cảnh báo.',
+  alertThresholdLabel: 'Ngưỡng cảnh báo (% Balance)',
+  alertThresholdHint:
+    '0 là tắt. Báo khi Float P/L đang lỗ đạt ngưỡng này so với Balance (tối thiểu 0,1%).',
+  alertModeLabel: 'Tính "lỗ đã tăng X%" theo',
+  alertModeBalance: 'Balance hiện tại',
+  alertModeBalanceHint: 'Ví dụ Balance 10.000, lỗ từ -1.000 lên -1.200 là tăng 2%.',
+  alertModeFloat: 'Float P/L lần báo trước',
+  alertModeFloatHint: 'Ví dụ lỗ từ -1.000 lên -1.200 là tăng 20%.',
+  alertSave: 'Lưu',
+  alertSaving: 'Đang lưu...',
+  alertSaved: 'Đã lưu.',
+  alertInvalid: 'Nhập số từ 0,1 đến 100, hoặc 0 để tắt.',
+  alertSaveFailed: 'Không lưu được cài đặt.',
+
   roles: { root_admin: 'rootAdmin', admin: 'Admin', user: 'User' },
 
   usersTitle: 'Người dùng',

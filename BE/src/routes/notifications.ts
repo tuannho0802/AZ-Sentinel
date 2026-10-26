@@ -1,11 +1,4 @@
-import {
-  ALERT,
-  type AlertSettings,
-  alertSettingsSchema,
-  bpToPct,
-  markReadRequestSchema,
-  pctToBp,
-} from '@az-sentinel/shared'
+import { ALERT, alertSettingsSchema, markReadRequestSchema, pctToBp } from '@az-sentinel/shared'
 import { type Context, Hono } from 'hono'
 import { AppError } from '../lib/app-error'
 import { nowUnix } from '../lib/time'
@@ -13,9 +6,10 @@ import { HUB_NAME } from '../live/routes/live-ws'
 import type { Viewer, ViewerAuth } from '../live/viewer-auth'
 import {
   listNotifications,
-  loadAlertBp,
+  loadAlertSettings,
   markRead,
-  saveAlertBp,
+  saveAlertSettings,
+  toSettingsView,
   unreadCount,
 } from '../services/alert-service'
 import type { AppEnv, Bindings } from '../types'
@@ -94,10 +88,7 @@ export function createAlertSettingsRoutes(viewerAuth: ViewerAuth) {
 
   routes.get('/', async (c) => {
     const viewer = viewerOf(c)
-    const body: AlertSettings = {
-      loss_pct: bpToPct(await loadAlertBp(c.env.DB, viewer.userId)),
-    }
-    return c.json(body)
+    return c.json(toSettingsView(await loadAlertSettings(c.env.DB, viewer.userId)))
   })
 
   routes.put('/', async (c) => {
@@ -111,10 +102,11 @@ export function createAlertSettingsRoutes(viewerAuth: ViewerAuth) {
       )
     }
     const bp = pctToBp(parsed.data.loss_pct)
-    await saveAlertBp(c.env.DB, viewer.userId, bp, nowUnix())
+    // Không gửi `growth_mode` thì giữ chế độ đang lưu.
+    const mode = parsed.data.growth_mode ?? (await loadAlertSettings(c.env.DB, viewer.userId)).mode
+    await saveAlertSettings(c.env.DB, viewer.userId, bp, mode, nowUnix())
     await pushCfgToHub(c.env, viewer.userId, bp)
-    const body: AlertSettings = { loss_pct: bpToPct(bp) }
-    return c.json(body)
+    return c.json(toSettingsView({ bp, mode }))
   })
 
   return routes

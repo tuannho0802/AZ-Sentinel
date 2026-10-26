@@ -1,4 +1,5 @@
 import {
+  type AlertRequest,
   type BindState,
   clampIntervalMs,
   clampPushSec,
@@ -6,6 +7,7 @@ import {
   GW,
   type GwClientMessage,
   type GwServerMessage,
+  type LocalAlertResponse,
   type LocalEventResponse,
   type LocalPingResponse,
   type PingRequest,
@@ -27,6 +29,14 @@ const MAX_BUFFER = 60
 
 /** Dung sai (ms) khi so nhịp đẩy: bộ hẹn giờ lệch vài ms không được làm lỡ một nhịp. */
 const PUSH_SLACK_MS = 20
+
+/** Mỗi terminal giữ tối đa chừng này báo cáo cảnh báo chưa được cloud xác nhận. */
+const MAX_PENDING_ALERTS = 5
+
+/** Báo cáo cảnh báo chưa có `alert_ack` được gửi lại sau chừng này ms (ngoài các mốc nối lại/bind). */
+const ALERT_RESEND_MS = 30_000
+
+type PendingAlert = { req: AlertRequest; sentMs: number }
 
 /** Gửi một tin lên cloud. Trả về false khi chưa có kết nối (tin bị bỏ, không xếp hàng ở đây). */
 export type CloudSend = (msg: GwClientMessage) => boolean
@@ -69,6 +79,8 @@ type Terminal = {
   lastSent?: Sample
   lastSentAtMs: number
   lastPlJson?: string
+  /** Báo cáo cảnh báo lỗ float chưa được cloud xác nhận (theo `aseq`), gửi lại cho tới khi có `alert_ack`. */
+  alerts: Map<number, PendingAlert>
 }
 
 /** Hai mẫu cùng giá trị (bỏ qua `t`): không có gì mới để cho người xem. */
@@ -109,6 +121,8 @@ export type GatewayStatus = {
   fast: number
   queued: number
   droppedEvents: number
+  /** Ngưỡng cảnh báo lỗ float đang giữ (basis point, 0 = tắt). */
+  alertBp: number
   terminals: TerminalStatus[]
 }
 
@@ -140,6 +154,11 @@ export class Gateway {
   /** Tập con của `watch` đang được xem riêng: đẩy theo tick (`GW.fastPushMs`). */
   private fast = new Set<string>()
   private pushSec: number = GW.defaultPushSec
+  /**
+   * Ngưỡng cảnh báo lỗ float (basis point của Balance, 0 = tắt) do cloud đặt, chuyển cho EA qua `alert_bp`.
+   * Mất cloud thì giữ giá trị cũ (EA vẫn đo theo ngưỡng cuối; Server mới là nơi quyết định có báo hay không).
+   */
+  private alertBp = 0
   private lastGseq = 0
   /** Lần cuối đẩy `state`/`event` đã giữ lại (ms). Khởi tạo = lúc khởi động: giữ ngay từ đầu. */
   private lastDeferredMs: number
@@ -273,6 +292,33 @@ export class Gateway {
     return { ok: true, ack_seq: req.seq }
   }
 
+  /**
+   * EA báo vượt ngưỡng lỗ float hoặc hết lệnh. Gateway giữ báo cáo và gửi lên cloud tới khi có `alert_ack`;
+   * `ack_aseq` trả EA chỉ nghĩa là Gateway đã giữ (EA có thể ngừng gửi lại `clear`). Terminal lạ trả null
+   * (Gateway vừa khởi động lại: EA ping rồi gửi lại ở nhịp sau). Terminal bị từ chối thì nhận và bỏ.
+   */
+  handleAlert(req: AlertRequest): LocalAlertResponse | null {
+    const tid = terminalId(req.login, req.server)
+    const t = this.terminals.get(tid)
+    if (!t || t.key !== req.key) return null
+    t.lastSeenMs = this.now()
+    if (t.bind === 'rejected') return { ok: true, ack_aseq: req.aseq }
+
+    // `breach` mới thay mọi `breach` cũ chưa gửi xong (chỉ trạng thái mới nhất có ý nghĩa); `clear` luôn được giữ.
+    if (req.kind === 'breach') {
+      for (const [aseq, p] of t.alerts)
+        if (p.req.kind === 'breach' && aseq < req.aseq) t.alerts.delete(aseq)
+    }
+    if (!t.alerts.has(req.aseq)) t.alerts.set(req.aseq, { req, sentMs: 0 })
+    while (t.alerts.size > MAX_PENDING_ALERTS) {
+      const oldest = t.alerts.keys().next().value
+      if (oldest === undefined) break
+      t.alerts.delete(oldest)
+    }
+    this.sendAlerts(t)
+    return { ok: true, ack_aseq: req.aseq }
+  }
+
   // -------------------------------------------------------------------------
   // Cloud -> Gateway
   // -------------------------------------------------------------------------
@@ -292,6 +338,7 @@ export class Gateway {
       t.bindSent = false
       t.pushedOnline = null
       t.inflight.clear()
+      for (const p of t.alerts.values()) p.sentMs = 0
       if (t.bind !== 'rejected') t.bind = 'pending'
       this.syncBind(t)
     }
@@ -320,8 +367,16 @@ export class Gateway {
         this.log.info(`bind ok ${msg.tid} -> liên kết ${msg.link_id}`)
         this.syncState(t)
         this.drainQueue(t)
+        this.sendAlerts(t)
         return
       }
+      case 'alert_cfg':
+        this.alertBp = msg.loss_bp
+        this.log.info(`ngưỡng cảnh báo lỗ float: ${msg.loss_bp} bp`)
+        return
+      case 'alert_ack':
+        this.terminals.get(msg.tid)?.alerts.delete(msg.aseq)
+        return
       case 'reject': {
         const t = this.terminals.get(msg.tid)
         if (!t) return
@@ -330,6 +385,7 @@ export class Gateway {
         t.buffer = []
         this.watch.delete(msg.tid)
         this.fast.delete(msg.tid)
+        t.alerts.clear()
         const dropped = this.queue.dropTerminal(msg.tid)
         this.log.warn(`bind bị từ chối ${msg.tid} mã ${msg.code}, bỏ ${dropped} lô sự kiện`)
         return
@@ -436,6 +492,7 @@ export class Gateway {
     const now = this.now()
     if (this.send && this.watch.size === 0 && !this.holdDeferred()) this.flushDeferred()
     for (const t of this.terminals.values()) {
+      if (t.alerts.size > 0) this.sendAlerts(t)
       if (t.online && now - t.lastSeenMs > GW.offlineAfterSec * 1000) {
         t.online = false
         t.buffer = []
@@ -461,6 +518,7 @@ export class Gateway {
       fast: [...this.terminals.values()].filter((t) => this.isFast(t)).length,
       queued: this.queue.length,
       droppedEvents: this.queue.dropped,
+      alertBp: this.alertBp,
       terminals: [...this.terminals.values()].map((t) => ({
         tid: t.tid,
         login: t.login,
@@ -507,6 +565,7 @@ export class Gateway {
       lastPushMs: 0,
       inflight: new Set(),
       lastSentAtMs: 0,
+      alerts: new Map(),
     }
   }
 
@@ -582,6 +641,30 @@ export class Gateway {
     }
   }
 
+  /** Gửi báo cáo cảnh báo chưa xác nhận (chỉ khi bind ok); báo cáo vừa gửi chưa quá `ALERT_RESEND_MS` thì chờ. */
+  private sendAlerts(t: Terminal): void {
+    if (!this.send || t.bind !== 'ok' || t.alerts.size === 0) return
+    const now = this.now()
+    for (const p of t.alerts.values()) {
+      if (p.sentMs !== 0 && now - p.sentMs < ALERT_RESEND_MS) continue
+      const { aseq, kind, ts, bal, eq, fl, n, ccy, closed_pl } = p.req
+      const ok = this.send({
+        t: 'alert',
+        tid: t.tid,
+        aseq,
+        kind,
+        ts,
+        bal,
+        eq,
+        fl,
+        n,
+        ...(ccy !== undefined ? { ccy } : {}),
+        ...(closed_pl !== undefined ? { closed_pl } : {}),
+      })
+      if (ok) p.sentMs = now
+    }
+  }
+
   /** Gửi các lô sự kiện chưa gửi của terminal (chỉ khi bind ok). */
   private drainQueue(t: Terminal, force = false): void {
     if (!this.send || t.bind !== 'ok') return
@@ -636,6 +719,7 @@ export class Gateway {
       watch: this.isWatched(t),
       interval_ms: this.isFast(t) ? GW.fastIntervalMs : clampIntervalMs(this.pushSec * 1000),
       lease_ms: GW.leaseMs,
+      alert_bp: this.alertBp,
     }
   }
 
@@ -647,6 +731,7 @@ export class Gateway {
       watch: false,
       interval_ms: clampIntervalMs(this.pushSec * 1000),
       lease_ms: GW.leaseMs,
+      alert_bp: this.alertBp,
     }
   }
 

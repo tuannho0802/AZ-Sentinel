@@ -51,7 +51,10 @@ export function renderApp(
     const key = `${init?.method ?? 'GET'} ${input}`
     const handler =
       handlers[key] ??
-      (key === 'GET /api/server-info' ? () => json(200, defaultServerInfo) : undefined)
+      (key === 'GET /api/server-info' ? () => json(200, defaultServerInfo) : undefined) ??
+      (input.startsWith('/api/notifications') && !init?.method
+        ? () => json(200, { items: [], unread: 0 })
+        : undefined)
     if (!handler) throw new Error(`Chưa giả lập ${init?.method ?? 'GET'} ${input}`)
     return handler()
   })

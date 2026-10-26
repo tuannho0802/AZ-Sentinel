@@ -7,17 +7,23 @@
 //|             interval_ms (Gateway quyet dinh); OnTimer 1 giay du   |
 //|             phong khi thi truong khong co tick.                   |
 //|   GW_DOWN : Gateway khong tra loi, chi ghi nhan cuc bo, ping thua.|
+//|   Canh bao lo float: Gateway tra alert_bp (basis point Balance);   |
+//|             EA do Float P/L / Balance, vuot nguong thi POST       |
+//|             /v1/alert, het lenh thi bao clear (Plan 5, v0.4.0).   |
 //| Ten file giu nguyen de giu lich su git (Q2); doi ten khi phat hanh|
 //+------------------------------------------------------------------+
 #property copyright "AZ Team"
-#property version "0.30"
+#property version "0.40"
 #property description "AZ Sentinel tracking EA: ping, samples, event toi Gateway cuc bo"
 
-#define EA_VER "0.3.0"
+#define EA_VER "0.4.0"
 #define MAX_SAMPLES 20
 #define MAX_POSITIONS 200
 #define MAX_PENDING_EVENTS 100
 #define EVENTS_PER_REQUEST 50
+#define ALERT_REPORT_SEC 60      // nhac lai "dang vuot nguong lo float" moi chung nay giay (Server loc)
+#define ALERT_RETRY_SEC 10       // gui that bai (Gateway chua nhan): thu lai sau chung nay giay
+#define ALERT_ZERO_TICKS 3       // can chung nay lan do lien tiep thay 0 lenh moi bao "clear" (tranh sai luc moi khoi dong)
 
 input string InpGateway = "http://127.0.0.1:47800"; // Gateway cuc bo (phai nam trong Allow WebRequest)
 input string InpApiKey = "";            // De trong = tu dong theo token ca nhan cua Gateway. Neu nhap: API key cua lien ket, khong chia se
@@ -59,6 +65,14 @@ int g_nSamples = 0;
 long g_samplesSeq = 0;
 string g_lastPosHash = "";
 bool g_sendPositions = true;
+
+//--- canh bao lo float (Plan 5). EA chi do va bao Gateway; Server quyet dinh co thong bao hay khong.
+int g_alertBp = 0;       // nguong theo basis point cua Balance (500 = 5%), 0 = tat. Gateway tra trong ping/samples
+bool g_inBreach = false; // dang co "dot canh bao" chua clear (luu qua GlobalVariable de song sot khi EA khoi dong lai)
+long g_epStartUtc = 0;   // luc bat dau dot (UTC)
+ulong g_nextAlertMs = 0; // lich gui ke tiep (GetTickCount64)
+long g_lastAseq = 0;     // so thu tu bao cao cuoi, don dieu tang
+int g_zeroTicks = 0;     // so lan do lien tiep thay 0 lenh
 
 //--- hang doi su kien giao dich (JSON da dung san)
 string g_evJson[];
@@ -379,6 +393,7 @@ bool HandleReply(const int code, const string resp)
 
    g_intervalMs = (int)MathMin(5000, MathMax(100, JsonInt(resp, "interval_ms", 1000)));
    g_leaseMs = (int)MathMin(60000, MathMax(5000, JsonInt(resp, "lease_ms", 15000)));
+   g_alertBp = (int)MathMin(10000, MathMax(0, JsonInt(resp, "alert_bp", 0)));
 
    string bind = JsonStr(resp, "bind");
    if (bind != g_lastBind)
@@ -894,6 +909,133 @@ void CheckMarginAlert()
 }
 
 //+------------------------------------------------------------------+
+//| Canh bao lo float (Plan 5)                                        |
+//+------------------------------------------------------------------+
+string epVarName()
+{
+   return "AZS_ep_" + IntegerToString(AccountInfoInteger(ACCOUNT_LOGIN));
+}
+
+//--- Nguoc lai voi ServerToUtc: doi Unix giay UTC sang gio server broker (de goi HistorySelect).
+long UtcToServer(const long t)
+{
+   long off = (long)(TimeTradeServer() - TimeGMT());
+   off = (long)MathRound((double)off / 900.0) * 900; // lam tron 15 phut
+   return t + off;
+}
+
+//--- Tong lai/lo da chot tu luc bat dau dot: profit + swap + commission + fee cua cac deal dong lenh.
+//--- Tra ve false neu khong doc duoc lich su (khi do khong gui closed_pl, khong gui so 0 gia).
+bool ClosedPlSince(const long fromUtc, double &sum)
+{
+   sum = 0.0;
+   datetime from = (datetime)UtcToServer(fromUtc - 60);
+   datetime to = (datetime)(TimeTradeServer() + 86400);
+   if (!HistorySelect(from, to))
+      return false;
+   int total = HistoryDealsTotal();
+   for (int i = 0; i < total; i++)
+   {
+      ulong deal = HistoryDealGetTicket(i);
+      if (deal == 0)
+         continue;
+      ENUM_DEAL_TYPE type = (ENUM_DEAL_TYPE)HistoryDealGetInteger(deal, DEAL_TYPE);
+      if (type != DEAL_TYPE_BUY && type != DEAL_TYPE_SELL)
+         continue; // bo nap/rut tien, credit, ...
+      ENUM_DEAL_ENTRY entry = (ENUM_DEAL_ENTRY)HistoryDealGetInteger(deal, DEAL_ENTRY);
+      if (entry != DEAL_ENTRY_OUT && entry != DEAL_ENTRY_INOUT && entry != DEAL_ENTRY_OUT_BY)
+         continue;
+      sum += HistoryDealGetDouble(deal, DEAL_PROFIT) + HistoryDealGetDouble(deal, DEAL_SWAP) +
+             HistoryDealGetDouble(deal, DEAL_COMMISSION) + HistoryDealGetDouble(deal, DEAL_FEE);
+   }
+   return true;
+}
+
+//--- Gui mot bao cao cho Gateway. true khi Gateway da nhan (ack_aseq khop), khong co nghia cloud da nhan.
+//--- aseq = max(aseq truoc + 1, TimeGMT()) nen don dieu ca khi EA khoi dong lai.
+bool SendAlert(const string kind, const bool hasClosed, const double closedPl)
+{
+   long aseq = (long)TimeGMT();
+   if (aseq <= g_lastAseq)
+      aseq = g_lastAseq + 1;
+   g_lastAseq = aseq;
+
+   string body = "{" + Ident() +
+                 ",\"aseq\":" + IntegerToString(aseq) +
+                 ",\"kind\":" + Q(kind) +
+                 ",\"ts\":" + IntegerToString((long)TimeGMT()) +
+                 ",\"bal\":" + Num(AccountInfoDouble(ACCOUNT_BALANCE)) +
+                 ",\"eq\":" + Num(AccountInfoDouble(ACCOUNT_EQUITY)) +
+                 ",\"fl\":" + Num(AccountInfoDouble(ACCOUNT_PROFIT)) +
+                 ",\"n\":" + IntegerToString(PositionsTotal()) +
+                 ",\"ccy\":" + Q(AccountInfoString(ACCOUNT_CURRENCY));
+   if (hasClosed)
+      body += ",\"closed_pl\":" + Num(closedPl);
+   body += "}";
+
+   string resp;
+   int code = HttpPost("/v1/alert", body, resp);
+   return (code == 200 && JsonInt(resp, "ack_aseq", -1) == aseq);
+}
+
+//--- Goi tu OnTimer (moi giay). WebRequest chan luong nen KHONG goi trong OnTradeTransaction.
+void CheckLossAlert()
+{
+   if (g_state == ST_GW_DOWN)
+      return; // Gateway khong tra loi: khong chan luong them; thu lai khi ping thanh cong
+   ulong now = GetTickCount64();
+   double bal = AccountInfoDouble(ACCOUNT_BALANCE);
+   double fl = AccountInfoDouble(ACCOUNT_PROFIT);
+   int open = PositionsTotal();
+
+   if (open > 0)
+      g_zeroTicks = 0;
+   else if (g_zeroTicks < 1000)
+      g_zeroTicks++;
+
+   // Het lenh trong luc dang co dot: bao "clear" kem lai/lo da chot. Chi xoa co khi Gateway da nhan.
+   if (g_inBreach && open == 0)
+   {
+      if (g_zeroTicks < ALERT_ZERO_TICKS || !(bool)TerminalInfoInteger(TERMINAL_CONNECTED))
+         return;
+      if (now < g_nextAlertMs)
+         return;
+      g_nextAlertMs = now + (ulong)ALERT_RETRY_SEC * 1000;
+      double pl = 0.0;
+      bool has = ClosedPlSince(g_epStartUtc, pl);
+      if (SendAlert("clear", has, pl))
+      {
+         g_inBreach = false;
+         GlobalVariableDel(epVarName());
+         g_nextAlertMs = 0;
+         PrintFormat("AZ: da bao clear lenh, P/L da chot %.2f", pl);
+      }
+      return;
+   }
+
+   bool breach = (g_alertBp > 0 && bal > 0.0 && fl < 0.0 && (-fl / bal) * 10000.0 >= (double)g_alertBp);
+   if (!breach)
+   {
+      g_nextAlertMs = 0; // lan vuot nguong ke tiep bao ngay
+      return;
+   }
+
+   if (!g_inBreach)
+   {
+      g_inBreach = true;
+      g_epStartUtc = (long)TimeGMT();
+      GlobalVariableSet(epVarName(), (double)g_epStartUtc);
+      PrintFormat("AZ: lo float vuot nguong %.2f%% Balance", g_alertBp / 100.0);
+   }
+   if (now < g_nextAlertMs)
+      return;
+   if (SendAlert("breach", false, 0.0))
+      g_nextAlertMs = now + (ulong)ALERT_REPORT_SEC * 1000;
+   else
+      g_nextAlertMs = now + (ulong)ALERT_RETRY_SEC * 1000;
+}
+
+//+------------------------------------------------------------------+
 //| Vong doi EA                                                       |
 //+------------------------------------------------------------------+
 bool AnotherInstanceRunning()
@@ -952,6 +1094,13 @@ int OnInit()
       }
    }
 
+   // Khoi phuc dot canh bao lo float dang mo (EA khoi dong lai giua chung): van bao "clear" khi het lenh.
+   if (IdentityReady() && GlobalVariableCheck(epVarName()))
+   {
+      g_inBreach = true;
+      g_epStartUtc = (long)GlobalVariableGet(epVarName());
+   }
+
    // Tre ngau nhien 0 den 5 giay truoc ping dau de nhieu EA khong ban cung luc.
    g_nextPingMs = GetTickCount64() + (ulong)(MathRand() % 5000);
 
@@ -1003,6 +1152,7 @@ void OnTimer()
    LiveStep(now);
 
    FlushEvents();
+   CheckLossAlert();
 }
 
 //--- Moi tick: chi lam viec khi dang LIVE va da toi nhip (re khi khong co ai xem).

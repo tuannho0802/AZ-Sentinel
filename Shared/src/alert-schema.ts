@@ -21,6 +21,15 @@ export const ALERT = {
   listLimit: 100,
 } as const
 
+/**
+ * Cách tính "lỗ đã tăng X%":
+ * - `balance`: (lỗ hiện tại - lỗ lần báo trước) / Balance hiện tại. Mặc định.
+ * - `float`: (lỗ hiện tại - lỗ lần báo trước) / lỗ lần báo trước.
+ */
+export const GROWTH_MODES = ['balance', 'float'] as const
+export type GrowthMode = (typeof GROWTH_MODES)[number]
+export const DEFAULT_GROWTH_MODE: GrowthMode = 'balance'
+
 export const NOTIFICATION_KINDS = ['warn', 'increase', 'clear'] as const
 export type NotificationKind = (typeof NOTIFICATION_KINDS)[number]
 
@@ -76,8 +85,12 @@ export const alertSettingsSchema = z.object({
     .min(0)
     .max(ALERT.maxLossBp / 100)
     .refine((v) => v === 0 || v >= 0.1, { message: 'Ngưỡng tối thiểu là 0,1%' }),
+  /** Cách tính "đã tăng X%". Thiếu thì giữ chế độ đang lưu (mặc định `balance`). */
+  growth_mode: z.enum(GROWTH_MODES).optional(),
 })
-export type AlertSettings = z.infer<typeof alertSettingsSchema>
+export type AlertSettingsInput = z.infer<typeof alertSettingsSchema>
+/** Cài đặt trả về giao diện (luôn đủ trường). */
+export type AlertSettings = { loss_pct: number; growth_mode: GrowthMode }
 
 export function pctToBp(pct: number): number {
   return Math.round(pct * 100)
@@ -96,6 +109,7 @@ export const notificationDataSchema = z.object({
   thr_pct: num.optional(),
   prev_fl: num.optional(),
   growth_pct: num.optional(),
+  growth_mode: z.enum(GROWTH_MODES).optional(),
   since_sec: z.number().int().optional(),
   closed_pl: num.optional(),
 })
@@ -128,6 +142,8 @@ export type MarkReadRequest = z.infer<typeof markReadRequestSchema>
 export const syncAlertSettingRowSchema = z.object({
   owner_id: z.number().int().positive(),
   loss_bp: z.number().int().min(0).max(ALERT.maxLossBp),
+  /** Thiếu (VPS bản cũ) thì coi là `balance`. */
+  growth_mode: z.enum(GROWTH_MODES).default(DEFAULT_GROWTH_MODE),
   updated_at: z.number().int().nonnegative(),
 })
 export type SyncAlertSettingRow = z.infer<typeof syncAlertSettingRowSchema>
