@@ -1,4 +1,9 @@
 import { z } from 'zod'
+import {
+  syncAlertSettingRowSchema,
+  syncAlertStateRowSchema,
+  syncNotificationRowSchema,
+} from './alert-schema'
 import { syncTokenRowSchema } from './token-schema'
 import { updateStatusSchema } from './update-check'
 import { syncUserRowSchema } from './user-schema'
@@ -177,6 +182,10 @@ export const syncApplySchema = z.object({
     .array(z.object({ link_id: z.number().int().positive(), ticket: z.number().int() }))
     .max(SYNC_MAX_ROWS)
     .default([]),
+  /** Plan 5: cài đặt cảnh báo, trạng thái đợt cảnh báo và thông báo (khóa theo `owner_id`, `link_id`, `uid`). */
+  alert_settings: z.array(syncAlertSettingRowSchema).max(SYNC_MAX_ROWS).default([]),
+  alert_states: z.array(syncAlertStateRowSchema).max(SYNC_MAX_ROWS).default([]),
+  notifications: z.array(syncNotificationRowSchema).max(SYNC_MAX_ROWS).default([]),
 })
 export type SyncApply = z.infer<typeof syncApplySchema>
 

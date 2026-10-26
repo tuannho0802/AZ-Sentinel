@@ -15,6 +15,7 @@ import { devLinks } from './routes/dev-links'
 import { createEaRoutes, defaultHub, type HubProvider } from './routes/ea'
 import { health } from './routes/health'
 import { createLinkRoutes } from './routes/links'
+import { createAlertSettingsRoutes, createNotificationRoutes } from './routes/notifications'
 import { createServerInfoRoutes } from './routes/server-info'
 import { spike } from './routes/spike'
 import { createSyncRoutes } from './routes/sync'
@@ -57,6 +58,9 @@ export function createApp(opts: AppOptions = {}) {
   app.route('/api/admin/ip-rules', createAdminIpRoutes(opts.viewerAuth ?? resolveViewer))
   app.route('/api/admin/device-rules', createAdminDeviceRoutes(opts.viewerAuth ?? resolveViewer))
   app.route('/api/links', createLinkRoutes(opts.viewerAuth ?? resolveViewer))
+  // Plan 5: thông báo cảnh báo lỗ float và cài đặt ngưỡng của chính người dùng.
+  app.route('/api/notifications', createNotificationRoutes(opts.viewerAuth ?? resolveViewer))
+  app.route('/api/settings/alerts', createAlertSettingsRoutes(opts.viewerAuth ?? resolveViewer))
   // DEV Part 1: quản lý liên kết không cần đăng nhập, chỉ bật bằng DEV_LINKS_API. Xóa khi có Part 2/3.
   app.route('/api/dev', devLinks)
   // SPIKE (P1-19): xóa ở P1-31.

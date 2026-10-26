@@ -2,20 +2,40 @@ import {
   FAILOVER,
   type ServerNode,
   type StandbyStatus,
+  type SyncAlertSettingRow,
+  type SyncAlertStateRow,
   type SyncApply,
   type SyncLinkRow,
+  type SyncNotificationRow,
   type SyncTokenRow,
   type SyncTradeRow,
   type SyncUserRow,
+  syncAlertStatePageSchema,
   syncLinksPageSchema,
+  syncNotificationsPageSchema,
   syncTokensPageSchema,
   syncTradesPageSchema,
 } from '@az-sentinel/shared'
-import { LINK_COLS, TOKEN_COLS, TRADE_COLS, USER_COLS } from '../../BE/src/services/sync-service'
+import {
+  ALERT_SETTING_COLS,
+  ALERT_STATE_COLS,
+  ALERT_STATE_UPSERT,
+  LINK_COLS,
+  NOTIFICATION_COLS,
+  NOTIFICATION_UPSERT,
+  TOKEN_COLS,
+  TRADE_COLS,
+  USER_COLS,
+} from '../../BE/src/services/sync-service'
 import type { Logger } from './log'
 import type { ShimD1 } from './shim/d1'
 
-type OutboxRow = { seq: number; kind: 'link' | 'trade' | 'token' | 'user'; a: number; b: number }
+type OutboxRow = {
+  seq: number
+  kind: 'link' | 'trade' | 'token' | 'user' | 'alert_cfg' | 'alert_state' | 'notif'
+  a: number
+  b: number
+}
 type Reply = { ok: boolean; status: number; json: unknown }
 
 const placeholders = (n: number) => Array(n).fill('?').join(', ')
@@ -207,6 +227,9 @@ export class SyncAgent {
       INSERT OR REPLACE INTO sync_outbox (kind, a, b) SELECT 'trade', link_id, ticket FROM trades;
       INSERT OR REPLACE INTO sync_outbox (kind, a, b) SELECT 'token', id, 0 FROM gw_tokens;
       INSERT OR REPLACE INTO sync_outbox (kind, a, b) SELECT 'user', id, 0 FROM users;
+      INSERT OR REPLACE INTO sync_outbox (kind, a, b) SELECT 'alert_cfg', owner_id, 0 FROM alert_settings;
+      INSERT OR REPLACE INTO sync_outbox (kind, a, b) SELECT 'alert_state', link_id, 0 FROM alert_state;
+      INSERT OR REPLACE INTO sync_outbox (kind, a, b) SELECT 'notif', id, 0 FROM notifications;
     `)
   }
 
@@ -286,7 +309,19 @@ export class SyncAgent {
       links_deleted: [],
       trades: [],
       trades_deleted: [],
+      alert_settings: [],
+      alert_states: [],
+      notifications: [],
     }
+    const alertCfg = this.store.statement(
+      `SELECT ${ALERT_SETTING_COLS.join(', ')} FROM alert_settings WHERE owner_id = ?`,
+    )
+    const alertState = this.store.statement(
+      `SELECT ${ALERT_STATE_COLS.join(', ')} FROM alert_state WHERE link_id = ?`,
+    )
+    const notif = this.store.statement(
+      `SELECT ${NOTIFICATION_COLS.join(', ')} FROM notifications WHERE id = ?`,
+    )
     const user = this.store.statement(`SELECT ${USER_COLS.join(', ')} FROM users WHERE id = ?`)
     const token = this.store.statement(
       `SELECT ${TOKEN_COLS.join(', ')} FROM gw_tokens WHERE id = ?`,
@@ -299,6 +334,15 @@ export class SyncAgent {
       if (r.kind === 'user') {
         const row = user.get(r.a)
         if (row) payload.users.push({ ...row } as SyncUserRow)
+      } else if (r.kind === 'alert_cfg') {
+        const row = alertCfg.get(r.a)
+        if (row) payload.alert_settings.push({ ...row } as SyncAlertSettingRow)
+      } else if (r.kind === 'alert_state') {
+        const row = alertState.get(r.a)
+        if (row) payload.alert_states.push({ ...row } as SyncAlertStateRow)
+      } else if (r.kind === 'notif') {
+        const row = notif.get(r.a)
+        if (row) payload.notifications.push({ ...row } as SyncNotificationRow)
       } else if (r.kind === 'token') {
         const row = token.get(r.a)
         if (row) payload.tokens.push({ ...row } as SyncTokenRow)
@@ -346,9 +390,50 @@ export class SyncAgent {
         this.setState('last_pull_at', String(startedAt))
         this.lastPullAt = startedAt
       }
+      await this.pullAlertsSinceLast(startedAt)
     } finally {
       this.pulling = false
     }
+  }
+
+  /**
+   * Plan 5: kéo thông báo và trạng thái đợt cảnh báo mà Cloudflare đã ghi hộ lúc dự phòng. Mốc riêng
+   * (`last_alert_pull_at`) chỉ tiến khi kéo thành công, nên Worker chưa có endpoint mới (404) hay lỗi mạng
+   * không làm mất cửa sổ dữ liệu. Áp dụng không đẩy ngược (trigger bị tắt).
+   */
+  private async pullAlertsSinceLast(startedAt: number): Promise<void> {
+    const since = Math.max(
+      0,
+      Number(this.getState('last_alert_pull_at') ?? 0) - FAILOVER.pullOverlapSec,
+    )
+    if (await this.pullAlerts(since)) this.setState('last_alert_pull_at', String(startedAt))
+  }
+
+  async pullAlerts(since: number): Promise<boolean> {
+    let after = 0
+    for (;;) {
+      const reply = await this.get(
+        `/api/sync/notifications?since=${since}&after=${after}&limit=${FAILOVER.syncBatch}`,
+      )
+      if (!reply.ok) return false
+      const page = syncNotificationsPageSchema.safeParse(reply.json)
+      if (!page.success) return this.fail('phản hồi /sync/notifications không hợp lệ')
+      this.applyMuted(() => {
+        const stmt = this.store.statement(NOTIFICATION_UPSERT)
+        for (const row of page.data.notifications) stmt.run(...NOTIFICATION_COLS.map((c) => row[c]))
+      })
+      if (page.data.next === null) break
+      after = page.data.next
+    }
+    const reply = await this.get(`/api/sync/alert-state?since=${since}`)
+    if (!reply.ok) return false
+    const states = syncAlertStatePageSchema.safeParse(reply.json)
+    if (!states.success) return this.fail('phản hồi /sync/alert-state không hợp lệ')
+    this.applyMuted(() => {
+      const stmt = this.store.statement(ALERT_STATE_UPSERT)
+      for (const row of states.data.states) stmt.run(...ALERT_STATE_COLS.map((c) => row[c]))
+    })
+    return true
   }
 
   private async pullTrades(since: number): Promise<boolean> {

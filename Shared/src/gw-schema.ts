@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { alertFields } from './alert-schema'
 import {
   MAX_EVENTS,
   MAX_POSITIONS,
@@ -105,7 +106,7 @@ export type Snap = z.infer<typeof snapSchema>
 // EA <-> Gateway (HTTP loopback)
 // ---------------------------------------------------------------------------
 
-const identity = z.object({
+export const identity = z.object({
   v: z.literal(1),
   /** Phiên của EA, đổi mỗi lần EA khởi động. */
   sid: text(32).min(1),
@@ -147,6 +148,13 @@ export const eventRequestSchema = identity.extend({
 })
 export type EventRequest = z.infer<typeof eventRequestSchema>
 
+/** EA báo cảnh báo lỗ float cho Gateway (`POST /v1/alert`). */
+export const alertRequestSchema = identity.extend(alertFields)
+export type AlertRequest = z.infer<typeof alertRequestSchema>
+
+/** Phản hồi `POST /v1/alert`: Gateway đã nhận và giữ để gửi lên cloud (chưa nghĩa là cloud đã nhận). */
+export type LocalAlertResponse = { ok: true; ack_aseq: number }
+
 export const BIND_STATES = ['pending', 'ok', 'rejected'] as const
 export type BindState = (typeof BIND_STATES)[number]
 
@@ -159,6 +167,11 @@ export type LocalPingResponse = {
   watch: boolean
   interval_ms: number
   lease_ms: number
+  /**
+   * Ngưỡng cảnh báo lỗ float theo basis point của Balance (500 = 5%), 0 = tắt. Đặt ở Server/Worker, Gateway chỉ
+   * chuyển tiếp; EA không có input riêng cho việc này.
+   */
+  alert_bp: number
 }
 
 /** Phản hồi `POST /v1/event`. `ack_seq` chỉ nghĩa là Gateway đã nhận và lưu hàng đợi. */
@@ -222,6 +235,7 @@ export const gwClientMessageSchema = z.discriminatedUnion('t', [
     events: z.array(tradeEventSchema).max(MAX_EVENTS),
     snap: snapSchema.optional(),
   }),
+  z.object({ t: z.literal('alert'), tid, ...alertFields }),
 ])
 export type GwClientMessage = z.infer<typeof gwClientMessageSchema>
 
@@ -239,6 +253,10 @@ export const gwServerMessageSchema = z.discriminatedUnion('t', [
     fast: z.array(tid).max(500).optional(),
   }),
   z.object({ t: z.literal('ack'), tid, seq: z.number().int().nonnegative() }),
+  /** Ngưỡng cảnh báo lỗ float của chủ token (basis point, 0 = tắt). Gửi sau `hello` và mỗi khi người dùng đổi. */
+  z.object({ t: z.literal('alert_cfg'), loss_bp: z.number().int().min(0).max(10_000) }),
+  /** Server đã xử lý báo cáo cảnh báo `aseq` của terminal: Gateway ngừng gửi lại. */
+  z.object({ t: z.literal('alert_ack'), tid, aseq: z.number().int().nonnegative() }),
   z.object({
     t: z.literal('update'),
     min_ver: text(16),

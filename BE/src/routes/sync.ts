@@ -15,7 +15,9 @@ import { nowUnix } from '../lib/time'
 import { saveHeartbeat } from '../services/server-info-service'
 import {
   applySync,
+  readAlertStatesSince,
   readLinksAfter,
+  readNotificationsSince,
   readTokensAfter,
   readTradesSince,
 } from '../services/sync-service'
@@ -45,6 +47,14 @@ const tradesQuerySchema = z.object({
     .default(FAILOVER.syncBatch * 2),
 })
 
+const notificationsQuerySchema = z.object({
+  since: z.coerce.number().int().nonnegative(),
+  after: z.coerce.number().int().nonnegative().default(0),
+  limit: z.coerce.number().int().min(1).max(FAILOVER.syncBatch).default(FAILOVER.syncBatch),
+})
+
+const alertStateQuerySchema = z.object({ since: z.coerce.number().int().nonnegative() })
+
 function badInput(c: Context, error: { issues: readonly { path: readonly PropertyKey[] }[] }) {
   const path = error.issues[0]?.path.map(String).join('.') || 'body'
   return c.json(errorBody('VALIDATION_FAILED', `Dữ liệu không hợp lệ: ${path}`), 400)
@@ -64,6 +74,7 @@ const invalid = (result: { success: boolean; error?: unknown }, c: Context) => {
  * - `GET /links`: VPS kéo toàn bộ liên kết lần khởi động đầu (nhận dữ liệu cũ của Cloudflare).
  * - `GET /tokens`: VPS kéo token Gateway lần khởi động đầu (Plan 4).
  * - `GET /trades`: VPS kéo các lệnh Cloudflare đã ghi trong lúc dự phòng.
+ * - `GET /notifications`, `GET /alert-state`: VPS kéo thông báo và trạng thái đợt cảnh báo Cloudflare đã ghi hộ.
  */
 export function createSyncRoutes(origins: VpsOriginStore = sharedOriginStore) {
   const routes = new Hono<AppEnv>()
@@ -126,6 +137,15 @@ export function createSyncRoutes(origins: VpsOriginStore = sharedOriginStore) {
       q.limit,
     )
     return c.json(page)
+  })
+
+  routes.get('/notifications', zValidator('query', notificationsQuerySchema, invalid), async (c) => {
+    const q = c.req.valid('query')
+    return c.json(await readNotificationsSince(c.env.DB, q.since, q.after, q.limit))
+  })
+
+  routes.get('/alert-state', zValidator('query', alertStateQuerySchema, invalid), async (c) => {
+    return c.json(await readAlertStatesSince(c.env.DB, c.req.valid('query').since))
   })
 
   return routes

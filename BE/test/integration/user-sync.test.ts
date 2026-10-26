@@ -14,6 +14,9 @@ const empty = {
   links_deleted: [],
   trades: [],
   trades_deleted: [],
+  alert_settings: [],
+  alert_states: [],
+  notifications: [],
 }
 
 describe('đồng bộ người dùng VPS -> Cloudflare', () => {

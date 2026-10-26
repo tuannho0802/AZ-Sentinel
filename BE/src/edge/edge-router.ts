@@ -69,6 +69,7 @@ export function createEdgeRouter(opts: EdgeRouterOptions = {}): MiddlewareHandle
     const guarded =
       path.startsWith('/api/dev/') ||
       path.startsWith('/api/admin/') ||
+      path.startsWith('/api/settings/') ||
       path.startsWith('/api/links')
     if (writing && guarded && c.env.FALLBACK_WRITABLE !== '1') {
       throw new AppError(

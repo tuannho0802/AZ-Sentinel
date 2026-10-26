@@ -1,10 +1,14 @@
 import type {
+  SyncAlertSettingRow,
+  SyncAlertStateRow,
   SyncApply,
   SyncLinkRow,
+  SyncNotificationRow,
   SyncTokenRow,
   SyncTradeRow,
   SyncUserRow,
 } from '@az-sentinel/shared'
+import { pruneStatements } from './alert-service'
 
 export const LINK_COLS = [
   'id',
@@ -63,6 +67,35 @@ export const USER_COLS = [
   'created_at',
 ] as const satisfies readonly (keyof SyncUserRow)[]
 
+export const ALERT_SETTING_COLS = [
+  'owner_id',
+  'loss_bp',
+  'updated_at',
+] as const satisfies readonly (keyof SyncAlertSettingRow)[]
+
+export const ALERT_STATE_COLS = [
+  'link_id',
+  'episode_open',
+  'ep_started_at',
+  'last_notified_at',
+  'last_notified_fl',
+  'last_aseq',
+  'updated_at',
+] as const satisfies readonly (keyof SyncAlertStateRow)[]
+
+export const NOTIFICATION_COLS = [
+  'uid',
+  'owner_id',
+  'link_id',
+  'kind',
+  'title',
+  'body',
+  'data_json',
+  'created_at',
+  'read_at',
+  'updated_at',
+] as const satisfies readonly (keyof SyncNotificationRow)[]
+
 const placeholders = (n: number) => Array(n).fill('?').join(', ')
 
 const LINK_UPSERT = `INSERT INTO ea_links (${LINK_COLS.join(', ')}) VALUES (${placeholders(LINK_COLS.length)})
@@ -81,6 +114,31 @@ const USER_UPSERT = `INSERT INTO users (${USER_COLS.join(', ')}) VALUES (${place
   ON CONFLICT(id) DO UPDATE SET ${USER_COLS.filter((c) => c !== 'id')
     .map((c) => `${c} = excluded.${c}`)
     .join(', ')}`
+
+/** Cài đặt cảnh báo chỉ được sửa ở VPS (chế độ dự phòng chặn ghi), nên VPS ghi đè. */
+const ALERT_SETTING_UPSERT = `INSERT INTO alert_settings (${ALERT_SETTING_COLS.join(', ')}) VALUES (${placeholders(ALERT_SETTING_COLS.length)})
+  ON CONFLICT(owner_id) DO UPDATE SET ${ALERT_SETTING_COLS.filter((c) => c !== 'owner_id')
+    .map((c) => `${c} = excluded.${c}`)
+    .join(', ')}`
+
+/** Trạng thái đợt cảnh báo: bản mới hơn (theo `updated_at`) thắng, để hai nơi cùng ghi không lùi trạng thái. */
+export const ALERT_STATE_UPSERT = `INSERT INTO alert_state (${ALERT_STATE_COLS.join(', ')}) VALUES (${placeholders(ALERT_STATE_COLS.length)})
+  ON CONFLICT(link_id) DO UPDATE SET ${ALERT_STATE_COLS.filter((c) => c !== 'link_id')
+    .map((c) => `${c} = excluded.${c}`)
+    .join(', ')}
+  WHERE excluded.updated_at >= alert_state.updated_at`
+
+/**
+ * Thông báo: nội dung bất biến theo `uid`; chỉ trạng thái đã đọc đi một chiều (đã đọc ở đâu thì đọc ở cả hai).
+ * Cột `id` tự tăng của từng DB không đồng bộ.
+ */
+export const NOTIFICATION_UPSERT = `INSERT INTO notifications (${NOTIFICATION_COLS.join(', ')}) VALUES (${placeholders(NOTIFICATION_COLS.length)})
+  ON CONFLICT(uid) DO UPDATE SET
+    read_at = CASE
+      WHEN notifications.read_at IS NULL THEN excluded.read_at
+      WHEN excluded.read_at IS NULL THEN notifications.read_at
+      ELSE MAX(notifications.read_at, excluded.read_at) END,
+    updated_at = MAX(notifications.updated_at, excluded.updated_at)`
 
 const TRADE_UPSERT = `INSERT INTO trades (${TRADE_COLS.join(', ')}) VALUES (${placeholders(TRADE_COLS.length)})
   ON CONFLICT(link_id, ticket) DO UPDATE SET ${TRADE_COLS.filter(
@@ -142,9 +200,25 @@ export async function applySync(db: D1Database, payload: SyncApply): Promise<num
   for (const row of payload.trades) {
     stmts.push(db.prepare(TRADE_UPSERT).bind(...TRADE_COLS.map((c) => row[c])))
   }
+  for (const row of payload.alert_settings) {
+    stmts.push(db.prepare(ALERT_SETTING_UPSERT).bind(...ALERT_SETTING_COLS.map((c) => row[c])))
+  }
+  for (const row of payload.alert_states) {
+    stmts.push(db.prepare(ALERT_STATE_UPSERT).bind(...ALERT_STATE_COLS.map((c) => row[c])))
+  }
+  const owners = new Set<number>()
+  for (const row of payload.notifications) {
+    stmts.push(db.prepare(NOTIFICATION_UPSERT).bind(...NOTIFICATION_COLS.map((c) => row[c])))
+    owners.add(row.owner_id)
+  }
+  const nowSec = Math.floor(Date.now() / 1000)
+  for (const owner of owners) stmts.push(...pruneStatements(db, owner, nowSec))
   if (stmts.length === 0) return 0
   await db.batch(stmts)
   return (
+    payload.alert_settings.length +
+    payload.alert_states.length +
+    payload.notifications.length +
     payload.users.length +
     payload.links.length +
     payload.links_deleted.length +
@@ -213,4 +287,44 @@ export async function readTokensAfter(
   const page = more ? results.slice(0, limit) : results
   const last = page.at(-1)
   return { tokens: page, next: more && last ? last.id : null }
+}
+
+/**
+ * Thông báo mà Cloudflare đã ghi hoặc đổi từ mốc `since` (Unix giây), VPS kéo về sau khi sống lại. Phân trang theo
+ * `id` cục bộ của Cloudflare (`after`) để không phụ thuộc OFFSET.
+ */
+export async function readNotificationsSince(
+  db: D1Database,
+  since: number,
+  after: number,
+  limit: number,
+): Promise<{ notifications: SyncNotificationRow[]; next: number | null }> {
+  const { results } = await db
+    .prepare(
+      `SELECT id, ${NOTIFICATION_COLS.join(', ')} FROM notifications
+       WHERE id > ? AND updated_at >= ? ORDER BY id LIMIT ?`,
+    )
+    .bind(after, since, limit + 1)
+    .all<SyncNotificationRow & { id: number }>()
+  const more = results.length > limit
+  const page = more ? results.slice(0, limit) : results
+  const last = page.at(-1)
+  return {
+    notifications: page.map(({ id: _id, ...row }) => row),
+    next: more && last ? last.id : null,
+  }
+}
+
+/** Trạng thái đợt cảnh báo đổi từ mốc `since`. Bảng nhỏ (một dòng mỗi liên kết) nên không phân trang. */
+export async function readAlertStatesSince(
+  db: D1Database,
+  since: number,
+): Promise<{ states: SyncAlertStateRow[] }> {
+  const { results } = await db
+    .prepare(
+      `SELECT ${ALERT_STATE_COLS.join(', ')} FROM alert_state WHERE updated_at >= ? ORDER BY link_id LIMIT 1000`,
+    )
+    .bind(since)
+    .all<SyncAlertStateRow>()
+  return { states: results }
 }

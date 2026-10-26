@@ -19,6 +19,7 @@ import {
 } from '@az-sentinel/shared'
 import { sha256Hex } from '../lib/crypto'
 import { m5Slot } from '../lib/time'
+import { loadAlertBp, processAlertReport } from '../services/alert-service'
 import {
   bindTerminal,
   bindTerminalAuto,
@@ -441,6 +442,22 @@ export class LiveHub extends DurableObject<Bindings> {
     return n
   }
 
+  /**
+   * Người dùng vừa đổi ngưỡng cảnh báo lỗ float (Plan 5): báo ngay cho mọi Gateway đang nối bằng token của họ.
+   * Trả số Gateway đã báo. Gateway chưa nối sẽ nhận ngưỡng ở `hello` kế tiếp (đọc từ DB).
+   */
+  async setAlertCfg(ownerId: number, lossBp: number): Promise<number> {
+    this.rpcCalls += 1
+    let n = 0
+    for (const ws of this.ctx.getWebSockets(GW_TAG)) {
+      const att = this.readGw(ws)
+      if (!att || att.tokenOwnerId !== ownerId || ws.readyState !== WS_OPEN) continue
+      this.sendGw(ws, { t: 'alert_cfg', loss_bp: lossBp })
+      n += 1
+    }
+    return n
+  }
+
   async stats(nowMs: number): Promise<HubStats> {
     return {
       viewers: this.aliveConns(nowMs).length,
@@ -656,6 +673,7 @@ export class LiveHub extends DurableObject<Bindings> {
     ws.serializeAttachment(att)
     switch (msg.data.t) {
       case 'hello':
+        await this.sendAlertCfg(ws, att.tokenOwnerId)
         return
       case 'bind':
         await this.gwBind(ws, msg.data, now)
@@ -668,6 +686,9 @@ export class LiveHub extends DurableObject<Bindings> {
         return
       case 'event':
         await this.gwEvent(ws, msg.data, now)
+        return
+      case 'alert':
+        await this.gwAlert(ws, msg.data, now)
         return
     }
   }
@@ -818,6 +839,39 @@ export class LiveHub extends DurableObject<Bindings> {
       if (done === null) return // không ack: Gateway giữ hàng đợi và gửi lại khi nối lại
     }
     this.sendGw(ws, { t: 'ack', tid: msg.tid, seq: msg.seq })
+  }
+
+  /** Gửi ngưỡng cảnh báo hiện tại của chủ token cho Gateway vừa `hello`. Lỗi DB thì thôi: Gateway giữ ngưỡng cũ. */
+  private async sendAlertCfg(ws: WebSocket, ownerId: number): Promise<void> {
+    const bp = await this.withDb((db) => loadAlertBp(db, ownerId))
+    if (bp !== null) this.sendGw(ws, { t: 'alert_cfg', loss_bp: bp })
+  }
+
+  /**
+   * Báo cáo cảnh báo lỗ float của EA (qua Gateway). Server quyết định có thông báo hay không
+   * (`processAlertReport`); báo cáo đã xử lý xong (kể cả "không báo") thì ack để Gateway ngừng gửi lại.
+   * Terminal chưa bind hoặc DB lỗi: không ack, Gateway gửi lại sau.
+   */
+  private async gwAlert(
+    ws: WebSocket,
+    msg: Extract<GwClientMessage, { t: 'alert' }>,
+    nowMs: number,
+  ): Promise<void> {
+    const att = this.readGw(ws)
+    const term = att ? this.loadTerms(att.connId).find((t) => t.tid === msg.tid) : undefined
+    if (!att || !term) return
+    const { t: _t, tid, ...report } = msg
+    const done = await this.withDb(async (db) => {
+      await processAlertReport(
+        db,
+        { linkId: term.linkId, ownerId: term.ownerId ?? att.tokenOwnerId, tid },
+        report,
+        Math.floor(nowMs / 1000),
+      )
+      return true
+    })
+    if (done === null) return
+    this.sendGw(ws, { t: 'alert_ack', tid, aseq: msg.aseq })
   }
 
   /** Gateway rời: terminal đang online thành offline (ghi theo chuyển trạng thái). */
