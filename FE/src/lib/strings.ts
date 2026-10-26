@@ -446,7 +446,6 @@ export const strings = {
   devYoursNotAllowed: 'chưa được duyệt',
   devYoursUnknown:
     'không xác định (đang truy cập trực tiếp trên máy Server hoặc qua Cloudflare dự phòng)',
-  devYoursLabel: 'Admin',
   devAddYoursAnyIp: 'Duyệt thiết bị của tôi (mọi IP)',
   devAddYoursDeviceOnly: 'Duyệt thiết bị của tôi (chỉ thiết bị)',
   devAddFailed: 'Không duyệt được thiết bị.',

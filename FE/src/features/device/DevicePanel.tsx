@@ -2,10 +2,14 @@ import { type DeviceMode, type DeviceRule, shortDeviceId } from '@az-sentinel/sh
 import { useState } from 'react'
 import { Button } from '../../components/Button'
 import { Card } from '../../components/Card'
+import { Field, MobileCard, MobileCardList } from '../../components/MobileCard'
 import { inputClass } from '../../components/styles'
 import { ApiError } from '../../lib/api-client'
+import { describeUa, useOwnDevice, withOwner } from '../../lib/device-name'
 import { formatRelative } from '../../lib/format'
 import { strings } from '../../lib/strings'
+import { useIsWide } from '../../lib/use-media'
+import { useMe } from '../auth/api'
 import {
   useAddDevice,
   useDeviceState,
@@ -17,33 +21,6 @@ import {
 
 const modeText = (mode: DeviceMode) =>
   mode === 'any_ip' ? strings.devModeAnyIp : strings.devModeDeviceOnly
-
-/** Đoán ngắn gọn trình duyệt + hệ điều hành từ User-Agent để admin nhận ra thiết bị. */
-function describeUa(ua: string): string {
-  const browser = /Edg\//.test(ua)
-    ? 'Edge'
-    : /OPR\/|Opera/.test(ua)
-      ? 'Opera'
-      : /Firefox\//.test(ua)
-        ? 'Firefox'
-        : /Chrome\//.test(ua)
-          ? 'Chrome'
-          : /Safari\//.test(ua)
-            ? 'Safari'
-            : ''
-  const os = /Windows/.test(ua)
-    ? 'Windows'
-    : /Android/.test(ua)
-      ? 'Android'
-      : /iPhone|iPad|iOS/.test(ua)
-        ? 'iOS'
-        : /Mac OS X/.test(ua)
-          ? 'macOS'
-          : /Linux/.test(ua)
-            ? 'Linux'
-            : ''
-  return [browser, os].filter(Boolean).join(' · ') || ua.slice(0, 40)
-}
 
 function ModeSelect({
   value,
@@ -67,7 +44,7 @@ function ModeSelect({
   )
 }
 
-function Row({ rule }: { rule: DeviceRule }) {
+function Row({ rule, card = false }: { rule: DeviceRule; card?: boolean }) {
   const update = useUpdateDevice()
   const remove = useRemoveDevice()
   const [label, setLabel] = useState(rule.label)
@@ -77,13 +54,84 @@ function Row({ rule }: { rule: DeviceRule }) {
   const failed = update.isError || remove.isError
   const lockout = remove.error instanceof ApiError && remove.error.status === 409
 
+  const sz = card ? 'md' : 'sm'
+  const kind = rule.kind === 'gateway' ? strings.devKindGateway : strings.devKindWeb
+  const seen = rule.last_seen ? (
+    <>
+      <span className="font-mono">{rule.last_ip}</span> · {formatRelative(rule.last_seen)}
+    </>
+  ) : (
+    strings.devNeverSeen
+  )
+  const actions = (
+    <>
+      <Button
+        size={sz}
+        className={card ? 'flex-1' : ''}
+        disabled={busy || !dirty}
+        onClick={() => update.mutate({ id: rule.id, body: { label, mode } })}
+      >
+        {strings.ipSave}
+      </Button>
+      <Button
+        size={sz}
+        variant="danger"
+        className={card ? 'flex-1' : ''}
+        disabled={busy}
+        onClick={() => {
+          if (window.confirm(strings.devConfirmRemove)) remove.mutate(rule.id)
+        }}
+      >
+        {strings.ipRemove}
+      </Button>
+      {failed && (
+        <span role="alert" className="basis-full text-xs text-loss">
+          {lockout ? strings.devRemoveYours : strings.ipActionFailed}
+        </span>
+      )}
+    </>
+  )
+
+  if (card) {
+    return (
+      <MobileCard
+        stripe="border-l-gain"
+        head={
+          <>
+            <div className="min-w-0">
+              <div className="truncate font-semibold">{label || kind}</div>
+              <div className="text-xs text-muted">
+                <span className="font-mono">{shortDeviceId(rule.device_id)}</span> · {kind}
+              </div>
+            </div>
+            <span className="shrink-0 text-right text-xs text-muted">{seen}</span>
+          </>
+        }
+        actions={actions}
+      >
+        <dl className="grid grid-cols-1 gap-3">
+          <Field label={strings.devColLabel}>
+            <input
+              aria-label={strings.devColLabel}
+              value={label}
+              maxLength={64}
+              onChange={(e) => setLabel(e.target.value)}
+              className={inputClass}
+            />
+          </Field>
+          <Field label={strings.devColMode}>
+            <ModeSelect value={mode} onChange={setMode} label={strings.devColMode} />
+          </Field>
+        </dl>
+      </MobileCard>
+    )
+  }
+
   return (
     <tr className="border-t border-line align-middle">
       <td className="px-3 py-2">
         <div className="font-mono text-[0.8125rem]">{shortDeviceId(rule.device_id)}</div>
-        <div className="text-xs text-muted">
-          {rule.kind === 'gateway' ? strings.devKindGateway : strings.devKindWeb}
-        </div>
+        <div className="text-xs text-muted">{kind}</div>
       </td>
       <td className="px-3 py-2">
         <input
@@ -97,40 +145,9 @@ function Row({ rule }: { rule: DeviceRule }) {
       <td className="px-3 py-2">
         <ModeSelect value={mode} onChange={setMode} label={strings.devColMode} />
       </td>
-      <td className="px-3 py-2 text-xs text-muted">
-        {rule.last_seen ? (
-          <>
-            <span className="font-mono">{rule.last_ip}</span> · {formatRelative(rule.last_seen)}
-          </>
-        ) : (
-          strings.devNeverSeen
-        )}
-      </td>
+      <td className="px-3 py-2 text-xs text-muted">{seen}</td>
       <td className="px-3 py-2">
-        <div className="flex flex-wrap items-center gap-2">
-          <Button
-            size="sm"
-            disabled={busy || !dirty}
-            onClick={() => update.mutate({ id: rule.id, body: { label, mode } })}
-          >
-            {strings.ipSave}
-          </Button>
-          <Button
-            size="sm"
-            variant="danger"
-            disabled={busy}
-            onClick={() => {
-              if (window.confirm(strings.devConfirmRemove)) remove.mutate(rule.id)
-            }}
-          >
-            {strings.ipRemove}
-          </Button>
-          {failed && (
-            <span role="alert" className="text-xs text-loss">
-              {lockout ? strings.devRemoveYours : strings.ipActionFailed}
-            </span>
-          )}
-        </div>
+        <div className="flex flex-wrap items-center gap-2">{actions}</div>
       </td>
     </tr>
   )
@@ -147,6 +164,10 @@ export function DevicePanel() {
   const dismiss = useDismissPending()
   const forbidden = state.error instanceof ApiError && state.error.status === 403
   const data = state.data
+  const wide = useIsWide()
+  const me = useMe()
+  // Nhãn gợi ý cho máy đang dùng, ví dụ "Galaxy S23 Ultra · Chrome · Android 14 của Tuấn".
+  const ownLabel = withOwner(useOwnDevice(), me.data?.display_name)
 
   if (forbidden) return null
 
@@ -182,7 +203,7 @@ export function DevicePanel() {
                 {data.your_device_id &&
                   ` — ${data.your_device_allowed ? strings.devYoursAllowed : strings.devYoursNotAllowed}`}
               </p>
-              <div className="flex flex-wrap items-center gap-2">
+              <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
                 {data.your_device_id && !data.your_device_allowed && (
                   <>
                     <Button
@@ -192,7 +213,7 @@ export function DevicePanel() {
                         data.your_device_id &&
                         add.mutate({
                           device_id: data.your_device_id,
-                          label: strings.devYoursLabel,
+                          label: ownLabel,
                           mode: 'any_ip',
                         })
                       }
@@ -206,7 +227,7 @@ export function DevicePanel() {
                         data.your_device_id &&
                         add.mutate({
                           device_id: data.your_device_id,
-                          label: strings.devYoursLabel,
+                          label: ownLabel,
                           mode: 'device_only',
                         })
                       }
@@ -239,7 +260,7 @@ export function DevicePanel() {
             <p className="mb-2 text-sm text-muted">{strings.devPendingHint}</p>
             {data.pending.length === 0 ? (
               <p className="text-sm text-muted">{strings.devPendingEmpty}</p>
-            ) : (
+            ) : wide ? (
               <ul className="divide-y divide-line">
                 {data.pending.map((p) => (
                   <li
@@ -302,13 +323,78 @@ export function DevicePanel() {
                   </li>
                 ))}
               </ul>
+            ) : (
+              <MobileCardList label={strings.devPendingTitle}>
+                {data.pending.map((p) => {
+                  const name =
+                    p.kind === 'gateway' ? strings.devKindGateway : describeUa(p.user_agent)
+                  return (
+                    <MobileCard
+                      key={p.device_id}
+                      stripe="border-l-notice-ink"
+                      head={
+                        <>
+                          <div className="min-w-0">
+                            <div className="truncate font-semibold">{name}</div>
+                            <div className="font-mono text-xs text-muted">
+                              {shortDeviceId(p.device_id)}
+                            </div>
+                          </div>
+                          <span className="shrink-0 text-right text-xs text-muted">
+                            {formatRelative(p.last_at)}
+                          </span>
+                        </>
+                      }
+                      actions={
+                        <div className="grid w-full grid-cols-2 gap-2">
+                          <Button
+                            className="h-10"
+                            disabled={add.isPending}
+                            onClick={() =>
+                              add.mutate({ device_id: p.device_id, mode: 'any_ip', label: name })
+                            }
+                          >
+                            {strings.devApproveAnyIp}
+                          </Button>
+                          <Button
+                            className="h-10"
+                            disabled={add.isPending}
+                            onClick={() =>
+                              add.mutate({
+                                device_id: p.device_id,
+                                mode: 'device_only',
+                                label: name,
+                              })
+                            }
+                          >
+                            {strings.devApproveDeviceOnly}
+                          </Button>
+                          <Button
+                            variant="danger"
+                            className="col-span-2 h-10"
+                            disabled={dismiss.isPending}
+                            onClick={() => dismiss.mutate(p.device_id)}
+                          >
+                            {strings.devDismiss}
+                          </Button>
+                        </div>
+                      }
+                    >
+                      <p className="text-sm text-muted">
+                        <span className="font-mono">{p.ip}</span> · {p.count}{' '}
+                        {strings.ipBlockedTimes}
+                      </p>
+                    </MobileCard>
+                  )
+                })}
+              </MobileCardList>
             )}
           </Card>
 
           <Card title={strings.devListTitle}>
             {data.rules.length === 0 ? (
               <p className="text-sm text-muted">{strings.devEmpty}</p>
-            ) : (
+            ) : wide ? (
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-sm">
                   <thead className="text-xs text-muted">
@@ -327,6 +413,12 @@ export function DevicePanel() {
                   </tbody>
                 </table>
               </div>
+            ) : (
+              <MobileCardList label={strings.devListTitle}>
+                {data.rules.map((r) => (
+                  <Row key={`${r.id}:${r.label}:${r.mode}`} card rule={r} />
+                ))}
+              </MobileCardList>
             )}
             <p className="mt-2 text-xs text-muted">
               {modeText('any_ip')}: {strings.devModeAnyIpHint} {modeText('device_only')}:{' '}

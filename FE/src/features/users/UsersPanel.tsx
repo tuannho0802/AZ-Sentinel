@@ -3,10 +3,12 @@ import { type FormEvent, useState } from 'react'
 import { Button } from '../../components/Button'
 import { Card } from '../../components/Card'
 import { Dialog } from '../../components/Dialog'
+import { Field, MobileCard, MobileCardList } from '../../components/MobileCard'
 import { inputClass } from '../../components/styles'
 import { ApiError } from '../../lib/api-client'
 import { formatDateTime } from '../../lib/format'
 import { strings } from '../../lib/strings'
+import { useIsWide } from '../../lib/use-media'
 import { useMe } from '../auth/api'
 import { useCreateUser, useUpdateUser, useUsers } from './api'
 
@@ -21,6 +23,14 @@ const STATUS_LABEL = {
   pending: strings.userStatusPending,
   rejected: strings.userStatusRejected,
   suspended: strings.userStatusSuspended,
+} as const
+
+/** Viền trái của thẻ theo trạng thái tài khoản (không chỉ dựa vào màu: chữ trạng thái luôn có trong thẻ). */
+const STATUS_STRIPE = {
+  active: 'border-l-gain',
+  pending: 'border-l-notice-ink',
+  rejected: 'border-l-loss',
+  suspended: 'border-l-loss',
 } as const
 
 type FieldError = { field: 'email' | 'name' | 'password' | 'server'; text: string }
@@ -74,7 +84,7 @@ function CreateForm({ canCreateAdmin }: { canCreateAdmin: boolean }) {
 
   return (
     <form noValidate onSubmit={onSubmit} className="flex flex-wrap items-start gap-3">
-      <div className="min-w-52 flex-1">
+      <div className="min-w-0 basis-full flex-1 sm:min-w-52 sm:basis-auto">
         <label className="block text-sm font-medium" htmlFor="user-email">
           {strings.userEmail}
         </label>
@@ -88,7 +98,7 @@ function CreateForm({ canCreateAdmin }: { canCreateAdmin: boolean }) {
           className={`${inputClass} mt-1`}
         />
       </div>
-      <div className="min-w-44 flex-1">
+      <div className="min-w-0 basis-full flex-1 sm:min-w-44 sm:basis-auto">
         <label className="block text-sm font-medium" htmlFor="user-name">
           {strings.userDisplayName}
         </label>
@@ -102,7 +112,7 @@ function CreateForm({ canCreateAdmin }: { canCreateAdmin: boolean }) {
           className={`${inputClass} mt-1`}
         />
       </div>
-      <div className="min-w-52 flex-1">
+      <div className="min-w-0 basis-full flex-1 sm:min-w-52 sm:basis-auto">
         <label className="block text-sm font-medium" htmlFor="user-password">
           {strings.userPassword}
         </label>
@@ -117,7 +127,7 @@ function CreateForm({ canCreateAdmin }: { canCreateAdmin: boolean }) {
         />
       </div>
       {canCreateAdmin && (
-        <div className="w-44">
+        <div className="w-full sm:w-44">
           <label className="block text-sm font-medium" htmlFor="user-role">
             {strings.userRole}
           </label>
@@ -132,8 +142,13 @@ function CreateForm({ canCreateAdmin }: { canCreateAdmin: boolean }) {
           </select>
         </div>
       )}
-      <div className="pt-[1.375rem]">
-        <Button type="submit" variant="primary" disabled={create.isPending}>
+      <div className="w-full sm:w-auto sm:pt-[1.375rem]">
+        <Button
+          type="submit"
+          variant="primary"
+          className="w-full sm:w-auto"
+          disabled={create.isPending}
+        >
           {strings.userCreate}
         </Button>
       </div>
@@ -203,11 +218,13 @@ function Row({
   meId,
   canManage,
   onPassword,
+  card = false,
 }: {
   u: UserSummary
   meId: number | undefined
   canManage: boolean
   onPassword: (u: UserSummary) => void
+  card?: boolean
 }) {
   const update = useUpdateUser()
   const self = u.id === meId
@@ -217,6 +234,69 @@ function Row({
   function setStatus(status: 'active' | 'suspended') {
     if (status === 'suspended' && !window.confirm(strings.userConfirmSuspend)) return
     update.mutate({ id: u.id, status })
+  }
+
+  const sz = card ? 'md' : 'sm'
+  const actions = canManage ? (
+    <>
+      {!locked && u.status === 'pending' && (
+        <Button size={sz} variant="primary" disabled={busy} onClick={() => setStatus('active')}>
+          {strings.userApprove}
+        </Button>
+      )}
+      {!locked && u.status === 'active' && (
+        <Button size={sz} variant="danger" disabled={busy} onClick={() => setStatus('suspended')}>
+          {strings.userSuspend}
+        </Button>
+      )}
+      {!locked && (u.status === 'suspended' || u.status === 'rejected') && (
+        <Button size={sz} disabled={busy} onClick={() => setStatus('active')}>
+          {strings.userReactivate}
+        </Button>
+      )}
+      <Button size={sz} disabled={busy} onClick={() => onPassword(u)}>
+        {strings.userResetPassword}
+      </Button>
+      {update.isError && (
+        <span role="alert" className="text-xs text-loss">
+          {update.error instanceof ApiError && update.error.status === 403
+            ? update.error.message
+            : strings.userActionFailed}
+        </span>
+      )}
+    </>
+  ) : null
+
+  if (card) {
+    return (
+      <MobileCard
+        stripe={STATUS_STRIPE[u.status]}
+        head={
+          <>
+            <div className="min-w-0">
+              <div className="truncate font-semibold">{u.display_name}</div>
+              <div className="truncate text-xs text-muted">{u.email}</div>
+            </div>
+            <span className="shrink-0 rounded-full bg-raised px-2.5 py-0.5 text-xs font-medium text-muted">
+              {ROLE_LABEL[u.role]}
+            </span>
+          </>
+        }
+        actions={actions}
+      >
+        <dl className="grid grid-cols-2 gap-x-3 gap-y-3">
+          <Field label={strings.userColStatus}>{STATUS_LABEL[u.status]}</Field>
+          <Field label={strings.userColToken}>
+            <span className="text-muted">
+              {u.has_token ? strings.userHasToken : strings.userNoToken}
+            </span>
+          </Field>
+          <Field label={strings.userColCreated} className="col-span-2">
+            <span className="text-muted">{formatDateTime(u.created_at)}</span>
+          </Field>
+        </dl>
+      </MobileCard>
+    )
   }
 
   return (
@@ -232,45 +312,7 @@ function Row({
       </td>
       <td className="px-3 py-2 text-sm text-muted">{formatDateTime(u.created_at)}</td>
       <td className="px-3 py-2">
-        {canManage && (
-          <div className="flex flex-wrap items-center gap-2">
-            {!locked && u.status === 'pending' && (
-              <Button
-                size="sm"
-                variant="primary"
-                disabled={busy}
-                onClick={() => setStatus('active')}
-              >
-                {strings.userApprove}
-              </Button>
-            )}
-            {!locked && u.status === 'active' && (
-              <Button
-                size="sm"
-                variant="danger"
-                disabled={busy}
-                onClick={() => setStatus('suspended')}
-              >
-                {strings.userSuspend}
-              </Button>
-            )}
-            {!locked && (u.status === 'suspended' || u.status === 'rejected') && (
-              <Button size="sm" disabled={busy} onClick={() => setStatus('active')}>
-                {strings.userReactivate}
-              </Button>
-            )}
-            <Button size="sm" disabled={busy} onClick={() => onPassword(u)}>
-              {strings.userResetPassword}
-            </Button>
-            {update.isError && (
-              <span role="alert" className="text-xs text-loss">
-                {update.error instanceof ApiError && update.error.status === 403
-                  ? update.error.message
-                  : strings.userActionFailed}
-              </span>
-            )}
-          </div>
-        )}
+        {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
       </td>
     </tr>
   )
@@ -283,6 +325,7 @@ export function UsersPanel() {
   const [passwordFor, setPasswordFor] = useState<UserSummary | null>(null)
   const forbidden = users.error instanceof ApiError && users.error.status === 403
   const isRoot = me.data?.role === 'root_admin'
+  const wide = useIsWide()
 
   return (
     <div className="space-y-4">
@@ -313,33 +356,48 @@ export function UsersPanel() {
             {users.data && users.data.users.length === 0 && (
               <p className="text-sm text-muted">{strings.usersEmpty}</p>
             )}
-            {users.data && users.data.users.length > 0 && (
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-sm">
-                  <thead className="text-xs text-muted">
-                    <tr>
-                      <th className="px-3 py-1.5 font-medium">{strings.userColUser}</th>
-                      <th className="px-3 py-1.5 font-medium">{strings.userColRole}</th>
-                      <th className="px-3 py-1.5 font-medium">{strings.userColStatus}</th>
-                      <th className="px-3 py-1.5 font-medium">{strings.userColToken}</th>
-                      <th className="px-3 py-1.5 font-medium">{strings.userColCreated}</th>
-                      <th className="px-3 py-1.5 font-medium">{strings.userColActions}</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {users.data.users.map((u) => (
-                      <Row
-                        key={u.id}
-                        u={u}
-                        meId={me.data?.id}
-                        canManage={isRoot || u.role === 'user'}
-                        onPassword={setPasswordFor}
-                      />
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
+            {users.data &&
+              users.data.users.length > 0 &&
+              (wide ? (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-sm">
+                    <thead className="text-xs text-muted">
+                      <tr>
+                        <th className="px-3 py-1.5 font-medium">{strings.userColUser}</th>
+                        <th className="px-3 py-1.5 font-medium">{strings.userColRole}</th>
+                        <th className="px-3 py-1.5 font-medium">{strings.userColStatus}</th>
+                        <th className="px-3 py-1.5 font-medium">{strings.userColToken}</th>
+                        <th className="px-3 py-1.5 font-medium">{strings.userColCreated}</th>
+                        <th className="px-3 py-1.5 font-medium">{strings.userColActions}</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {users.data.users.map((u) => (
+                        <Row
+                          key={u.id}
+                          u={u}
+                          meId={me.data?.id}
+                          canManage={isRoot || u.role === 'user'}
+                          onPassword={setPasswordFor}
+                        />
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <MobileCardList label={strings.usersTitle}>
+                  {users.data.users.map((u) => (
+                    <Row
+                      key={u.id}
+                      card
+                      u={u}
+                      meId={me.data?.id}
+                      canManage={isRoot || u.role === 'user'}
+                      onPassword={setPasswordFor}
+                    />
+                  ))}
+                </MobileCardList>
+              ))}
           </Card>
         </>
       )}

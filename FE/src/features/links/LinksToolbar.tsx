@@ -26,8 +26,8 @@ export function LinksToolbar({
     { key: 'live', label: strings.filterLive, count: summary.live },
   ]
   return (
-    <div className="flex flex-wrap items-center gap-3">
-      <fieldset className="m-0 inline-flex min-w-0 rounded-md border border-line-strong bg-surface p-0.5">
+    <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+      <fieldset className="m-0 flex w-full min-w-0 rounded-md border border-line-strong bg-surface p-0.5 sm:inline-flex sm:w-auto">
         <legend className="sr-only">{strings.filterGroup}</legend>
         {filters.map((f) => {
           const on = view.filter === f.key
@@ -37,7 +37,7 @@ export function LinksToolbar({
               type="button"
               aria-pressed={on}
               onClick={() => onChange({ ...view, filter: f.key })}
-              className={`inline-flex h-8 items-center gap-1.5 rounded px-3 text-sm font-medium whitespace-nowrap transition-colors ${
+              className={`inline-flex h-9 flex-1 items-center justify-center gap-1.5 rounded px-3 text-sm sm:h-8 sm:flex-none font-medium whitespace-nowrap transition-colors ${
                 on ? 'bg-ink text-bg' : 'text-muted hover:bg-raised hover:text-ink'
               }`}
             >
@@ -48,7 +48,7 @@ export function LinksToolbar({
         })}
       </fieldset>
 
-      <div className="relative min-w-52 flex-1 sm:max-w-xs">
+      <div className="relative min-w-0 flex-1 basis-40 sm:max-w-xs">
         <label htmlFor="links-search" className="sr-only">
           {strings.searchLabel}
         </label>
@@ -66,7 +66,7 @@ export function LinksToolbar({
       </div>
 
       <div className="flex items-center gap-2">
-        <label htmlFor="links-sort" className="text-sm text-muted">
+        <label htmlFor="links-sort" className="sr-only text-sm text-muted sm:not-sr-only">
           {strings.sortLabel}
         </label>
         <select

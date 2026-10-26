@@ -2,10 +2,12 @@ import { IP_RULE_DEFAULT_MAX_CONNS, type IpRule, shortDeviceId } from '@az-senti
 import { type FormEvent, useState } from 'react'
 import { Button } from '../../components/Button'
 import { Card } from '../../components/Card'
+import { Field, MobileCard, MobileCardList } from '../../components/MobileCard'
 import { inputClass } from '../../components/styles'
 import { ApiError } from '../../lib/api-client'
 import { formatRelative } from '../../lib/format'
 import { strings } from '../../lib/strings'
+import { useIsWide } from '../../lib/use-media'
 import { useAddIp, useIpState, useRemoveIp, useSetGuard, useUpdateIp } from './api'
 
 function AddForm({ initialIp = '' }: { initialIp?: string }) {
@@ -40,7 +42,7 @@ function AddForm({ initialIp = '' }: { initialIp?: string }) {
 
   return (
     <form noValidate onSubmit={onSubmit} className="flex flex-wrap items-end gap-3">
-      <div className="min-w-56 flex-1">
+      <div className="min-w-0 basis-full flex-1 sm:min-w-56 sm:basis-auto">
         <label className="block text-sm font-medium" htmlFor="ip-new">
           {strings.ipFieldIp}
         </label>
@@ -51,7 +53,7 @@ function AddForm({ initialIp = '' }: { initialIp?: string }) {
           className={`${inputClass} mt-1`}
         />
       </div>
-      <div className="min-w-40 flex-1">
+      <div className="min-w-0 flex-1 basis-40">
         <label className="block text-sm font-medium" htmlFor="ip-label">
           {strings.ipFieldLabel}
         </label>
@@ -63,7 +65,7 @@ function AddForm({ initialIp = '' }: { initialIp?: string }) {
           className={`${inputClass} mt-1`}
         />
       </div>
-      <div className="w-32">
+      <div className="w-24 sm:w-32">
         <label className="block text-sm font-medium" htmlFor="ip-max">
           {strings.ipFieldMax}
         </label>
@@ -77,7 +79,12 @@ function AddForm({ initialIp = '' }: { initialIp?: string }) {
           className={`${inputClass} mt-1`}
         />
       </div>
-      <Button type="submit" variant="primary" disabled={add.isPending || ip.trim() === ''}>
+      <Button
+        type="submit"
+        variant="primary"
+        className="w-full sm:w-auto"
+        disabled={add.isPending || ip.trim() === ''}
+      >
         {strings.ipAdd}
       </Button>
       {error && (
@@ -89,7 +96,7 @@ function AddForm({ initialIp = '' }: { initialIp?: string }) {
   )
 }
 
-function Row({ rule }: { rule: IpRule }) {
+function Row({ rule, card = false }: { rule: IpRule; card?: boolean }) {
   const update = useUpdateIp()
   const remove = useRemoveIp()
   const [label, setLabel] = useState(rule.label)
@@ -98,6 +105,69 @@ function Row({ rule }: { rule: IpRule }) {
   const busy = update.isPending || remove.isPending
   const failed = update.isError || remove.isError
   const lockout = remove.error instanceof ApiError && remove.error.status === 409
+
+  const sz = card ? 'md' : 'sm'
+  const actions = (
+    <>
+      <Button
+        size={sz}
+        className={card ? 'flex-1' : ''}
+        disabled={busy || !dirty}
+        onClick={() => update.mutate({ id: rule.id, body: { label, max_conns: Number(max) } })}
+      >
+        {strings.ipSave}
+      </Button>
+      <Button
+        size={sz}
+        variant="danger"
+        className={card ? 'flex-1' : ''}
+        disabled={busy}
+        onClick={() => {
+          if (window.confirm(strings.ipConfirmRemove)) remove.mutate(rule.id)
+        }}
+      >
+        {strings.ipRemove}
+      </Button>
+      {failed && (
+        <span role="alert" className="basis-full text-xs text-loss">
+          {lockout ? strings.ipRemoveLastOfYours : strings.ipActionFailed}
+        </span>
+      )}
+    </>
+  )
+
+  if (card) {
+    return (
+      <MobileCard
+        stripe="border-l-gain"
+        head={<div className="font-mono text-base font-semibold break-all">{rule.ip}</div>}
+        actions={actions}
+      >
+        <dl className="grid grid-cols-[1fr_6rem] gap-3">
+          <Field label={strings.ipColLabel}>
+            <input
+              aria-label={strings.ipColLabel}
+              value={label}
+              maxLength={64}
+              onChange={(e) => setLabel(e.target.value)}
+              className={inputClass}
+            />
+          </Field>
+          <Field label={strings.ipColMax}>
+            <input
+              aria-label={strings.ipColMax}
+              type="number"
+              min={1}
+              max={100}
+              value={max}
+              onChange={(e) => setMax(e.target.value)}
+              className={inputClass}
+            />
+          </Field>
+        </dl>
+      </MobileCard>
+    )
+  }
 
   return (
     <tr className="border-t border-line align-middle">
@@ -123,30 +193,7 @@ function Row({ rule }: { rule: IpRule }) {
         />
       </td>
       <td className="px-3 py-2">
-        <div className="flex flex-wrap items-center gap-2">
-          <Button
-            size="sm"
-            disabled={busy || !dirty}
-            onClick={() => update.mutate({ id: rule.id, body: { label, max_conns: Number(max) } })}
-          >
-            {strings.ipSave}
-          </Button>
-          <Button
-            size="sm"
-            variant="danger"
-            disabled={busy}
-            onClick={() => {
-              if (window.confirm(strings.ipConfirmRemove)) remove.mutate(rule.id)
-            }}
-          >
-            {strings.ipRemove}
-          </Button>
-          {failed && (
-            <span role="alert" className="text-xs text-loss">
-              {lockout ? strings.ipRemoveLastOfYours : strings.ipActionFailed}
-            </span>
-          )}
-        </div>
+        <div className="flex flex-wrap items-center gap-2">{actions}</div>
       </td>
     </tr>
   )
@@ -159,6 +206,7 @@ export function IpPanel() {
   const add = useAddIp()
   const forbidden = state.error instanceof ApiError && state.error.status === 403
   const data = state.data
+  const wide = useIsWide()
 
   return (
     <div className="space-y-4">
@@ -234,7 +282,7 @@ export function IpPanel() {
               <Card title={strings.ipListTitle}>
                 {data.rules.length === 0 ? (
                   <p className="text-sm text-muted">{strings.ipEmpty}</p>
-                ) : (
+                ) : wide ? (
                   <div className="overflow-x-auto">
                     <table className="w-full text-left text-sm">
                       <thead className="text-xs text-muted">
@@ -252,6 +300,12 @@ export function IpPanel() {
                       </tbody>
                     </table>
                   </div>
+                ) : (
+                  <MobileCardList label={strings.ipListTitle}>
+                    {data.rules.map((r) => (
+                      <Row key={`${r.id}:${r.label}:${r.max_conns}`} card rule={r} />
+                    ))}
+                  </MobileCardList>
                 )}
               </Card>
 
@@ -264,7 +318,7 @@ export function IpPanel() {
                     {data.blocked.map((b) => (
                       <li
                         key={b.ip}
-                        className="flex flex-wrap items-center justify-between gap-2 py-2"
+                        className="flex flex-col gap-2 py-2.5 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between"
                       >
                         <span>
                           <span className="font-mono text-[0.8125rem]">{b.ip}</span>

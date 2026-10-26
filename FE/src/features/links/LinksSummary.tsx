@@ -57,7 +57,7 @@ export function LinksSummary({ summary }: { summary: Summary }) {
       aria-label={strings.summaryLabel}
       className="rounded-lg border border-line bg-surface px-4 py-3.5"
     >
-      <div className="flex flex-wrap items-baseline gap-x-7 gap-y-2">
+      <div className="grid grid-cols-2 gap-x-4 gap-y-2 sm:flex sm:flex-wrap sm:items-baseline sm:gap-x-7">
         <Stat value={summary.total} label={strings.sumAccounts} />
         <Stat value={summary.online} label={strings.sumOnline} tone="text-gain" />
         <Stat value={summary.live} label={strings.sumLive} tone="text-live" />
@@ -70,7 +70,7 @@ export function LinksSummary({ summary }: { summary: Summary }) {
         {summary.awaiting > 0 && <Stat value={summary.awaiting} label={strings.sumAwaiting} />}
         {summary.disabled > 0 && <Stat value={summary.disabled} label={strings.sumDisabled} />}
         {summary.attention === 0 && (
-          <span className="ml-auto inline-flex items-center gap-1.5 text-sm text-gain">
+          <span className="col-span-2 inline-flex items-center gap-1.5 text-sm text-gain sm:ml-auto">
             <Icon name="check" size={14} />
             {strings.sumAllGood}
           </span>

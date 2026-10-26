@@ -3,10 +3,12 @@ import { type FormEvent, useState } from 'react'
 import { Link } from 'wouter'
 import { Button } from '../../components/Button'
 import { Card } from '../../components/Card'
+import { Field, MobileCard, MobileCardList } from '../../components/MobileCard'
 import { inputClass } from '../../components/styles'
 import { ApiError } from '../../lib/api-client'
 import { formatDateTime, formatRelative } from '../../lib/format'
 import { strings } from '../../lib/strings'
+import { useIsWide } from '../../lib/use-media'
 import { useUsers } from '../users/api'
 import { useIssueToken, useResetToken, useRevokeToken, useTokens } from './api'
 import { TokenSecretDialog } from './TokenSecretDialog'
@@ -79,7 +81,7 @@ function IssueForm({ onIssued }: { onIssued: (r: Revealed) => void }) {
 
   return (
     <form noValidate onSubmit={onSubmit} className="flex flex-wrap items-start gap-3">
-      <div className="min-w-64 flex-1">
+      <div className="min-w-0 basis-full flex-1 sm:min-w-64 sm:basis-auto">
         <label className="block text-sm font-medium" htmlFor="gw-owner">
           {strings.tokenPickUser}
         </label>
@@ -98,8 +100,13 @@ function IssueForm({ onIssued }: { onIssued: (r: Revealed) => void }) {
           ))}
         </select>
       </div>
-      <div className="pt-[1.375rem]">
-        <Button type="submit" variant="primary" disabled={issue.isPending}>
+      <div className="w-full sm:w-auto sm:pt-[1.375rem]">
+        <Button
+          type="submit"
+          variant="primary"
+          className="w-full sm:w-auto"
+          disabled={issue.isPending}
+        >
           {strings.tokenIssue}
         </Button>
       </div>
@@ -112,7 +119,15 @@ function IssueForm({ onIssued }: { onIssued: (r: Revealed) => void }) {
   )
 }
 
-function Row({ t, onReveal }: { t: GwTokenSummary; onReveal: (r: Revealed) => void }) {
+function Row({
+  t,
+  onReveal,
+  card = false,
+}: {
+  t: GwTokenSummary
+  onReveal: (r: Revealed) => void
+  card?: boolean
+}) {
   const reset = useResetToken()
   const revoke = useRevokeToken()
   const active = t.status === 'active'
@@ -137,6 +152,63 @@ function Row({ t, onReveal }: { t: GwTokenSummary; onReveal: (r: Revealed) => vo
     revoke.mutate(t.id)
   }
 
+  const sz = card ? 'md' : 'sm'
+  const actions = active ? (
+    <>
+      <Button size={sz} disabled={busy} onClick={onReset}>
+        {strings.tokenReset}
+      </Button>
+      <Button size={sz} variant="danger" disabled={busy} onClick={onRevoke}>
+        {strings.tokenRevoke}
+      </Button>
+      {(reset.isError || revoke.isError) && (
+        <span role="alert" className="text-xs text-loss">
+          {strings.tokenActionFailed}
+        </span>
+      )}
+    </>
+  ) : null
+  const lastUsed =
+    t.last_used_at !== null ? formatRelative(t.last_used_at) : active ? strings.tokenNeverUsed : '—'
+  const statusText = active ? strings.tokenStatusActive : strings.tokenStatusRevoked
+
+  if (card) {
+    return (
+      <MobileCard
+        stripe={active ? 'border-l-gain' : 'border-l-transparent'}
+        tone={active ? '' : 'opacity-70'}
+        head={
+          <>
+            <div className="min-w-0">
+              <div className="truncate font-semibold">{t.label}</div>
+              <div className="num text-xs text-muted">#{t.owner_id}</div>
+            </div>
+            <span
+              className={`shrink-0 rounded-full px-2.5 py-0.5 text-xs font-medium ${
+                active ? 'bg-gain-bg text-gain' : 'bg-raised text-muted'
+              }`}
+            >
+              {statusText}
+            </span>
+          </>
+        }
+        actions={actions}
+      >
+        <dl className="grid grid-cols-2 gap-x-3 gap-y-3">
+          <Field label={strings.tokenColPrefix} className="col-span-2">
+            <span className="font-mono text-[0.8125rem] break-all">{`${t.prefix}…`}</span>
+          </Field>
+          <Field label={strings.tokenColCreated}>
+            <span className="text-muted">{formatDateTime(t.created_at)}</span>
+          </Field>
+          <Field label={strings.tokenColLastUsed}>
+            <span className="text-muted">{lastUsed}</span>
+          </Field>
+        </dl>
+      </MobileCard>
+    )
+  }
+
   return (
     <tr className="border-t border-line align-middle">
       <td className="px-3 py-2">
@@ -144,33 +216,11 @@ function Row({ t, onReveal }: { t: GwTokenSummary; onReveal: (r: Revealed) => vo
         <div className="text-xs text-muted">#{t.owner_id}</div>
       </td>
       <td className="px-3 py-2 font-mono text-[0.8125rem]">{`${t.prefix}…`}</td>
-      <td className="px-3 py-2 text-sm">
-        {active ? strings.tokenStatusActive : strings.tokenStatusRevoked}
-      </td>
+      <td className="px-3 py-2 text-sm">{statusText}</td>
       <td className="px-3 py-2 text-sm text-muted">{formatDateTime(t.created_at)}</td>
-      <td className="px-3 py-2 text-sm text-muted">
-        {t.last_used_at !== null
-          ? formatRelative(t.last_used_at)
-          : active
-            ? strings.tokenNeverUsed
-            : '—'}
-      </td>
+      <td className="px-3 py-2 text-sm text-muted">{lastUsed}</td>
       <td className="px-3 py-2">
-        {active && (
-          <div className="flex flex-wrap items-center gap-2">
-            <Button size="sm" disabled={busy} onClick={onReset}>
-              {strings.tokenReset}
-            </Button>
-            <Button size="sm" variant="danger" disabled={busy} onClick={onRevoke}>
-              {strings.tokenRevoke}
-            </Button>
-            {(reset.isError || revoke.isError) && (
-              <span role="alert" className="text-xs text-loss">
-                {strings.tokenActionFailed}
-              </span>
-            )}
-          </div>
-        )}
+        {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
       </td>
     </tr>
   )
@@ -180,6 +230,7 @@ function Row({ t, onReveal }: { t: GwTokenSummary; onReveal: (r: Revealed) => vo
 export function TokensPanel() {
   const tokens = useTokens()
   const [revealed, setRevealed] = useState<Revealed | null>(null)
+  const wide = useIsWide()
 
   const forbidden = tokens.error instanceof ApiError && tokens.error.status === 403
 
@@ -212,27 +263,35 @@ export function TokensPanel() {
             {tokens.data && tokens.data.tokens.length === 0 && (
               <p className="text-sm text-muted">{strings.tokensEmpty}</p>
             )}
-            {tokens.data && tokens.data.tokens.length > 0 && (
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-sm">
-                  <thead className="text-xs text-muted">
-                    <tr>
-                      <th className="px-3 py-1.5 font-medium">{strings.tokenColOwner}</th>
-                      <th className="px-3 py-1.5 font-medium">{strings.tokenColPrefix}</th>
-                      <th className="px-3 py-1.5 font-medium">{strings.tokenColStatus}</th>
-                      <th className="px-3 py-1.5 font-medium">{strings.tokenColCreated}</th>
-                      <th className="px-3 py-1.5 font-medium">{strings.tokenColLastUsed}</th>
-                      <th className="px-3 py-1.5 font-medium">{strings.tokenColActions}</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {tokens.data.tokens.map((t) => (
-                      <Row key={t.id} t={t} onReveal={setRevealed} />
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
+            {tokens.data &&
+              tokens.data.tokens.length > 0 &&
+              (wide ? (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-sm">
+                    <thead className="text-xs text-muted">
+                      <tr>
+                        <th className="px-3 py-1.5 font-medium">{strings.tokenColOwner}</th>
+                        <th className="px-3 py-1.5 font-medium">{strings.tokenColPrefix}</th>
+                        <th className="px-3 py-1.5 font-medium">{strings.tokenColStatus}</th>
+                        <th className="px-3 py-1.5 font-medium">{strings.tokenColCreated}</th>
+                        <th className="px-3 py-1.5 font-medium">{strings.tokenColLastUsed}</th>
+                        <th className="px-3 py-1.5 font-medium">{strings.tokenColActions}</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {tokens.data.tokens.map((t) => (
+                        <Row key={t.id} t={t} onReveal={setRevealed} />
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <MobileCardList label={strings.tokensTitle}>
+                  {tokens.data.tokens.map((t) => (
+                    <Row key={t.id} card t={t} onReveal={setRevealed} />
+                  ))}
+                </MobileCardList>
+              ))}
           </Card>
         </>
       )}

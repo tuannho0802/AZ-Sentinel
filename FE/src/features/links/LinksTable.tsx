@@ -1,7 +1,9 @@
 import { Link } from 'wouter'
+import { Field, MobileCard, MobileCardList } from '../../components/MobileCard'
 import { Delta, Money } from '../../components/Money'
 import { formatRelative } from '../../lib/format'
 import { strings } from '../../lib/strings'
+import { useIsWide } from '../../lib/use-media'
 import { useNow } from '../../lib/use-now'
 import type { Health, LinkRow } from './links-view'
 import { RotateKeyButton } from './RotateKeyButton'
@@ -23,7 +25,7 @@ const rowLook: Record<Health, { stripe: string; bg: string }> = {
   disabled: { stripe: 'border-l-transparent', bg: 'opacity-65' },
 }
 
-export function LinksTable({ rows }: { rows: LinkRow[] }) {
+function LinksTableWide({ rows }: { rows: LinkRow[] }) {
   const now = useNow()
   // Cột chủ sở hữu chỉ có khi API trả `owner` (danh sách của quản trị viên).
   const showOwner = rows.some((r) => r.link.owner !== undefined)
@@ -115,4 +117,100 @@ export function LinksTable({ rows }: { rows: LinkRow[] }) {
       </table>
     </div>
   )
+}
+
+/**
+ * Điện thoại: mỗi tài khoản là một thẻ đủ thông tin (trạng thái, số TK, VPS, chủ sở hữu, Balance/Equity/Lãi-lỗ,
+ * lần nhận gần nhất) và hai nút thao tác cao dễ chạm. Không có thanh cuộn ngang.
+ */
+function LinksCards({ rows }: { rows: LinkRow[] }) {
+  const now = useNow()
+  const showOwner = rows.some((r) => r.link.owner !== undefined)
+  return (
+    <MobileCardList label={strings.linksPageTitle}>
+      {rows.map(({ link: l, health, liveState }) => {
+        const currency = l.account?.currency ?? null
+        const look = rowLook[health]
+        return (
+          <MobileCard
+            key={l.id}
+            stripe={look.stripe}
+            tone={look.bg}
+            head={
+              <>
+                <div className="min-w-0">
+                  {l.account ? (
+                    <>
+                      <div className="num text-base leading-tight font-semibold">
+                        {l.account.login}
+                      </div>
+                      <div className="truncate text-xs text-muted">
+                        {l.account.server}
+                        {l.account.name ? ` · ${l.account.name}` : ''}
+                      </div>
+                    </>
+                  ) : (
+                    <span className="text-muted">{strings.unbound}</span>
+                  )}
+                </div>
+                <div className="flex shrink-0 flex-col items-end gap-1">
+                  <StatusBadge health={health} hasAccount={l.account !== null} />
+                  <span className="num text-xs text-subtle">#{l.id}</span>
+                </div>
+              </>
+            }
+            actions={
+              <>
+                <Link
+                  href={`/links/${l.id}`}
+                  className="inline-flex h-9 flex-1 items-center justify-center rounded-md border border-line-strong bg-surface px-3.5 text-sm font-medium text-ink transition-colors hover:bg-raised"
+                >
+                  {strings.viewDetail}
+                </Link>
+                <RotateKeyButton linkId={l.id} />
+              </>
+            }
+          >
+            <dl className="grid grid-cols-3 gap-x-3 gap-y-3">
+              <Field label={strings.colBalance}>
+                <Money value={l.state?.balance} currency={currency} />
+              </Field>
+              <Field label={strings.colEquity} className="font-medium">
+                <Money value={l.state?.equity} currency={currency} />
+              </Field>
+              <Field label={strings.colPl}>
+                <Delta value={l.state?.floating_pl} currency={currency} />
+              </Field>
+              <Field label={strings.colVps} className="col-span-2">
+                <VpsNameCell linkId={l.id} value={l.vps_name} />
+              </Field>
+              <Field label={strings.colLastSeen}>
+                {liveState === 'live' ? (
+                  <span className="text-live">{strings.lastSeenLive}</span>
+                ) : l.state ? (
+                  <span className="text-muted">{formatRelative(l.state.last_seen_at, now)}</span>
+                ) : (
+                  '—'
+                )}
+              </Field>
+              {showOwner && (
+                <Field label={strings.colOwner} className="col-span-3">
+                  {l.owner ? (
+                    (l.owner.name ?? `#${l.owner.id}`)
+                  ) : (
+                    <span className="text-muted">{strings.ownerNone}</span>
+                  )}
+                </Field>
+              )}
+            </dl>
+          </MobileCard>
+        )
+      })}
+    </MobileCardList>
+  )
+}
+
+/** Máy tính: bảng; điện thoại: thẻ. Chỉ vẽ một bố cục. */
+export function LinksTable({ rows }: { rows: LinkRow[] }) {
+  return useIsWide() ? <LinksTableWide rows={rows} /> : <LinksCards rows={rows} />
 }

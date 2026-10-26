@@ -56,7 +56,7 @@ export function LinksList() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
         <h1 className="text-xl font-semibold">{strings.linksPageTitle}</h1>
-        <div className="flex flex-wrap items-center gap-3">
+        <div className="flex w-full flex-wrap items-center gap-x-3 gap-y-2 sm:w-auto">
           <LiveControl
             status={live.status}
             anyLive={anyLive}
@@ -70,7 +70,7 @@ export function LinksList() {
               {strings.updatedAt} {formatTime(links.dataUpdatedAt)}
             </span>
           )}
-          <Button size="sm" className="h-8" onClick={() => links.refetch()}>
+          <Button size="sm" className="ml-auto h-8 sm:ml-0" onClick={() => links.refetch()}>
             <Icon name="refresh" size={13} />
             {strings.refresh}
           </Button>
@@ -84,13 +84,13 @@ export function LinksList() {
 
       {hasLinks && <LinksSummary summary={summary} />}
 
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className="flex flex-col gap-3 md:flex-row md:flex-wrap md:items-center md:justify-between">
         {hasLinks ? <LinksToolbar view={view} onChange={setView} summary={summary} /> : <span />}
         <div className="flex items-center gap-2">
           <input
             aria-label={strings.vpsNamePlaceholder}
             placeholder={strings.vpsNamePlaceholder}
-            className={`${inputClass} w-52`}
+            className={`${inputClass} min-w-0 flex-1 md:w-52 md:flex-none`}
             maxLength={VPS_NAME_MAX}
             value={vpsName}
             disabled={create.isPending || devOff}

@@ -41,10 +41,10 @@ export function ServerBadge() {
   return (
     <span
       title={`${strings.serverBadgeLabel}: ${label}`}
-      className={`inline-flex max-w-52 items-center gap-1.5 truncate rounded-full px-2.5 py-1 text-xs font-medium ${box}`}
+      className={`inline-flex max-w-52 items-center gap-1.5 truncate rounded-full px-2.5 py-1 text-xs font-medium max-sm:px-2 ${box}`}
     >
       {mark}
-      <span className="truncate">{label}</span>
+      <span className="truncate max-sm:sr-only">{label}</span>
     </span>
   )
 }
