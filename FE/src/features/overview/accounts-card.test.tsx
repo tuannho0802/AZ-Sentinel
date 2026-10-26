@@ -91,8 +91,15 @@ describe('Tổng quan: tài khoản MT5 đang kết nối', () => {
     expect(within(list).getByText('Acc1')).toBeTruthy()
   })
 
+  it('đã gộp thẻ Liên kết EA: chỉ còn một thẻ, có nút Quản lý liên kết EA', async () => {
+    boot([link(1)])
+    const manage = await screen.findByRole('link', { name: strings.linksManage })
+    expect(manage.getAttribute('href')).toBe('/links')
+    expect(screen.queryByText(strings.linksTitle, { selector: 'h2' })).toBeNull()
+  })
+
   it('chưa có tài khoản: báo trống', async () => {
     boot([])
-    expect(await screen.findByText(strings.accountsCardEmpty)).toBeTruthy()
+    expect(await screen.findByText(new RegExp(strings.accountsCardEmpty))).toBeTruthy()
   })
 })

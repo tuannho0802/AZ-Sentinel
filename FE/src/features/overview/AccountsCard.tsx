@@ -7,6 +7,9 @@ import { useLinks } from '../links/api'
 import { type LinkRow, useLinkRows } from '../links/links-view'
 import { StatusBadge } from '../links/StatusBadge'
 
+const BTN =
+  'inline-flex h-9 items-center justify-center rounded-md border border-line-strong bg-surface px-3.5 text-sm font-medium transition-colors hover:bg-raised'
+
 /** Số tài khoản hiện ở Tổng quan (cập nhật gần nhất); phần còn lại xem ở trang Liên kết EA. */
 export const OVERVIEW_ACCOUNT_LIMIT = 8
 
@@ -39,7 +42,8 @@ const Vps = ({ row }: { row: LinkRow }) =>
 
 /**
  * Tổng quan: trạng thái Online/Offline của các tài khoản MT5 đang kết nối (tên + broker, VPS, Balance),
- * chỉ vài tài khoản cập nhật gần nhất; nút "Xem thêm" sang trang Liên kết EA. Điện thoại: danh sách xếp dọc.
+ * chỉ vài tài khoản cập nhật gần nhất; nút "Xem thêm" và "Quản lý liên kết EA" sang trang Liên kết EA
+ * (đã gộp thẻ "Liên kết EA" cũ vào đây). Điện thoại: danh sách xếp dọc.
  */
 export function AccountsCard() {
   const links = useLinks()
@@ -53,7 +57,9 @@ export function AccountsCard() {
       {links.isPending && <p className="text-sm text-muted">{strings.linksLoading}</p>}
       {links.isError && <p className="text-sm text-muted">{strings.accountsCardError}</p>}
       {links.isSuccess && rows.length === 0 && (
-        <p className="text-sm text-muted">{strings.accountsCardEmpty}</p>
+        <p className="text-sm text-muted">
+          {strings.accountsCardEmpty} {strings.linksOverviewHint}
+        </p>
       )}
       {shown.length > 0 &&
         (wide ? (
@@ -115,14 +121,16 @@ export function AccountsCard() {
             ))}
           </ul>
         ))}
-      {more > 0 && (
-        <Link
-          href="/links"
-          className="mt-3 inline-flex h-9 w-full items-center justify-center rounded-md border border-line-strong bg-surface px-3.5 text-sm font-medium transition-colors hover:bg-raised sm:w-auto"
-        >
-          {strings.accountsMore} ({more})
+      <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+        {more > 0 && (
+          <Link href="/links" className={`${BTN} border-accent-text/50 text-accent-text`}>
+            {strings.accountsMore} ({more})
+          </Link>
+        )}
+        <Link href="/links" className={BTN}>
+          {strings.linksManage}
         </Link>
-      )}
+      </div>
     </Card>
   )
 }

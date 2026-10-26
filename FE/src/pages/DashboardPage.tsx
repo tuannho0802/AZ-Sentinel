@@ -1,7 +1,6 @@
 import { AppShell } from '../components/AppShell'
 import { AccountsCard } from '../features/overview/AccountsCard'
 import { ApiStatusCard } from '../features/overview/ApiStatusCard'
-import { LinksCard } from '../features/overview/LinksCard'
 import { QuickStartCard } from '../features/overview/QuickStartCard'
 import { SessionCard } from '../features/overview/SessionCard'
 import { ServerStatusCard } from '../features/server/ServerStatusCard'
@@ -20,7 +19,6 @@ export function DashboardPage() {
       <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <ApiStatusCard />
         <SessionCard />
-        <LinksCard />
         <ServerStatusCard />
       </div>
     </AppShell>
