@@ -1,4 +1,5 @@
 import { AppShell } from '../components/AppShell'
+import { AccountsCard } from '../features/overview/AccountsCard'
 import { ApiStatusCard } from '../features/overview/ApiStatusCard'
 import { LinksCard } from '../features/overview/LinksCard'
 import { QuickStartCard } from '../features/overview/QuickStartCard'
@@ -12,6 +13,9 @@ export function DashboardPage() {
       <h1 className="text-xl font-semibold">{strings.overviewTitle}</h1>
       <div className="mt-4 empty:hidden">
         <QuickStartCard />
+      </div>
+      <div className="mt-4">
+        <AccountsCard />
       </div>
       <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <ApiStatusCard />

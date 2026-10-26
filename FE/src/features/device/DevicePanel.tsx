@@ -2,6 +2,7 @@ import { type DeviceMode, type DeviceRule, shortDeviceId } from '@az-sentinel/sh
 import { useState } from 'react'
 import { Button } from '../../components/Button'
 import { Card } from '../../components/Card'
+import { DeviceTag } from '../../components/DeviceTag'
 import { Field, MobileCard, MobileCardList } from '../../components/MobileCard'
 import { inputClass } from '../../components/styles'
 import { ApiError } from '../../lib/api-client'
@@ -101,7 +102,8 @@ function Row({ rule, card = false }: { rule: DeviceRule; card?: boolean }) {
             <div className="min-w-0">
               <div className="truncate font-semibold">{label || kind}</div>
               <div className="text-xs text-muted">
-                <span className="font-mono">{shortDeviceId(rule.device_id)}</span> · {kind}
+                <DeviceTag id={shortDeviceId(rule.device_id)} />{' '}
+                <span className="ml-1">{kind}</span>
               </div>
             </div>
             <span className="shrink-0 text-right text-xs text-muted">{seen}</span>
@@ -130,8 +132,8 @@ function Row({ rule, card = false }: { rule: DeviceRule; card?: boolean }) {
   return (
     <tr className="border-t border-line align-middle">
       <td className="px-3 py-2">
-        <div className="font-mono text-[0.8125rem]">{shortDeviceId(rule.device_id)}</div>
-        <div className="text-xs text-muted">{kind}</div>
+        <DeviceTag id={shortDeviceId(rule.device_id)} />
+        <div className="mt-1 text-xs text-muted">{kind}</div>
       </td>
       <td className="px-3 py-2">
         <input
@@ -195,11 +197,11 @@ export function DevicePanel() {
               </p>
               <p className="text-sm text-muted">
                 {strings.devYours}:{' '}
-                <span className="font-mono">
-                  {data.your_device_id
-                    ? shortDeviceId(data.your_device_id)
-                    : strings.devYoursUnknown}
-                </span>
+                {data.your_device_id ? (
+                  <DeviceTag id={shortDeviceId(data.your_device_id)} />
+                ) : (
+                  <span className="font-mono">{strings.devYoursUnknown}</span>
+                )}
                 {data.your_device_id &&
                   ` — ${data.your_device_allowed ? strings.devYoursAllowed : strings.devYoursNotAllowed}`}
               </p>
@@ -268,9 +270,7 @@ export function DevicePanel() {
                     className="flex flex-wrap items-center justify-between gap-2 py-2"
                   >
                     <span>
-                      <span className="font-mono text-[0.8125rem]">
-                        {shortDeviceId(p.device_id)}
-                      </span>
+                      <DeviceTag id={shortDeviceId(p.device_id)} />
                       <span className="ml-2 text-xs text-muted">
                         {p.kind === 'gateway' ? strings.devKindGateway : describeUa(p.user_agent)}
                         {' · '}
@@ -336,8 +336,8 @@ export function DevicePanel() {
                         <>
                           <div className="min-w-0">
                             <div className="truncate font-semibold">{name}</div>
-                            <div className="font-mono text-xs text-muted">
-                              {shortDeviceId(p.device_id)}
+                            <div className="mt-1">
+                              <DeviceTag id={shortDeviceId(p.device_id)} />
                             </div>
                           </div>
                           <span className="shrink-0 text-right text-xs text-muted">

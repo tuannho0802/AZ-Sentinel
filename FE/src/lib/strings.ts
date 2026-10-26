@@ -24,6 +24,11 @@ export const strings = {
   sessionTitle: 'Phiên đăng nhập',
   linksTitle: 'Liên kết EA',
   linksOverviewHint: 'Tạo khóa cho EA và xem dữ liệu tài khoản MT5 gửi về.',
+  accountsCardTitle: 'Tài khoản MT5 đang kết nối',
+  accountsCardEmpty: 'Chưa có tài khoản nào kết nối.',
+  accountsCardError: 'Không tải được danh sách tài khoản.',
+  accountsColAccount: 'Tài khoản (tên · broker)',
+  accountsMore: 'Xem thêm',
   linksManage: 'Quản lý liên kết EA',
 
   navOverview: 'Tổng quan',
