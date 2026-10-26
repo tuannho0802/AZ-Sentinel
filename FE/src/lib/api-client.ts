@@ -12,6 +12,9 @@ export class ApiError extends Error {
   }
 }
 
+/** Hạn chờ một lời gọi API (ms). Dài hơn hạn Worker chờ VPS (8 giây) để Worker kịp rơi về dự phòng. */
+const REQUEST_TIMEOUT_MS = 20_000
+
 let onUnauthorized: (() => void) | null = null
 
 /** Đăng ký hàm chạy khi API trả 401 (trừ chính lời gọi đăng nhập). Rules FE mục 4. */
@@ -29,6 +32,9 @@ async function request<T>(
     res = await fetch(path, {
       method,
       credentials: 'same-origin',
+      // Không bao giờ chờ vô hạn: máy chủ treo thì sau hạn này trang báo lỗi kèm nút Thử lại (và banner chuyển
+      // dự phòng) thay vì kẹt mãi ở "Đang kiểm tra phiên đăng nhập".
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
       headers: body === undefined ? undefined : { 'Content-Type': 'application/json' },
       body: body === undefined ? undefined : JSON.stringify(body),
     })

@@ -22,6 +22,7 @@ export class VpsProbe {
   private lastUpAt: number | null = null
   private downSince: number | null = null
   private inflight: Promise<boolean> | null = null
+  private inflightAt = 0
 
   constructor(
     readonly origin: string,
@@ -34,10 +35,41 @@ export class VpsProbe {
     if (this.up !== null && age < (this.up ? FAILOVER.probeOkTtlMs : FAILOVER.probeDownTtlMs)) {
       return this.up
     }
-    this.inflight ??= this.check().finally(() => {
-      this.inflight = null
+    // Dùng chung một lần dò giữa các request, NHƯNG không bao giờ chờ nó vô hạn: trên Workers, nếu request
+    // sở hữu lần dò bị hủy giữa chừng (đóng/tải lại tab) thì promise đó có thể không bao giờ kết thúc, và
+    // mọi request sau trong isolate sẽ treo theo (trang kẹt ở "Đang kiểm tra phiên đăng nhập").
+    // Vì vậy: lần dò quá hạn bị bỏ để request sau tự dò lại, và mỗi request tự canh thời gian chờ của mình.
+    const t = this.now()
+    if (this.inflight === null || t - this.inflightAt > FAILOVER.probeTimeoutMs * 2) {
+      const run: Promise<boolean> = this.check().finally(() => {
+        if (this.inflight === run) this.inflight = null
+      })
+      this.inflight = run
+      this.inflightAt = t
+    }
+    return this.waitBounded(this.inflight)
+  }
+
+  /** Chờ `probe` tối đa (hạn dò + 1 giây); quá hạn hoặc lỗi thì coi VPS không sẵn sàng (đi dự phòng). */
+  private waitBounded(probe: Promise<boolean>): Promise<boolean> {
+    return new Promise<boolean>((resolve) => {
+      const timer = setTimeout(() => {
+        // Lần dò treo: coi VPS sập một nhịp (request kế tiếp đi dự phòng ngay) và bỏ lần dò đó.
+        if (this.inflight === probe) this.inflight = null
+        this.markDown()
+        resolve(false)
+      }, FAILOVER.probeTimeoutMs + 1_000)
+      probe.then(
+        (up) => {
+          clearTimeout(timer)
+          resolve(up)
+        },
+        () => {
+          clearTimeout(timer)
+          resolve(false)
+        },
+      )
     })
-    return this.inflight
   }
 
   markDown(): void {
