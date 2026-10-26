@@ -225,7 +225,7 @@ export class SyncAgent {
 
   /**
    * Báo địa chỉ tunnel mới cho Worker, thử lại nhanh (5 giây, giãn dần) cho tới khi được nhận; không đợi
-   * nhịp sống kế tiếp (2 phút) để khoảng gián đoạn sau khi VPS reset ngắn nhất có thể.
+   * nhịp sống kế tiếp (4 phút) để khoảng gián đoạn sau khi VPS reset ngắn nhất có thể.
    */
   async deliverTunnel(attempts = 12): Promise<boolean> {
     for (let i = 0; i < attempts; i++) {

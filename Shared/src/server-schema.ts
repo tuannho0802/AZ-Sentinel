@@ -26,12 +26,12 @@ export const FAILOVER = {
   /** Chờ VPS trả header tối đa chừng này ms trước khi coi là sập (sau đó Worker tự xử lý). */
   proxyTimeoutMs: 8_000,
   /** VPS báo nhịp sống lên Cloudflare mỗi chừng này giây (để UI dự phòng còn hiện thông tin VPS lần cuối). */
-  heartbeatSec: 120,
+  heartbeatSec: 240,
   /** Nhịp sống cũ hơn chừng này giây thì coi thông tin VPS là cũ. */
   heartbeatStaleSec: 600,
   /** Đồng bộ VPS -> Cloudflare: tối đa chừng này dòng mỗi lần, và chu kỳ xả hàng đợi (giây). */
   syncBatch: 50,
-  syncFlushSec: 5,
+  syncFlushSec: 15,
   /** VPS kéo các lệnh ghi trong lúc dự phòng về lại sau mỗi chừng này giây (và khi khởi động). */
   pullSec: 3600,
   /** Khi kéo, lùi mốc thêm chừng này giây để không lỡ dòng sát ranh giới. */

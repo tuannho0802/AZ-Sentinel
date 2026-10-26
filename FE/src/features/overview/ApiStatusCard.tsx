@@ -6,11 +6,11 @@ import { apiGet } from '../../lib/api-client'
 import { strings } from '../../lib/strings'
 
 export function ApiStatusCard() {
-  // Dashboard poll 30 giây, dừng khi tab ẩn (Rules FE mục 5).
+  // Dashboard poll 60 giây (giảm từ 30 để bớt request Worker), dừng khi tab ẩn (Rules FE mục 5).
   const q = useQuery({
     queryKey: ['health'],
     queryFn: () => apiGet<HealthResponse>('/api/health'),
-    refetchInterval: 30_000,
+    refetchInterval: 60_000,
   })
   return (
     <Card title={strings.apiStatusTitle}>

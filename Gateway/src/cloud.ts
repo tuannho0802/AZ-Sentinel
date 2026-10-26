@@ -38,10 +38,25 @@ export type CloudOptions = {
   /** Chỉ để kiểm thử: rút ngắn khoảng ping và hạn im lặng (ms). */
   pingMs?: number
   silentMs?: number
+  /** Chỉ để kiểm thử: thu nhỏ backoff nối lại (mặc định `GW.reconnectMinSec`/`GW.reconnectMaxSec`) và khoảng cách hỏi danh bạ. */
+  reconnectMinSec?: number
+  reconnectMaxSec?: number
+  directoryMinGapMs?: number
 }
 
 /** Mỗi địa chỉ chỉ chẩn đoán lý do nối thất bại tối đa chừng này ms một lần (không tốn request Worker khi VPS sập lâu). */
 const EXPLAIN_EVERY_MS = 5 * 60_000
+
+/**
+ * Khi một kết nối CHƯA TỪNG mở được (opened = false) thì hỏi danh bạ tunnel (`GET /api/gw/tunnel`, tốn 1 request Worker)
+ * tối đa chừng này ms một lần. Rớt sau khi đã nối được (VPS vừa reset) vẫn hỏi ngay để bắt tunnel mới sớm.
+ */
+const DIRECTORY_MIN_GAP_MS = 20_000
+
+/** Nhịp thử quay về địa chỉ chính khi đang dùng dự phòng: 8 lần đầu (khoảng 2 phút) dày, sau đó thưa. */
+const PROBE_FAST_MS = 15_000
+const PROBE_FAST_TICKS = 8
+const PROBE_SLOW_MS = 90_000
 
 /**
  * Một WebSocket bền từ Gateway ra `LiveHub` (Plan 3C mục 4). Nối lại theo backoff 1, 2, 4...
@@ -65,6 +80,13 @@ export class CloudClient {
   private probeTicks = 0
   private probing = false
   private asking: Promise<boolean> | null = null
+  /** Lần hỏi danh bạ gần nhất (ms), để giãn nhịp khi nối hỏng liên tục. */
+  private lastAskAt = 0
+  /**
+   * Số vòng "chính hỏng, dự phòng cũng hỏng" liên tiếp. Vòng đầu (VPS vừa sập, dự phòng còn sống) vẫn chuyển
+   * dự phòng ngay; từ vòng thứ hai trở đi `attempt` không bị đặt lại nên backoff tăng dần tới mức tối đa.
+   */
+  private deadCycles = 0
   /** Lần chẩn đoán gần nhất theo địa chỉ kiểm tra (để giãn nhịp). */
   private readonly lastExplained = new Map<string, number>()
   /** Đang chủ động đổi địa chỉ (không cần hỏi danh bạ ở lần đóng kế). */
@@ -140,6 +162,7 @@ export class CloudClient {
   private askDirectory(timeoutMs = 8000): Promise<boolean> {
     if (this.directories().length === 0) return Promise.resolve(false)
     if (this.asking) return this.asking
+    this.lastAskAt = Date.now()
     const run = async (): Promise<boolean> => {
       const doFetch = this.opts.fetchFn ?? fetch
       const headers = this.requestHeaders()
@@ -159,6 +182,7 @@ export class CloudClient {
               ? body.wsUrl
               : null
           if (next === this.learned) return false
+          this.deadCycles = 0
           this.learned = next
           this.log.info(
             next
@@ -211,6 +235,7 @@ export class CloudClient {
     ws.addEventListener('open', () => {
       opened = true
       this.attempt = 0
+      this.deadCycles = 0
       this.lastRx = Date.now()
       this.log.info(`đã nối cloud (${this.urlIndex === 0 ? 'chính' : 'dự phòng'})`)
       if (this.urlIndex === 1) this.startProbingPrimary()
@@ -327,7 +352,7 @@ export class CloudClient {
   /**
    * Trong lúc dùng dự phòng: hỏi danh bạ (nếu có) để biết tunnel mới, rồi thử mở địa chỉ chính; mở được thì đóng
    * thử và đóng kết nối dự phòng để `onClosed` nối lại vào địa chỉ chính. Kết nối thử không gửi `hello` nên hub tự
-   * đóng sau vài giây. Nhịp thử: 15 giây trong 2 phút đầu (VPS reset thường lên lại nhanh), sau đó 60 giây để
+   * đóng sau vài giây. Nhịp thử: 15 giây trong 2 phút đầu (VPS reset thường lên lại nhanh), sau đó 90 giây để
    * không tốn request khi VPS sập lâu. `primaryRetryMs` (nếu đặt) cố định nhịp.
    */
   private startProbingPrimary(): void {
@@ -336,7 +361,7 @@ export class CloudClient {
     this.probeTicks = 0
     const next = () => {
       const fixed = this.opts.primaryRetryMs
-      const delay = fixed ?? (this.probeTicks < 8 ? 15_000 : 60_000)
+      const delay = fixed ?? (this.probeTicks < PROBE_FAST_TICKS ? PROBE_FAST_MS : PROBE_SLOW_MS)
       this.probeTimer = setTimeout(() => void tick(), delay)
       this.probeTimer.unref?.()
     }
@@ -392,6 +417,7 @@ export class CloudClient {
     this.urlIndex = index
     this.failStreak = 0
     this.attempt = 0
+    this.deadCycles = 0
     this.switching = true
     if (index === 0) this.stopProbing()
     this.ws?.close(1000, 'switch')
@@ -410,12 +436,16 @@ export class CloudClient {
     this.switching = false
     // Mất kết nối vào địa chỉ chính: hỏi danh bạ ngay (VPS có thể vừa reset và đổi tunnel). Có tunnel mới thì
     // nối lại liền, không chờ backoff và không phải rơi xuống dự phòng.
-    if (!wasSwitching && this.urlIndex === 0 && this.directories().length > 0) {
+    // Chưa từng nối được mà vừa hỏi xong thì bỏ qua lần hỏi này: tránh vòng lặp 1 request Worker mỗi lần thử lại.
+    const gap = this.opts.directoryMinGapMs ?? DIRECTORY_MIN_GAP_MS
+    const mayAsk = opened || Date.now() - this.lastAskAt >= gap
+    if (!wasSwitching && this.urlIndex === 0 && this.directories().length > 0 && mayAsk) {
       void this.askDirectory().then((changed) => {
         if (this.stopped || this.ws) return
         if (changed) {
           this.failStreak = 0
           this.attempt = 0
+          this.deadCycles = 0
           this.connect()
         } else this.scheduleReconnect()
       })
@@ -430,14 +460,19 @@ export class CloudClient {
       this.log.warn('địa chỉ chính không nối được, chuyển sang dự phòng')
       this.urlIndex = 1
       this.failStreak = 0
-      this.attempt = 0
+      // Lần chuyển dự phòng đầu tiên thì nối nhanh; đã hỏng cả hai vòng rồi thì giữ nguyên backoff đang tăng.
+      if (this.deadCycles === 0) this.attempt = 0
     } else if (this.urlIndex === 1 && this.failStreak >= 2) {
       // Dự phòng cũng hỏng: thử lại địa chỉ chính (VPS có thể đã sống lại).
       this.urlIndex = 0
       this.failStreak = 0
+      this.deadCycles++
       this.stopProbing()
     }
-    const base = Math.min(GW.reconnectMaxSec, GW.reconnectMinSec * 2 ** this.attempt)
+    const base = Math.min(
+      this.opts.reconnectMaxSec ?? GW.reconnectMaxSec,
+      (this.opts.reconnectMinSec ?? GW.reconnectMinSec) * 2 ** this.attempt,
+    )
     const delay = Math.round(base * 1000 * (0.5 + this.rand() * 0.5))
     this.attempt++
     this.log.warn(`mất cloud, nối lại sau ${delay}ms (lần ${this.attempt})`)

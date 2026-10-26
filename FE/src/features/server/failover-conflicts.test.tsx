@@ -152,7 +152,7 @@ describe('các màn hình khác cùng cơ chế', () => {
 })
 
 describe('chi phí request khi đang dự phòng', () => {
-  it('server-info poll 10 giây khi dự phòng (thấy VPS lên lại sớm) và 30 giây khi bình thường', async () => {
+  it('server-info poll 20 giây khi dự phòng (thấy VPS lên lại sớm) và 60 giây khi bình thường', async () => {
     const count = (calls: unknown[][]) =>
       calls.filter((c) => String(c[0]) === '/api/server-info').length
     const fallback = renderApp(
@@ -162,13 +162,15 @@ describe('chi phí request khi đang dự phòng', () => {
     await screen.findByRole('link', { name: strings.navOverview })
     await waitFor(() => expect(count(fallback.fetchMock.mock.calls)).toBe(1))
     await sleep(11)
+    expect(count(fallback.fetchMock.mock.calls)).toBe(1) // chưa tới 20 giây
+    await sleep(10)
     expect(count(fallback.fetchMock.mock.calls)).toBeGreaterThanOrEqual(2)
     cleanup()
 
     const normal = renderApp('/', handlers())
     await screen.findByRole('link', { name: strings.navOverview })
     await waitFor(() => expect(count(normal.fetchMock.mock.calls)).toBe(1))
-    await sleep(11)
-    expect(count(normal.fetchMock.mock.calls)).toBe(1)
+    await sleep(31)
+    expect(count(normal.fetchMock.mock.calls)).toBe(1) // trước đây đã poll lần hai ở giây 30
   })
 })
