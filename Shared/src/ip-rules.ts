@@ -107,9 +107,18 @@ export type IpRule = {
   label: string
   max_conns: number
   created_at: number
+  /** Có giá trị khi IP do một thiết bị `any_ip` tự thêm (xem whitelist thiết bị). */
+  device_id?: string | null
 }
 
-export type IpBlocked = { ip: string; last_at: number; count: number }
+export type IpBlocked = {
+  ip: string
+  last_at: number
+  count: number
+  /** Thiết bị đã gửi request bị chặn (nếu nhận diện được) và nhãn nếu thiết bị đã được duyệt. */
+  device_id?: string | null
+  device_label?: string | null
+}
 
 export type IpGuardState = {
   /** Bật = chỉ IP trong danh sách (và máy chạy Server) mới vào được. Tắt = ai cũng vào được như trước. */

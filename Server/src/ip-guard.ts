@@ -1,13 +1,30 @@
 import type { DatabaseSync } from 'node:sqlite'
-import { type IpPattern, ipMatches, isLoopbackIp, parseIpPattern } from '@az-sentinel/shared'
+import {
+  DEVICE_AUTO_IP_LIMIT,
+  type DeviceMode,
+  IP_RULE_DEFAULT_MAX_CONNS,
+  type IpPattern,
+  ipMatches,
+  isLoopbackIp,
+  parseIpPattern,
+  shortDeviceId,
+} from '@az-sentinel/shared'
+import type { DeviceInfo } from './device-id'
 
 type Rule = { pattern: IpPattern; maxConns: number }
+type DeviceRow = { mode: DeviceMode; label: string }
 
-export type Decision = { allow: true; maxConns: number | null } | { allow: false }
+/** `reason`: `ip` = IP chưa được phép; `device` = bật "chỉ thiết bị đã duyệt" mà thiết bị này chưa được duyệt. */
+export type BlockReason = 'ip' | 'device'
+export type Decision =
+  | { allow: true; maxConns: number | null }
+  | { allow: false; reason: BlockReason }
 
 const CACHE_MS = 5_000
 const NOTE_EVERY_MS = 30_000
 const KEEP_BLOCKED = 50
+const KEEP_PENDING = 200
+const TOUCH_EVERY_MS = 60_000
 
 /**
  * Đường luôn vào được dù whitelist đang bật (không phụ thuộc IP):
@@ -26,10 +43,19 @@ const ALWAYS_ALLOWED_PATHS = new Set(['/api/health', '/api/server-info/self'])
  * - Máy chạy Server (loopback không qua tunnel), `/api/health` và `/api/server-info/self` (cần token dịch vụ) luôn vào được.
  * - Công tắc tắt: ai cũng vào, nhưng IP có trong danh sách vẫn bị giới hạn số kết nối WebSocket.
  * - Công tắc bật: chỉ IP khớp luật mới vào; IP lạ bị chặn và ghi vào `ip_blocked` để admin cho phép.
+ *
+ * Whitelist THIẾT BỊ (`device_rules`, công tắc `device_guard`, mặc định tắt) chạy cùng chỗ:
+ * - Công tắc thiết bị bật: thiết bị chưa duyệt (hoặc request không mang mã thiết bị) bị chặn dù IP hợp lệ; thiết bị lạ
+ *   được ghi vào `device_pending` để admin duyệt.
+ * - Thiết bị `any_ip`: vào bằng IP nào thì IP đó được thêm vào `ip_rules` (đánh dấu `device_id`) và vào luôn.
+ * - Thiết bị `device_only`: chỉ qua cổng thiết bị; IP vẫn phải khớp whitelist IP (khi bật) như người thường.
  */
 export class IpGuard {
   private enforce = false
+  private deviceEnforce = false
   private rules: Rule[] = []
+  private devices = new Map<string, DeviceRow>()
+  private readonly touched = new Map<string, number>()
   private loadedAt = 0
   private readonly open = new Map<string, number>()
   private readonly noted = new Map<string, number>()
@@ -40,30 +66,50 @@ export class IpGuard {
     private readonly onError: (message: string) => void = () => {},
   ) {}
 
-  decide(ip: string, pathname: string): Decision {
+  decide(ip: string, pathname: string, device: DeviceInfo | null = null): Decision {
     if (ip === '' || isLoopbackIp(ip) || ALWAYS_ALLOWED_PATHS.has(pathname)) {
       return { allow: true, maxConns: null }
     }
     this.load()
+    const known = device ? this.devices.get(device.id) : undefined
+    if (this.deviceEnforce && !known) return { allow: false, reason: 'device' }
+    if (device && known) this.touch(device.id, ip)
+    if (device && known?.mode === 'any_ip') {
+      const maxConns = this.trustIp(device.id, known.label, ip)
+      if (maxConns !== null) return { allow: true, maxConns }
+    }
     const rule = this.rules.find((r) => ipMatches(r.pattern, ip))
     if (rule) return { allow: true, maxConns: rule.maxConns }
-    return this.enforce ? { allow: false } : { allow: true, maxConns: null }
+    return this.enforce ? { allow: false, reason: 'ip' } : { allow: true, maxConns: null }
   }
 
-  /** Ghi IP bị chặn cho admin xem (mỗi IP tối đa 30 giây một lần ghi, giữ 50 dòng mới nhất). */
-  noteBlocked(ip: string): void {
+  /**
+   * Ghi request bị chặn cho admin xem (mỗi IP + thiết bị tối đa 30 giây một lần ghi, giữ 50 dòng mới nhất).
+   * Có mã thiết bị thì gắn vào dòng IP bị chặn, và nếu thiết bị chưa được duyệt thì ghi vào danh sách chờ duyệt.
+   */
+  noteBlocked(ip: string, device: DeviceInfo | null = null): void {
     const t = this.now()
-    if (t - (this.noted.get(ip) ?? 0) < NOTE_EVERY_MS) return
-    this.noted.set(ip, t)
+    const key = `${ip}|${device?.id ?? ''}`
+    if (t - (this.noted.get(key) ?? 0) < NOTE_EVERY_MS) return
+    this.noted.set(key, t)
     if (this.noted.size > 1000) this.noted.clear()
     try {
       const sec = Math.floor(t / 1000)
-      this.sqlite
-        .prepare(
-          `INSERT INTO ip_blocked (ip, last_at, count) VALUES (?, ?, 1)
-           ON CONFLICT(ip) DO UPDATE SET last_at = excluded.last_at, count = count + 1`,
-        )
-        .run(ip, sec)
+      if (device) {
+        this.sqlite
+          .prepare(
+            `INSERT INTO ip_blocked (ip, last_at, count, device_id) VALUES (?, ?, 1, ?)
+             ON CONFLICT(ip) DO UPDATE SET last_at = excluded.last_at, count = count + 1, device_id = excluded.device_id`,
+          )
+          .run(ip, sec, device.id)
+      } else {
+        this.sqlite
+          .prepare(
+            `INSERT INTO ip_blocked (ip, last_at, count) VALUES (?, ?, 1)
+             ON CONFLICT(ip) DO UPDATE SET last_at = excluded.last_at, count = count + 1`,
+          )
+          .run(ip, sec)
+      }
       this.sqlite
         .prepare(
           `DELETE FROM ip_blocked WHERE ip NOT IN (SELECT ip FROM ip_blocked ORDER BY last_at DESC LIMIT ${KEEP_BLOCKED})`,
@@ -71,6 +117,91 @@ export class IpGuard {
         .run()
     } catch (error) {
       this.onError(`không ghi được IP bị chặn: ${String(error).slice(0, 120)}`)
+    }
+    if (device && !this.devices.has(device.id)) this.notePending(ip, device, Math.floor(t / 1000))
+  }
+
+  private notePending(ip: string, device: DeviceInfo, sec: number): void {
+    try {
+      this.sqlite
+        .prepare(
+          `INSERT INTO device_pending (device_id, kind, ip, user_agent, last_at, count) VALUES (?, ?, ?, ?, ?, 1)
+           ON CONFLICT(device_id) DO UPDATE SET ip = excluded.ip, user_agent = excluded.user_agent,
+             last_at = excluded.last_at, count = count + 1`,
+        )
+        .run(device.id, device.kind, ip, device.ua, sec)
+      this.sqlite
+        .prepare(
+          `DELETE FROM device_pending WHERE device_id NOT IN (SELECT device_id FROM device_pending ORDER BY last_at DESC LIMIT ${KEEP_PENDING})`,
+        )
+        .run()
+    } catch (error) {
+      this.onError(`không ghi được thiết bị chờ duyệt: ${String(error).slice(0, 120)}`)
+    }
+  }
+
+  /** Nội dung thông báo 403 cho người bị chặn (kèm mã thiết bị để họ gửi cho admin). */
+  describeBlock(ip: string, reason: BlockReason, device: DeviceInfo | null): string {
+    if (reason === 'ip') {
+      return `IP ${ip} chưa được cho phép truy cập máy chủ này. Nhờ quản trị viên thêm IP này vào whitelist.`
+    }
+    return device
+      ? `Thiết bị này (mã ${shortDeviceId(device.id)}, IP ${ip}) chưa được cho phép. Nhờ quản trị viên duyệt thiết bị trong trang Whitelist.`
+      : `Không nhận diện được thiết bị (IP ${ip}). Hãy dùng trình duyệt bình thường hoặc cập nhật Gateway, rồi nhờ quản trị viên duyệt thiết bị.`
+  }
+
+  /** Cập nhật IP và lần thấy cuối của thiết bị đã duyệt (tối đa mỗi phút một lần mỗi thiết bị). */
+  private touch(deviceId: string, ip: string): void {
+    const t = this.now()
+    if (t - (this.touched.get(deviceId) ?? 0) < TOUCH_EVERY_MS) return
+    this.touched.set(deviceId, t)
+    if (this.touched.size > 1000) this.touched.clear()
+    try {
+      this.sqlite
+        .prepare('UPDATE device_rules SET last_ip = ?, last_seen = ? WHERE device_id = ?')
+        .run(ip, Math.floor(t / 1000), deviceId)
+    } catch (error) {
+      this.onError(`không ghi được lần thấy cuối của thiết bị: ${String(error).slice(0, 120)}`)
+    }
+  }
+
+  /**
+   * Thiết bị `any_ip`: bảo đảm `ip` có trong whitelist IP rồi trả số kết nối tối đa của luật đó. IP đã khớp luật
+   * nào thì dùng luật đó (không ghi đè). Mỗi thiết bị giữ tối đa `DEVICE_AUTO_IP_LIMIT` IP tự thêm (bỏ IP cũ nhất).
+   * Trả null khi không thêm được (IP sai định dạng hoặc lỗi DB) để rơi về kiểm tra IP thông thường.
+   */
+  private trustIp(deviceId: string, label: string, ip: string): number | null {
+    const existing = this.rules.find((r) => ipMatches(r.pattern, ip))
+    if (existing) return existing.maxConns
+    const pattern = parseIpPattern(ip)
+    if (!pattern || (pattern.kind === 'v4' && pattern.bits !== 32)) return null
+    try {
+      const sec = Math.floor(this.now() / 1000)
+      this.sqlite
+        .prepare(
+          `INSERT OR IGNORE INTO ip_rules (ip, label, max_conns, created_by, created_at, device_id)
+           VALUES (?, ?, ?, 0, ?, ?)`,
+        )
+        .run(
+          pattern.text,
+          `Thiết bị: ${label || shortDeviceId(deviceId)}`.slice(0, 64),
+          IP_RULE_DEFAULT_MAX_CONNS,
+          sec,
+          deviceId,
+        )
+      this.sqlite
+        .prepare(
+          `DELETE FROM ip_rules WHERE device_id = ? AND id NOT IN
+             (SELECT id FROM ip_rules WHERE device_id = ? ORDER BY id DESC LIMIT ${DEVICE_AUTO_IP_LIMIT})`,
+        )
+        .run(deviceId, deviceId)
+      this.sqlite.prepare('DELETE FROM ip_blocked WHERE ip = ?').run(pattern.text)
+      this.rules.push({ pattern, maxConns: IP_RULE_DEFAULT_MAX_CONNS })
+      this.loadedAt = 0 // đọc lại danh sách thật ở request kế tiếp (một số IP cũ vừa bị bỏ)
+      return IP_RULE_DEFAULT_MAX_CONNS
+    } catch (error) {
+      this.onError(`không tự thêm được IP của thiết bị: ${String(error).slice(0, 120)}`)
+      return null
     }
   }
 
@@ -111,6 +242,26 @@ export class IpGuard {
     } catch (error) {
       // Giữ luật cũ nếu lần đọc này lỗi (ví dụ DB đang khóa); không đổi từ "chặn" sang "mở" vì lỗi.
       this.onError(`không đọc được whitelist IP: ${String(error).slice(0, 120)}`)
+    }
+    this.loadDevices()
+  }
+
+  /** Đọc whitelist thiết bị. Chưa có bảng (DB cũ chưa migrate) thì coi như tắt; lỗi khác giữ nguyên luật cũ. */
+  private loadDevices(): void {
+    try {
+      const flag = this.sqlite
+        .prepare("SELECT v FROM server_meta WHERE k = 'device_guard'")
+        .get() as { v: string } | undefined
+      const rows = this.sqlite.prepare('SELECT device_id, mode, label FROM device_rules').all() as {
+        device_id: string
+        mode: DeviceMode
+        label: string
+      }[]
+      this.devices = new Map(rows.map((r) => [r.device_id, { mode: r.mode, label: r.label }]))
+      this.deviceEnforce = flag?.v === '1'
+    } catch (error) {
+      if (String(error).includes('no such table')) return
+      this.onError(`không đọc được whitelist thiết bị: ${String(error).slice(0, 120)}`)
     }
   }
 }

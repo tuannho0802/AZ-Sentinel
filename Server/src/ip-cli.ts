@@ -4,6 +4,11 @@ import {
   parseIpPattern,
 } from '@az-sentinel/shared'
 import {
+  isDeviceEnforced,
+  listDevices,
+  setDeviceEnforced,
+} from '../../BE/src/services/device-rules-service'
+import {
   createRule,
   isEnforced,
   listRules,
@@ -18,6 +23,8 @@ const USAGE = `Dùng: node server.mjs ip <lệnh>
   add <ip|cidr> [nhãn] [--max N]    Thêm IP (1.2.3.4) hoặc dải (1.2.3.0/24); N = số kết nối tối đa (mặc định ${IP_RULE_DEFAULT_MAX_CONNS})
   remove <ip|cidr>                  Bỏ một IP khỏi danh sách
   on | off                          Bật/tắt "chỉ IP trong danh sách mới vào được"
+  device-list                       Xem công tắc và danh sách thiết bị được phép
+  device-off | device-on            Tắt/bật "chỉ thiết bị đã duyệt mới vào được" (device-off để cứu hộ khi tự khóa)
 
 Công tắc mặc định TẮT. Lệnh này chạy trên chính máy Server nên luôn dùng được, kể cả khi bạn tự khóa mình ngoài web.
 Thay đổi có hiệu lực trong vài giây, không cần khởi động lại Server.`
@@ -25,7 +32,8 @@ Thay đổi có hiệu lực trong vài giây, không cần khởi động lại
 /** Quản lý whitelist IP bằng dòng lệnh, trực tiếp trên SQLite của VPS. Trả mã thoát. */
 export async function runIpCli(cfg: ServerConfig, args: string[]): Promise<number> {
   const [cmd, ...rest] = args
-  if (!cmd || !['list', 'add', 'remove', 'on', 'off'].includes(cmd)) {
+  const commands = ['list', 'add', 'remove', 'on', 'off', 'device-list', 'device-on', 'device-off']
+  if (!cmd || !commands.includes(cmd)) {
     console.log(USAGE)
     return cmd ? 1 : 0
   }
@@ -34,6 +42,30 @@ export async function runIpCli(cfg: ServerConfig, args: string[]): Promise<numbe
   const db = sqlite as unknown as D1Database
   const now = Math.floor(Date.now() / 1000)
   try {
+    if (cmd === 'device-list') {
+      const [on, devices] = await Promise.all([isDeviceEnforced(db), listDevices(db)])
+      console.log(`Chế độ chỉ cho thiết bị đã duyệt: ${on ? 'BẬT' : 'TẮT'}`)
+      if (devices.length === 0) console.log('(danh sách trống)')
+      for (const d of devices) {
+        const mode = d.mode === 'any_ip' ? 'mọi IP' : 'chỉ thiết bị'
+        console.log(`#${d.id}\t${d.device_id.slice(0, 8)}\t${d.kind}\t${mode}\t${d.label}`)
+      }
+      return 0
+    }
+    if (cmd === 'device-on' || cmd === 'device-off') {
+      if (cmd === 'device-on' && (await listDevices(db)).length === 0) {
+        console.log(
+          'Lưu ý: chưa duyệt thiết bị nào, chỉ máy chạy Server mới vào được cho tới khi bạn duyệt.',
+        )
+      }
+      await setDeviceEnforced(db, cmd === 'device-on', now)
+      console.log(
+        cmd === 'device-on'
+          ? 'Đã BẬT: chỉ thiết bị đã duyệt mới vào được.'
+          : 'Đã TẮT: không xét thiết bị.',
+      )
+      return 0
+    }
     if (cmd === 'list') {
       const [on, rules] = await Promise.all([isEnforced(db), listRules(db)])
       console.log(`Chế độ chỉ cho IP trong danh sách: ${on ? 'BẬT' : 'TẮT'}`)

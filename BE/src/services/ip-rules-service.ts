@@ -10,14 +10,18 @@ const GUARD_KEY = 'ip_guard'
 
 export async function listRules(db: D1Database): Promise<IpRule[]> {
   const { results } = await db
-    .prepare('SELECT id, ip, label, max_conns, created_at FROM ip_rules ORDER BY id')
+    .prepare('SELECT id, ip, label, max_conns, created_at, device_id FROM ip_rules ORDER BY id')
     .all<IpRule>()
   return results
 }
 
 export async function listBlocked(db: D1Database): Promise<IpBlocked[]> {
   const { results } = await db
-    .prepare('SELECT ip, last_at, count FROM ip_blocked ORDER BY last_at DESC LIMIT 30')
+    .prepare(
+      `SELECT b.ip, b.last_at, b.count, b.device_id, d.label AS device_label
+       FROM ip_blocked b LEFT JOIN device_rules d ON d.device_id = b.device_id
+       ORDER BY b.last_at DESC LIMIT 30`,
+    )
     .all<IpBlocked>()
   return results
 }

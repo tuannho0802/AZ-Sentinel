@@ -1,4 +1,9 @@
-import { GW, gwServerMessageSchema, type TunnelDirectoryReply } from '@az-sentinel/shared'
+import {
+  DEVICE_HEADER,
+  GW,
+  gwServerMessageSchema,
+  type TunnelDirectoryReply,
+} from '@az-sentinel/shared'
 import type { Gateway } from './gateway'
 import { type Logger, silentLogger } from './log'
 
@@ -13,6 +18,8 @@ export type CloudOptions = {
   primaryRetryMs?: number
   /** Token Gateway cá nhân `azt_...` (quản trị viên cấp riêng cho từng người), gửi bằng `Authorization: Bearer`. */
   token?: string
+  /** Mã thiết bị (whitelist thiết bị), gửi bằng header `X-AZ-Device` ở mọi lần nối/hỏi danh bạ. */
+  deviceId?: string
   /**
    * Plan 3H: các địa chỉ HTTP của "danh bạ tunnel" (Worker, `/api/gw/tunnel`), thử lần lượt. Có thì Gateway hỏi
    * danh bạ khi khởi động, khi mất kết nối và khi đang dùng dự phòng, rồi nối THẲNG vào Quick Tunnel hiện tại của
@@ -126,9 +133,7 @@ export class CloudClient {
     if (this.asking) return this.asking
     const run = async (): Promise<boolean> => {
       const doFetch = this.opts.fetchFn ?? fetch
-      const headers: Record<string, string> = this.opts.token
-        ? { Authorization: `Bearer ${this.opts.token}` }
-        : {}
+      const headers = this.requestHeaders()
       for (const url of this.directories()) {
         try {
           const res = await doFetch(url, { headers, signal: AbortSignal.timeout(timeoutMs) })
@@ -164,11 +169,18 @@ export class CloudClient {
     return this.asking
   }
 
+  /** Header danh tính của Gateway: token cá nhân và mã thiết bị (nếu có). */
+  private requestHeaders(): Record<string, string> {
+    const headers: Record<string, string> = {}
+    if (this.opts.token) headers.Authorization = `Bearer ${this.opts.token}`
+    if (this.opts.deviceId) headers[DEVICE_HEADER] = this.opts.deviceId
+    return headers
+  }
+
   /** Mở một WebSocket tới `url` kèm token (WebSocket toàn cục của Node/undici nhận `headers`). */
   private open(url: string): WebSocket {
-    const init = this.opts.token
-      ? { headers: { Authorization: `Bearer ${this.opts.token}` } }
-      : undefined
+    const headers = this.requestHeaders()
+    const init = Object.keys(headers).length > 0 ? { headers } : undefined
     return init
       ? new (WebSocket as unknown as new (url: string, init: object) => WebSocket)(url, init)
       : new WebSocket(url)

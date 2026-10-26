@@ -22,3 +22,35 @@ Bộ cài Server có ô **IP được phép truy cập** (tùy chọn, cách nha
 - Người dùng vào qua địa chỉ Worker (Worker chuyển tiếp sang VPS): Worker chuyển IP thật kèm chữ ký HMAC (khóa `SYNC_TOKEN`), VPS chỉ tin khi chữ ký đúng nên whitelist vẫn đúng. Cần `AZ_SYNC_TOKEN` trùng với Worker và đồng hồ VPS đúng giờ (lệch quá 5 phút thì chữ ký bị từ chối). Xem `AZ_Sentinel_Quick_Tunnel.md` mục 4.
 - IP điện thoại (4G/5G) hay đổi: cân nhắc thêm dải CIDR của nhà mạng hoặc dùng dải rộng hơn cho thiết bị di động.
 - Chưa chạy test và chưa thử thật trên VPS; cần thử: bật bảo vệ, truy cập từ IP lạ (403), thêm bằng nút "Cho phép", kết nối thứ 6 của một IP (429).
+
+---
+
+# Whitelist thiết bị
+
+Đi kèm whitelist IP: ngoài "IP nào được vào" còn có "**thiết bị nào** được vào". Giúp người dùng đổi IP liên tục (4G/5G, nhà mạng đổi IP) mà Admin không phải thêm tay từng IP.
+
+## Thiết bị là gì
+- **Trình duyệt**: lần đầu mở web, Server cấp cookie `az_dev` (HttpOnly, sống 400 ngày). Xóa cookie / đổi trình duyệt / chế độ ẩn danh = thiết bị mới.
+- **Gateway**: tự tạo mã ngẫu nhiên lưu ở `<thư mục dữ liệu>/device.id` và gửi bằng header `X-AZ-Device`. Xóa file = thiết bị mới. Gateway ghi mã ngắn 8 ký tự vào log lúc khởi động (`mã thiết bị: ...`).
+- Server chỉ lưu bản **băm** của mã (không lưu mã thô). Admin đối chiếu bằng mã ngắn 8 ký tự hiện trên web. Header `X-AZ-Device` và `X-AZ-Device-Id` do client gửi luôn bị Server gỡ trước khi chuyển cho BE.
+
+## Hai chế độ khi duyệt một thiết bị
+1. **Mọi IP** (`any_ip`): thiết bị vào bằng IP nào thì IP đó được **thêm luôn vào whitelist IP** (nhãn `Thiết bị: <nhãn>`, tối đa 5 kết nối như mặc định) và vào được ngay. Mỗi thiết bị giữ tối đa 20 IP tự thêm (quá thì bỏ IP cũ nhất). Gỡ thiết bị thì gỡ luôn các IP nó đã tự thêm.
+2. **Chỉ thiết bị** (`device_only`): chỉ duyệt thiết bị. IP vẫn xét như thường: khi whitelist IP đang bật mà IP mới chưa có trong danh sách thì vẫn bị chặn, và Admin thấy IP đó (kèm thiết bị nào gửi) ở **IP bị chặn gần đây** để bấm **Cho phép**.
+
+## Công tắc "Bật bảo vệ thiết bị"
+- Mặc định **TẮT**: cài mới / nâng cấp không ai bị khóa. Thiết bị đã duyệt vẫn được ghi nhận và chế độ "Mọi IP" vẫn tự thêm IP.
+- **Bật**: chỉ thiết bị đã duyệt (và máy chạy Server) mới vào được, dù IP hợp lệ. Thiết bị lạ nhận 403 kèm mã 8 ký tự để gửi cho Admin, và hiện ở **Thiết bị chờ duyệt**; Admin bấm "Cho phép (mọi IP)" hoặc "Cho phép (chỉ thiết bị)".
+- Hệ thống từ chối bật nếu thiết bị của Admin chưa được duyệt, và từ chối gỡ thiết bị của chính Admin khi đang bật (chống tự khóa).
+- Tự khóa mình: trên VPS, PowerShell Administrator trong thư mục cài: `ip.cmd device-off` (xem `ip.cmd device-list`, bật lại `ip.cmd device-on`).
+
+## Admin dùng thế nào
+1. Web → **Whitelist IP** → cuộn xuống **Whitelist thiết bị**. Bấm **Duyệt thiết bị của tôi** (chọn Mọi IP hoặc Chỉ thiết bị).
+2. Bấm **Bật bảo vệ thiết bị**.
+3. User báo không vào được: bảo họ đọc mã 8 ký tự trong thông báo 403 (Gateway thì xem log), tìm mã đó ở **Thiết bị chờ duyệt**, bấm Cho phép.
+
+## Giới hạn cần biết
+- Mã thiết bị là bí mật mang tính "vé": ai có cookie/`device.id` của máy đã duyệt là vào được như máy đó. Mất máy thì **Gỡ** thiết bị trên web.
+- Giống whitelist IP, chặn chạy ở **Server VPS**; bản dự phòng Cloudflare không áp whitelist thiết bị và `Mã thiết bị của bạn` hiện "không xác định" khi Admin vào qua Cloudflare.
+- Bật bảo vệ thiết bị thì **Gateway cũ** (chưa cập nhật, không gửi `X-AZ-Device`) bị chặn: cập nhật Gateway lên bản mới rồi duyệt trước khi bật.
+- Chưa chạy test và chưa thử thật trên VPS; cần thử: duyệt thiết bị chế độ Mọi IP rồi đổi mạng (IP mới tự vào), chế độ Chỉ thiết bị với IP lạ (403 và hiện ở IP bị chặn), bật bảo vệ thiết bị với thiết bị lạ (403 + hiện ở chờ duyệt), gỡ thiết bị (IP tự thêm bị gỡ).

@@ -1,4 +1,4 @@
-import { IP_RULE_DEFAULT_MAX_CONNS, type IpRule } from '@az-sentinel/shared'
+import { IP_RULE_DEFAULT_MAX_CONNS, type IpRule, shortDeviceId } from '@az-sentinel/shared'
 import { type FormEvent, useState } from 'react'
 import { Button } from '../../components/Button'
 import { Card } from '../../components/Card'
@@ -270,6 +270,8 @@ export function IpPanel() {
                           <span className="font-mono text-[0.8125rem]">{b.ip}</span>
                           <span className="ml-2 text-xs text-muted">
                             {formatRelative(b.last_at)} · {b.count} {strings.ipBlockedTimes}
+                            {b.device_id &&
+                              ` · ${strings.ipBlockedDevice} ${b.device_label || shortDeviceId(b.device_id)}`}
                           </span>
                         </span>
                         <Button

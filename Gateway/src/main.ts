@@ -5,6 +5,7 @@ import { runCheckToken } from './check-token'
 import { CloudClient } from './cloud'
 import { defaultDataDir, loadConfig, saveEditableConfig, writeOffFlag } from './config'
 import { runApplyCode, runCheckCode } from './connect-code'
+import { loadOrCreateDeviceId, shortCodeOf } from './device-id'
 import { GATEWAY_VERSION, Gateway } from './gateway'
 import { LocalServer, type UiHooks } from './local-server'
 import { createFileSink, createLogger } from './log'
@@ -91,6 +92,8 @@ async function main() {
 
   let cloud: CloudClient | null = null
   if (cfg.cloudUrl) {
+    const deviceId = loadOrCreateDeviceId(cfg.dataDir)
+    log.info(`mã thiết bị: ${shortCodeOf(deviceId)} (đọc cho quản trị viên nếu cần duyệt thiết bị)`)
     cloud = new CloudClient(gw, {
       url: cfg.cloudUrl,
       ...(cfg.cloudFallbackUrl ? { fallbackUrl: cfg.cloudFallbackUrl } : {}),
@@ -99,6 +102,7 @@ async function main() {
         .map((u) => (u ? tunnelDirectoryUrl(u) : null))
         .filter((u): u is string => u !== null),
       token: cfg.cloudToken,
+      deviceId,
       log,
     })
     cloud.start()
