@@ -63,6 +63,11 @@ function look(health: Health, hasAccount: boolean): Look {
   }
 }
 
+/** Chữ của huy hiệu (để chỗ không vẽ huy hiệu vẫn đọc được tình trạng, ví dụ thẻ gọn trên điện thoại). */
+export function healthLabel(health: Health, hasAccount: boolean): string {
+  return look(health, hasAccount).label
+}
+
 export function StatusBadge({ health, hasAccount }: { health: Health; hasAccount: boolean }) {
   const l = look(health, hasAccount)
   return (

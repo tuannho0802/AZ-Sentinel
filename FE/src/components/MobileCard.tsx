@@ -28,19 +28,28 @@ export function MobileCard({
   actions,
   stripe = 'border-l-transparent',
   tone = '',
+  dense = false,
 }: {
   head: ReactNode
   children?: ReactNode
   actions?: ReactNode
   stripe?: string
   tone?: string
+  /** Thẻ gọn: bớt khoảng đệm để một màn hình điện thoại xem được nhiều thẻ hơn. */
+  dense?: boolean
 }) {
   return (
     <li
-      className={`overflow-hidden rounded-lg border border-l-[3px] border-line bg-surface ${stripe} ${tone}`}
+      className={`relative overflow-hidden rounded-lg border border-l-[3px] border-line bg-surface ${stripe} ${tone}`}
     >
-      <div className="flex items-start justify-between gap-3 px-3.5 pt-3">{head}</div>
-      {children && <div className="px-3.5 pt-3 pb-3.5">{children}</div>}
+      <div
+        className={`flex items-start justify-between gap-3 ${dense ? 'px-3 pt-2.5' : 'px-3.5 pt-3'}`}
+      >
+        {head}
+      </div>
+      {children && (
+        <div className={dense ? 'px-3 pt-2 pb-2.5' : 'px-3.5 pt-3 pb-3.5'}>{children}</div>
+      )}
       {actions && (
         <div className="flex flex-wrap items-center gap-2 border-t border-line bg-raised/50 px-3.5 py-2.5">
           {actions}

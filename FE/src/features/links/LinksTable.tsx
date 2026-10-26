@@ -1,29 +1,22 @@
 import { Link } from 'wouter'
 import { Field, MobileCard, MobileCardList } from '../../components/MobileCard'
 import { Delta, Money } from '../../components/Money'
+import { useCardMode } from '../../lib/card-mode'
 import { formatRelative } from '../../lib/format'
 import { strings } from '../../lib/strings'
 import { useIsWide } from '../../lib/use-media'
 import { useNow } from '../../lib/use-now'
-import type { Health, LinkRow } from './links-view'
+import { CardModeToggle } from './CardModeToggle'
+import { LinksCompactCards } from './LinksCompactCards'
+import type { LinkRow } from './links-view'
 import { RotateKeyButton } from './RotateKeyButton'
+import { rowLook } from './row-look'
 import { StatusBadge } from './StatusBadge'
 import { VpsNameCell } from './VpsNameCell'
 
 const th = 'px-3 py-2.5 text-left text-xs font-medium whitespace-nowrap text-muted'
 const thNum = `${th} !text-right`
 const td = 'px-3 py-3 align-middle'
-
-/** Vạch màu bên trái dòng + nền nhẹ cho dòng cần chú ý: giúp quét mắt, chữ trong huy hiệu vẫn là nguồn chính. */
-const rowLook: Record<Health, { stripe: string; bg: string }> = {
-  live: { stripe: 'border-l-live', bg: '' },
-  waking: { stripe: 'border-l-line-strong', bg: '' },
-  silent: { stripe: 'border-l-notice-ink', bg: 'bg-notice-bg/40' },
-  online: { stripe: 'border-l-gain', bg: '' },
-  offline: { stripe: 'border-l-loss', bg: 'bg-loss-bg/50' },
-  awaiting: { stripe: 'border-l-transparent', bg: '' },
-  disabled: { stripe: 'border-l-transparent', bg: 'opacity-65' },
-}
 
 function LinksTableWide({ rows }: { rows: LinkRow[] }) {
   const now = useNow()
@@ -120,10 +113,10 @@ function LinksTableWide({ rows }: { rows: LinkRow[] }) {
 }
 
 /**
- * Điện thoại: mỗi tài khoản là một thẻ đủ thông tin (trạng thái, số TK, VPS, chủ sở hữu, Balance/Equity/Lãi-lỗ,
- * lần nhận gần nhất) và hai nút thao tác cao dễ chạm. Không có thanh cuộn ngang.
+ * Điện thoại, kiểu chi tiết: mỗi tài khoản là một thẻ đủ thông tin (trạng thái, số TK, VPS, chủ sở hữu,
+ * Balance/Equity/Lãi-lỗ, lần nhận gần nhất) và hai nút thao tác cao dễ chạm. Không có thanh cuộn ngang.
  */
-function LinksCards({ rows }: { rows: LinkRow[] }) {
+function LinksDetailedCards({ rows }: { rows: LinkRow[] }) {
   const now = useNow()
   const showOwner = rows.some((r) => r.link.owner !== undefined)
   return (
@@ -207,6 +200,17 @@ function LinksCards({ rows }: { rows: LinkRow[] }) {
         )
       })}
     </MobileCardList>
+  )
+}
+
+/** Điện thoại: nút chọn kiểu thẻ (nhớ lựa chọn) rồi danh sách thẻ gọn hoặc chi tiết. Mặc định thẻ gọn. */
+function LinksCards({ rows }: { rows: LinkRow[] }) {
+  const [mode, setMode] = useCardMode()
+  return (
+    <div className="flex flex-col gap-2.5">
+      <CardModeToggle mode={mode} onChange={setMode} />
+      {mode === 'compact' ? <LinksCompactCards rows={rows} /> : <LinksDetailedCards rows={rows} />}
+    </div>
   )
 }
 
