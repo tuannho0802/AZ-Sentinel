@@ -77,8 +77,29 @@ jobs:
       - name: Migration D1 (remote)
         run: pnpm db:migrate:remote
 
+      # API của Cloudflare thỉnh thoảng trả lỗi tạm thời (vd: `[code: 10013] An unknown error has occurred` lúc mở
+      # phiên upload assets). Deploy chạy lại an toàn (migration đã xong; file assets đã lên được bỏ qua theo hash)
+      # nên thử lại tối đa 3 lần, nghỉ giãn dần 20 và 40 giây. Lỗi thật (sai token, lỗi mã) vẫn hỏng cả 3 lần và dừng.
       - name: Deploy API (Worker)
-        run: pnpm deploy:api
+        run: |
+          for attempt in 1 2 3; do
+            pnpm deploy:api && exit 0
+            if [ "$attempt" -lt 3 ]; then
+              echo "::warning::Deploy API lan $attempt that bai, thu lai sau $((attempt * 20)) giay"
+              sleep $((attempt * 20))
+            fi
+          done
+          echo "::error::Deploy API that bai ca 3 lan (xem log Wrangler o tren; kiem tra https://www.cloudflarestatus.com va quyen cua CLOUDFLARE_API_TOKEN)"
+          exit 1
 
       - name: Deploy Web (static assets)
-        run: pnpm deploy:web
+        run: |
+          for attempt in 1 2 3; do
+            pnpm deploy:web && exit 0
+            if [ "$attempt" -lt 3 ]; then
+              echo "::warning::Deploy Web lan $attempt that bai, thu lai sau $((attempt * 20)) giay"
+              sleep $((attempt * 20))
+            fi
+          done
+          echo "::error::Deploy Web that bai ca 3 lan"
+          exit 1

@@ -100,3 +100,7 @@ Gateway chạy nền dưới tác vụ `AZ Gateway` (vòng lặp `run-gateway.cm
 **Khi Gateway tắt:** mỗi EA tự về chế độ chỉ ghi nhận cục bộ trong vòng 15 giây, MT5 và giao dịch không bị ảnh hưởng. Web hiện terminal là Offline. Sự kiện đang chờ gửi nằm trong `queue.json`, bật lại là gửi tiếp. Sự kiện xảy ra lúc Gateway tắt hẳn thì EA không gửi được nên có thể thiếu.
 
 Cổng khác 47800: thêm `-Port <số>` vào tham số của shortcut. Máy dev: nếu `pnpm dev` đang chạy Gateway ở cổng 47800 thì trùng với Gateway của bộ cài; tắt một bên trước khi dùng bên kia.
+
+## Deploy Cloudflare báo `[code: 10013] An unknown error has occurred`
+Lỗi nằm ở API của Cloudflare lúc Wrangler mở phiên upload assets (`assets-upload-session`), thường là tạm thời; build, test và migration D1 phía trước vẫn đã xong. `deploy.yml` tự thử lại bước Deploy API và Deploy Web tối đa 3 lần (nghỉ 20 rồi 40 giây); chạy lại an toàn vì migration đã áp và file assets đã lên được bỏ qua theo hash. Nếu cả 3 lần đều hỏng: (1) xem https://www.cloudflarestatus.com; (2) kiểm tra `CLOUDFLARE_API_TOKEN` còn hiệu lực và có quyền Workers Scripts:Edit (và D1:Edit cho bước migration); (3) bấm **Re-run failed jobs** hoặc chạy tay (`workflow_dispatch`) sau ít phút.
+
