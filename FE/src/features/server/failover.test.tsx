@@ -94,7 +94,7 @@ describe('tự chuyển sang bản dự phòng khi VPS sập (Plan 3I)', () => {
     expect(navigated).toEqual([])
     expect(screen.getByText(/tự chuyển sang bản dự phòng sau/)).toBeTruthy()
     await sleep(10)
-    expect(navigated).toEqual([`${WORKER}/`])
+    expect(navigated).toEqual([`${WORKER}/?az_stay=1`])
   })
 
   it('kết nối lại trước khi hết thời gian chờ (mạng chớp): không chuyển', async () => {
@@ -114,7 +114,7 @@ describe('tự chuyển sang bản dự phòng khi VPS sập (Plan 3I)', () => {
     expect(screen.getByText(strings.lostFallbackDown)).toBeTruthy()
     workerUp = true
     await sleep(4)
-    expect(navigated).toEqual([`${WORKER}/`])
+    expect(navigated).toEqual([`${WORKER}/?az_stay=1`])
   })
 
   it('nhớ URL dự phòng trong trình duyệt để dùng khi chưa kịp gọi server-info', async () => {

@@ -33,6 +33,11 @@ export const FAILOVER = {
   proxyTimeoutMs: 8_000,
   /** VPS báo nhịp sống lên Cloudflare mỗi chừng này giây (để UI dự phòng còn hiện thông tin VPS lần cuối). */
   heartbeatSec: 240,
+  /**
+   * Plan 3J: chỉ nhịp sống và đồng bộ khi có người truy cập. Sau chừng này giây không thấy ai mở giao diện (trình duyệt,
+   * trang live) thì VPS xả nốt hàng đợi một lần rồi ngừng gọi Cloudflare cho tới khi có người vào lại.
+   */
+  visitorIdleSec: 600,
   /** Nhịp sống cũ hơn chừng này giây thì coi thông tin VPS là cũ. */
   heartbeatStaleSec: 600,
   /** Đồng bộ VPS -> Cloudflare: tối đa chừng này dòng mỗi lần, và chu kỳ xả hàng đợi (giây). */

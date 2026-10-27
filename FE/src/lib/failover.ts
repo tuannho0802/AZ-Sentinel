@@ -1,3 +1,4 @@
+import { PAGE_STAY_PARAM } from '@az-sentinel/shared'
 import { useSyncExternalStore } from 'react'
 
 /**
@@ -82,6 +83,32 @@ export function failoverTarget(fallbackUrl: string | null | undefined, here: Whe
   if (url.protocol !== 'https:' && url.protocol !== 'http:') return null
   if (url.origin === here.origin) return null
   return `${url.origin}${here.pathname}${here.search}`
+}
+
+/**
+ * Thêm tham số "ở lại" vào địa chỉ bản dự phòng: Worker thường chuyển hướng trang về tunnel đang sống (Plan 3J), nhưng
+ * kết quả dò tunnel được nhớ tạm vài giây nên ngay sau khi VPS sập nó có thể còn tưởng tunnel sống và đẩy ngược người
+ * dùng về tunnel chết. Tham số này buộc Worker phục vụ giao diện dự phòng.
+ */
+export function stayOnFallback(target: string): string {
+  const url = new URL(target)
+  url.searchParams.set(PAGE_STAY_PARAM, '1')
+  return url.toString()
+}
+
+/** Bỏ tham số "ở lại" khỏi thanh địa chỉ sau khi trang đã tải (Worker chỉ cần nó ở request đầu), để tải lại sau này vẫn tự về tunnel khi VPS sống. */
+export function dropStayParam(
+  loc: Location = window.location,
+  hist: History = window.history,
+): void {
+  try {
+    const url = new URL(loc.href)
+    if (!url.searchParams.has(PAGE_STAY_PARAM)) return
+    url.searchParams.delete(PAGE_STAY_PARAM)
+    hist.replaceState(hist.state, '', `${url.pathname}${url.search}${url.hash}`)
+  } catch {
+    // môi trường không cho đổi lịch sử: bỏ qua
+  }
 }
 
 /** Địa chỉ máy chủ chính (tunnel) kèm trang đang xem; null khi trùng origin hiện tại hoặc không hợp lệ. */

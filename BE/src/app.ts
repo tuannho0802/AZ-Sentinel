@@ -1,6 +1,7 @@
 import { SERVED_BY_HEADER, SERVER_MODE_HEADER } from '@az-sentinel/shared'
 import { Hono, type MiddlewareHandler } from 'hono'
 import { createEdgeRouter, type EdgeRouterOptions } from './edge/edge-router'
+import { createPageHandler } from './edge/page-router'
 import { createGwWsRoutes } from './live/routes/gw-ws'
 import { createLiveWsRoutes } from './live/routes/live-ws'
 import { resolveViewer, type ViewerAuth } from './live/viewer-auth'
@@ -65,6 +66,8 @@ export function createApp(opts: AppOptions = {}) {
   app.route('/api/dev', devLinks)
   // SPIKE (P1-19): xóa ở P1-31.
   app.route('/api/_spike', spike)
+  // Plan 3J: mọi đường ngoài /api (lượt tải trang): chuyển hướng sang Quick Tunnel đang sống hoặc phục vụ giao diện dự phòng.
+  app.all('*', createPageHandler(opts.edge))
   app.onError(onError)
   app.notFound(notFound)
   return app

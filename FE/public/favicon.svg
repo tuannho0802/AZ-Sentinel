@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <title>AZ Sentinel</title>
+  <rect width="32" height="32" rx="7" fill="#0f172a"/>
+  <g transform="translate(4 4) scale(1)" fill="none" stroke="#f8fafc" stroke-width="1.8" stroke-linecap="round">
+    <circle cx="12" cy="13" r="5.2"/>
+    <circle cx="12" cy="13" r="1.6" fill="#f8fafc" stroke="none"/>
+    <path d="M12 2.5v3M4.2 5.7l2.1 2.1M19.8 5.7l-2.1 2.1"/>
+  </g>
+</svg>

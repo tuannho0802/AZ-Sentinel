@@ -23,7 +23,14 @@
   "migrations": [{ "tag": "v1-live-hub", "new_sqlite_classes": ["LiveHub"] }],
   // Plan 3I: Worker API phục vụ luôn giao diện, nên bản dự phòng cùng origin với /api (đăng nhập, cookie, WebSocket chạy được).
   // Thư mục giao diện được truyền lúc deploy (`wrangler deploy --assets ../FE/dist`, xem scripts.deploy) để test và
-  // `wrangler dev` không cần có sẵn FE/dist. Tệp tĩnh không tính hạn mức request; `/api/*` luôn chạy mã Worker.
-  "assets": { "not_found_handling": "single-page-application", "run_worker_first": ["/api/*"] }
+  // `wrangler dev` không cần có sẵn FE/dist.
+  // Plan 3J: Worker chạy mã cho mọi lượt tải trang để chuyển hướng (302) sang Quick Tunnel đang sống, trừ tệp tĩnh
+  // (`/assets/*` có băm tên, favicon) vẫn trả thẳng không tốn request. Tunnel chết thì mã Worker tự phục vụ giao diện
+  // dự phòng qua binding ASSETS. `/api/*` luôn chạy mã Worker.
+  "assets": {
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/*", "!/assets/*", "!/favicon.*", "!/apple-touch-icon.png"]
+  }
   // Part 4: thêm "routes" khi có domain; Part 5: thêm "triggers.crons".
 }

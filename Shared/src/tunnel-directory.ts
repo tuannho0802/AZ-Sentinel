@@ -31,3 +31,10 @@ export function tunnelDirectoryUrl(url: string): string | null {
 export function tunnelWsUrl(origin: string): string {
   return `${origin.replace(/^http/i, 'ws')}/api/gw/ws`
 }
+
+/**
+ * Plan 3J: Worker chuyển hướng (302) lượt tải trang sang Quick Tunnel đang sống để mọi request sau đó đi THẲNG vào VPS,
+ * không tốn hạn mức Worker. Thêm tham số này vào địa chỉ Worker để ở lại bản dự phòng (không chuyển hướng); giao diện
+ * dùng nó khi tự chuyển từ tunnel chết sang Worker, tránh bị đẩy ngược về tunnel chết do kết quả dò còn nhớ tạm.
+ */
+export const PAGE_STAY_PARAM = 'az_stay'

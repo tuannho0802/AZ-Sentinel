@@ -122,7 +122,7 @@ describe('các màn hình khác cùng cơ chế', () => {
     vpsUp = false
     act(() => recordNetworkError())
     await sleep(10)
-    expect(navigated).toEqual([`${WORKER}/`])
+    expect(navigated).toEqual([`${WORKER}/?az_stay=1`])
   })
 
   it('làm mới phiên thất bại đúng lúc VPS sập: giữ nguyên giao diện đang xem, không đá về màn lỗi', async () => {

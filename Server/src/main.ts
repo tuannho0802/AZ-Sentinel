@@ -6,6 +6,7 @@ import { LiveHub } from '../../BE/src/live/live-hub'
 import { ensureDevToken } from '../../BE/src/services/gw-token-service'
 import { ensureDevUsers } from '../../BE/src/services/user-service'
 import type { Bindings } from '../../BE/src/types'
+import { isVisitorRequest } from './activity'
 import { loadConfig } from './config'
 import { CpuMeter, createHostHooks, describeNode } from './host'
 import { startHttpServer } from './http'
@@ -86,6 +87,7 @@ async function main() {
         token: cfg.syncToken,
         describe: () => describeNode(cfg, cpu),
         tunnelUrl: wantTunnel ? () => tunnel?.url() ?? null : undefined,
+        onDemand: cfg.syncOnDemand !== '0',
         log,
       })
     : null
@@ -133,6 +135,8 @@ async function main() {
         { status: 404 },
       )
     }
+    // Plan 3J: chỉ nhịp sống/đồng bộ khi có người truy cập giao diện.
+    if (isVisitorRequest(pathname)) sync?.touch()
     if (pathname === '/api' || pathname.startsWith('/api/')) return app.fetch(req, env)
     return serveWeb ? serveWeb(req) : new Response('Not Found', { status: 404 })
   }

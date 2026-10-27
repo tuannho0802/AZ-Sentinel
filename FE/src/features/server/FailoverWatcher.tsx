@@ -11,6 +11,7 @@ import {
   readFallbackUrl,
   resetFailoverState,
   setFailoverState,
+  stayOnFallback,
 } from '../../lib/failover'
 import { useServerStatus } from '../../lib/server-status'
 import { SERVER_INFO_KEY } from './api'
@@ -57,7 +58,7 @@ export function FailoverWatcher() {
       }
       if (stopped || target === null || elapsed < GRACE_SEC) return
       if (await isReachable(new URL(target).origin)) {
-        if (!stopped) goTo(target)
+        if (!stopped) goTo(stayOnFallback(target))
       } else {
         fallbackDown = true
       }

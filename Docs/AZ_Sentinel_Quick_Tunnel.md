@@ -41,6 +41,23 @@ Worker API phục vụ **luôn giao diện** (static assets, `/api/*` vẫn ch�
 
 Không cứu được: trình duyệt **tải mới** một địa chỉ tunnel đã chết (chỉ thấy trang lỗi của trình duyệt vì không còn máy chủ nào trả lời). Vì vậy hãy phát địa chỉ Worker cho người dùng làm địa chỉ chính.
 
+### 2.2. Worker chuyển hướng sang tunnel, heartbeat theo người truy cập (Plan 3J)
+
+Worker không còn là máy chủ giao diện chính mà là **người đi tìm tunnel**:
+
+1. Người dùng mở địa chỉ Worker. Worker chạy mã cho lượt tải trang (tệp tĩnh `/assets/*`, favicon không tính), lấy địa chỉ Quick Tunnel mà VPS đã báo, **dò** `/api/health` của tunnel (nhớ tạm 10 giây trong isolate) rồi trả **302** sang `https://<tunnel>/<đường dẫn cũ>`. Từ đó trình duyệt nói chuyện thẳng với VPS: Worker chỉ tốn **1 request cho mỗi lượt vào**.
+2. Tunnel chết, chưa biết tunnel hoặc dò lỗi: Worker tự phục vụ giao diện dự phòng (binding `ASSETS`), giống Plan 3I. Địa chỉ chết không bao giờ bị trả cho trình duyệt.
+3. Tunnel đổi địa chỉ: VPS báo lại ngay (mục 2) nên lượt vào sau tự trỏ đúng.
+4. `?az_stay=1` trên địa chỉ Worker buộc ở lại bản dự phòng (giao diện tự dùng khi chuyển từ tunnel chết sang Worker, rồi tự bỏ tham số khỏi thanh địa chỉ). Biến Worker `PAGE_REDIRECT=0` tắt hẳn chuyển hướng; `PAGE_REDIRECT=1` cho chuyển cả sang `VPS_ORIGIN` đặt tay (mặc định chỉ chuyển sang Quick Tunnel).
+5. **Phiên đăng nhập là của origin tunnel**: mỗi lần tunnel đổi địa chỉ (VPS reset), người dùng phải đăng nhập lại một lần. Muốn tránh hãy dùng tunnel có tên + tên miền (Plan 3E).
+
+**Nhịp sống và đồng bộ chỉ chạy khi có người truy cập** (`AZ_SYNC_ON_DEMAND`, mặc định bật; đặt `0` để chạy liên tục như trước). "Có người" = có request của giao diện tới VPS trong 10 phút gần nhất (`FAILOVER.visitorIdleSec`): trang, API người xem, WebSocket live; Gateway, EA, `/api/health`, đường đồng bộ không tính.
+
+- Có người đầu tiên: VPS báo nhịp sống và xả hàng đợi ngay; trong lúc có người thì chạy theo nhịp cũ (xả 15 giây, nhịp sống 4 phút, kéo 1 giờ).
+- Hết người: xả nốt hàng đợi **một lần** rồi nghỉ; thay đổi sau đó nằm trong hàng đợi (gộp theo dòng) và được đẩy khi có người vào lại.
+- Vẫn chạy khi không có người: lần khởi động Server (nhận dữ liệu ban đầu) và báo địa chỉ tunnel mới (hiếm, cần để chuyển hướng đúng).
+- Đánh đổi: nếu VPS sập lúc không ai dùng, bản dự phòng chỉ có dữ liệu tới lần đồng bộ cuối.
+
 ## 3. Cài đặt (làm một lần)
 
 **Trên Cloudflare** (Worker của dự án này, `az-sentinel-api`, và web `az-sentinel-web`, deploy bằng tag deploy như `AZ_Sentinel_CI_Tags_And_Gateway_Power.md`):
@@ -119,3 +136,6 @@ Qua Worker, VPS chỉ thấy IP của Cloudflare. Worker chuyển IP thật củ
 | `Shared/src/tunnel-directory.ts` | Đường dẫn và kiểu trả lời của danh bạ |
 | `Shared/src/edge-auth.ts` | Tên header, thông điệp ký, kiểm địa chỉ tunnel |
 | `Server/scripts/quick-tunnel.ps1` | Bật/tắt/xem địa chỉ |
+| `BE/src/edge/page-router.ts` | Lượt tải trang: dò tunnel, 302 sang tunnel hoặc phục vụ giao diện dự phòng (Plan 3J) |
+| `Server/src/activity.ts`, `Server/src/sync-agent.ts` (`touch`, `hasVisitors`) | Chỉ nhịp sống/đồng bộ khi có người truy cập |
+| `FE/public/favicon.*`, `FE/index.html` | Logo trên tab trình duyệt |

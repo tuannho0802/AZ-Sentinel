@@ -64,6 +64,13 @@ export type SyncAgentOptions = {
   tunnelUrl?: () => string | null
   log: Logger
   fetchFn?: typeof fetch
+  /**
+   * Plan 3J: chỉ gọi Cloudflare (nhịp sống, đẩy, kéo) khi có người truy cập giao diện (`touch()` trong
+   * `FAILOVER.visitorIdleSec` giây gần nhất). Hết người thì xả nốt hàng đợi một lần rồi nghỉ. Khởi động và báo địa
+   * chỉ tunnel mới (`deliverTunnel`) vẫn chạy vì Worker cần chúng để chuyển hướng đúng. Mặc định tắt (chạy liên tục).
+   */
+  onDemand?: boolean
+  now?: () => number
 }
 
 /**
@@ -86,6 +93,9 @@ export class SyncAgent {
   private lastPullAt = 0
   private timers: NodeJS.Timeout[] = []
   private readonly fetchFn: typeof fetch
+  private lastVisitAt: number | null = null
+  /** Đã xả nốt hàng đợi sau lần có người cuối chưa (chỉ dùng khi `onDemand`). */
+  private drained = false
 
   constructor(
     private readonly store: ShimD1,
@@ -114,11 +124,46 @@ export class SyncAgent {
       this.timers.push(t)
     }
     void this.boot()
-    every(() => this.flush(), FAILOVER.syncFlushSec)
     every(async () => {
-      await this.heartbeat()
+      if (this.shouldFlush()) await this.flush()
+    }, FAILOVER.syncFlushSec)
+    every(async () => {
+      if (this.hasVisitors()) await this.heartbeat()
     }, FAILOVER.heartbeatSec)
-    every(() => this.pull(), FAILOVER.pullSec)
+    every(async () => {
+      if (this.hasVisitors()) await this.pull()
+    }, FAILOVER.pullSec)
+  }
+
+  /** Có người truy cập giao diện gần đây không? Không bật `onDemand` thì luôn coi là có. */
+  hasVisitors(): boolean {
+    if (!this.opts.onDemand) return true
+    return (
+      this.lastVisitAt !== null &&
+      (this.opts.now ?? Date.now)() - this.lastVisitAt < FAILOVER.visitorIdleSec * 1000
+    )
+  }
+
+  /**
+   * Gọi mỗi khi có request của người dùng giao diện (xem `isVisitorRequest`). Lần đầu sau một quãng vắng người thì
+   * báo nhịp sống và xả hàng đợi ngay, để bản dự phòng sẵn sàng trước khi người đó cần tới.
+   */
+  touch(): void {
+    if (!this.opts.onDemand || this.stopped) return
+    const wasActive = this.hasVisitors()
+    this.lastVisitAt = (this.opts.now ?? Date.now)()
+    this.drained = false
+    if (wasActive) return
+    void this.heartbeat().catch(() => {})
+    void this.flush().catch(() => {})
+  }
+
+  /** Còn người thì xả theo nhịp; vừa hết người thì xả đúng một lần nữa rồi nghỉ. */
+  private shouldFlush(): boolean {
+    if (this.hasVisitors()) return true
+    if (this.drained) return false
+    this.drained = true
+    return true
   }
 
   stop(): void {

@@ -34,6 +34,10 @@ export type Bindings = {
   PRIMARY_URL?: string
   /** URL công khai của bản dự phòng Cloudflare (UI VPS gợi ý khi VPS sập). Chỉ để hiển thị. */
   FALLBACK_URL?: string
+  /** Plan 3J: binding tới static assets (giao diện) của Worker; có thì Worker tự xử lý lượt tải trang (chuyển hướng hoặc phục vụ dự phòng). */
+  ASSETS?: Fetcher
+  /** Plan 3J: "0" = không chuyển hướng trang sang tunnel (luôn phục vụ giao diện tại Worker); "1" = chuyển cả sang `VPS_ORIGIN` đặt tay. Mặc định chỉ chuyển sang Quick Tunnel VPS đã báo. */
+  PAGE_REDIRECT?: string
   /** Chỉ máy chủ VPS (Node) cung cấp; Worker không có. */
   HOST?: HostHooks
 }

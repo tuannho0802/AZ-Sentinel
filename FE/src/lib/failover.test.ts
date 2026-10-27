@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { failoverTarget } from './failover'
+import { dropStayParam, failoverTarget, stayOnFallback } from './failover'
 
 const here = { origin: 'https://abc-123.trycloudflare.com', pathname: '/links/5', search: '?q=1' }
 
@@ -19,5 +19,36 @@ describe('failoverTarget', () => {
     expect(failoverTarget('', here)).toBeNull()
     expect(failoverTarget('khong-phai-url', here)).toBeNull()
     expect(failoverTarget('javascript:alert(1)', here)).toBeNull()
+  })
+})
+
+describe('stayOnFallback / dropStayParam', () => {
+  it('thêm tham số ở lại, giữ đường dẫn và query', () => {
+    expect(stayOnFallback('https://az.workers.dev/links/3?tab=live')).toBe(
+      'https://az.workers.dev/links/3?tab=live&az_stay=1',
+    )
+  })
+
+  it('bỏ tham số khỏi thanh địa chỉ, giữ phần còn lại', () => {
+    const calls: string[] = []
+    const hist = {
+      state: null,
+      replaceState: (_s: unknown, _t: string, u: string) => calls.push(u),
+    }
+    dropStayParam(
+      { href: 'https://az.workers.dev/links?tab=live&az_stay=1#x' } as Location,
+      hist as unknown as History,
+    )
+    expect(calls).toEqual(['/links?tab=live#x'])
+  })
+
+  it('không có tham số thì không đụng lịch sử', () => {
+    const calls: string[] = []
+    const hist = {
+      state: null,
+      replaceState: (_s: unknown, _t: string, u: string) => calls.push(u),
+    }
+    dropStayParam({ href: 'https://az.workers.dev/links' } as Location, hist as unknown as History)
+    expect(calls).toEqual([])
   })
 })
