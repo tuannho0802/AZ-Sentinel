@@ -21,7 +21,7 @@ Bộ cài Server có ô **IP được phép truy cập** (tùy chọn, cách nha
 - Chặn chạy ở **Server VPS**. Bản dự phòng Cloudflare không áp whitelist (Gateway/Cloudflare dùng token); danh sách chưa đồng bộ sang Cloudflare.
 - Người dùng vào qua địa chỉ Worker (Worker chuyển tiếp sang VPS): Worker chuyển IP thật kèm chữ ký HMAC (khóa `SYNC_TOKEN`), VPS chỉ tin khi chữ ký đúng nên whitelist vẫn đúng. Cần `AZ_SYNC_TOKEN` trùng với Worker và đồng hồ VPS đúng giờ (lệch quá 5 phút thì chữ ký bị từ chối). Xem `AZ_Sentinel_Quick_Tunnel.md` mục 4.
 - IP điện thoại (4G/5G) hay đổi: cân nhắc thêm dải CIDR của nhà mạng hoặc dùng dải rộng hơn cho thiết bị di động.
-- Chưa chạy test và chưa thử thật trên VPS; cần thử: bật bảo vệ, truy cập từ IP lạ (403), thêm bằng nút "Cho phép", kết nối thứ 6 của một IP (429).
+- Đã có test tự động (`Server/test/ip-guard.test.ts`); chưa thử thật trên VPS. Cần thử: bật bảo vệ, truy cập từ IP lạ (403), thêm bằng nút "Cho phép", kết nối thứ 6 của một IP (429).
 
 ---
 
@@ -55,7 +55,7 @@ Bộ cài Server có ô **IP được phép truy cập** (tùy chọn, cách nha
 - Mã thiết bị là bí mật mang tính "vé": ai có cookie/`device.id` của máy đã duyệt là vào được như máy đó. Mất máy thì **Gỡ** thiết bị trên web.
 - Giống whitelist IP, chặn chạy ở **Server VPS**; bản dự phòng Cloudflare không áp whitelist thiết bị và `Mã thiết bị của bạn` hiện "không xác định" khi Admin vào qua Cloudflare.
 - Bật bảo vệ thiết bị thì **Gateway cũ** (chưa cập nhật, không gửi `X-AZ-Device`) bị chặn: cập nhật Gateway lên bản mới rồi duyệt trước khi bật.
-- Chưa chạy test và chưa thử thật trên VPS; cần thử: duyệt thiết bị chế độ Mọi IP rồi đổi mạng (IP mới tự vào), chế độ Chỉ thiết bị với IP lạ (403 và hiện ở IP bị chặn), bật bảo vệ thiết bị với thiết bị lạ (403 + hiện ở chờ duyệt), gỡ thiết bị (IP tự thêm bị gỡ).
+- Đã có test tự động (`Server/test/device-id.test.ts`, `ip-guard.test.ts`, `device-adopt.test.ts`); chưa thử thật trên VPS. Cần thử: duyệt thiết bị chế độ Mọi IP rồi đổi mạng (IP mới tự vào), chế độ Chỉ thiết bị với IP lạ (403 và hiện ở IP bị chặn), bật bảo vệ thiết bị với thiết bị lạ (403 + hiện ở chờ duyệt), gỡ thiết bị (IP tự thêm bị gỡ).
 
 ## Mã thiết bị đổi mỗi lần tunnel đổi (đã sửa ở Server 0.2.9)
 Triệu chứng: cùng một trình duyệt, mỗi lần chạy lại Server (Quick Tunnel mới) lại bị `403` kèm một mã thiết bị mới; danh sách thiết bị được phép có nhiều dòng "Chrome · Windows" cùng IP. Nguyên nhân: cookie gắn theo tên miền mà tunnel có tên miền ngẫu nhiên mới mỗi lần.
@@ -74,10 +74,20 @@ Giới hạn: Gateway không bị ảnh hưởng (mã nằm trong file `device.i
 Triệu chứng: đã đăng nhập được bằng trình duyệt qua tunnel, nhưng mở **app đã cài** (hoặc trình duyệt khác) trên đúng máy đó thì `403` kèm một mã thiết bị mới. Nguyên nhân: app/trình duyệt khác có kho cookie riêng nên cookie `az_dev` khác, tức thiết bị khác (iOS luôn như vậy; Chrome/Edge trên máy tính và Android thường dùng chung cookie với trình duyệt nên ít gặp).
 
 Cách xử lý (chỉ khi **bật bảo vệ thiết bị**): thiết bị web lạ được tự duyệt khi đến từ đúng IP mà một thiết bị web **do quản trị viên duyệt** vừa dùng:
-- thiết bị gốc thấy ở IP đó trong 7 ngày gần nhất, hoặc IP đó do chính nó tự thêm vào whitelist (chế độ Mọi IP);
+- IP đó là IP **thấy gần nhất** của thiết bị gốc và lần thấy đó nằm trong 7 ngày (mỗi thiết bị chỉ nhớ một IP cuối, cập nhật tối đa mỗi phút), hoặc IP đó do chính nó tự thêm vào whitelist (chế độ Mọi IP);
 - nếu whitelist IP đang bật thì IP đó phải nằm trong whitelist (bằng chứng thiết bị gốc vào được bằng IP này);
-- thiết bị mới thừa kế chế độ (`any_ip`/`device_only`) và có nhãn `Cùng máy: <nhãn gốc>` trong **Whitelist thiết bị**; bấm **Bỏ** để gỡ như thiết bị thường.
+- thiết bị mới thừa kế chế độ (`any_ip`/`device_only`) và có nhãn `Cùng máy: <nhãn gốc>` (cắt còn 64 ký tự; gốc không có nhãn thì ghi `Cùng máy: thiết bị đã duyệt`) trong **Whitelist thiết bị**. Thiết bị đã được duyệt theo thì giữ nguyên dù sau đó gỡ thiết bị gốc hoặc khởi động lại Server.
 
-Giới hạn an toàn: mỗi IP tối đa 5 thiết bị loại này; thiết bị tự duyệt không làm gốc cho thiết bị khác (không dây chuyền); Gateway không bao giờ được duyệt kiểu này; IP quản trị viên nhập tay không tự duyệt thiết bị.
-**Đánh đổi:** cùng IP chứ không chứng minh được "cùng máy". Ở mạng dùng chung (Wi-Fi văn phòng, quán cà phê), thiết bị lạ cùng mạng cũng được duyệt theo (vẫn phải qua đăng nhập). Tắt trên VPS bằng `UPDATE server_meta` (khóa `device_adopt`, giá trị `0`; thiếu hoặc khác `0` là bật). Chưa thử thật trên VPS.
+Giới hạn an toàn: mỗi IP (tính theo IP cuối của thiết bị tự duyệt) tối đa 5 thiết bị loại này, thiết bị đã có trong danh sách không bị ảnh hưởng khi đầy; thiết bị tự duyệt không làm gốc cho thiết bị khác (không dây chuyền); Gateway không bao giờ được duyệt kiểu này; IP quản trị viên nhập tay không tự duyệt thiết bị.
+**Đánh đổi:** cùng IP chứ không chứng minh được "cùng máy". Ở mạng dùng chung (Wi-Fi văn phòng, quán cà phê), thiết bị lạ cùng mạng cũng được duyệt theo (vẫn phải qua đăng nhập). **Bỏ một thiết bị "Cùng máy":** nút **Bỏ** chỉ xóa dòng đó. Nếu thiết bị gốc vẫn đủ điều kiện (vẫn thấy ở IP đó trong 7 ngày, hoặc IP đó vẫn là IP nó tự thêm) thì request kế tiếp của thiết bị đó từ cùng IP sẽ được duyệt lại. Muốn chặn hẳn: bấm **Bỏ** cả thiết bị gốc, hoặc tắt tính năng như bên dưới rồi mới bấm **Bỏ**.
+
+**Tắt/bật tính năng:** hiện chưa có lệnh `ip.cmd` cho việc này. Dòng `device_adopt` chưa có sẵn trong `server_meta` (mặc định bật), nên phải thêm dòng mới chứ `UPDATE` suông sẽ không có tác dụng. Chạy trên file SQLite của Server (`az-sentinel.sqlite` trong thư mục dữ liệu, hoặc đường dẫn `AZ_DB`):
+```sql
+-- tắt
+INSERT INTO server_meta (k, v, updated_at) VALUES ('device_adopt', '0', strftime('%s','now'))
+  ON CONFLICT(k) DO UPDATE SET v = excluded.v, updated_at = excluded.updated_at;
+-- bật lại (thiếu dòng hoặc giá trị khác '0' đều là bật)
+DELETE FROM server_meta WHERE k = 'device_adopt';
+```
+Server đọc lại cấu hình sau tối đa 5 giây, không cần khởi động lại. Có test tự động (`Server/test/device-adopt.test.ts`); chưa thử thật trên VPS.
 
