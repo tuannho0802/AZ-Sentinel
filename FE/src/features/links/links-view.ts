@@ -1,6 +1,7 @@
 import type { LinkSummary, LiveState } from '@az-sentinel/shared'
 import { useSyncExternalStore } from 'react'
 import { useNow } from '../../lib/use-now'
+import { type HealthStabilizer, pruneStabilizer, stabilizeHealth } from './health-stabilizer'
 import {
   effectiveLiveState,
   getLiveEntry,
@@ -49,13 +50,36 @@ export function buildRows(links: LinkSummary[], connected: boolean, perfNow: num
 const EMPTY: LinkSummary[] = []
 
 /**
+ * Bộ nhớ trạng thái đã làm mượt, đặt ở cấp module để Tổng quan và Liên kết dùng chung (chuyển trang
+ * không làm mất bộ đếm ân hạn).
+ */
+const stabilizer: HealthStabilizer = new Map()
+
+/** Chỉ dùng trong test. */
+export const resetHealthStabilizer = (): void => stabilizer.clear()
+
+/** Áp ân hạn lên `health` của từng dòng; `liveState`/`link` vẫn là dữ liệu thô để hiển thị số liệu thật. */
+export function stabilizeRows(rows: LinkRow[], perfNow: number): LinkRow[] {
+  pruneStabilizer(stabilizer, new Set(rows.map((r) => r.raw.id)))
+  return rows.map((r) => {
+    const health = stabilizeHealth(stabilizer, r.raw.id, r.health, perfNow)
+    return health === r.health ? r : { ...r, health }
+  })
+}
+
+/**
  * Các dòng của danh sách, tự tính lại khi có tin live mới và mỗi giây (để cờ "không phản hồi"
- * hạ đúng lúc khi mẫu im). Gọi vô điều kiện (quy tắc của hook): truyền `undefined` khi chưa có dữ liệu.
+ * hạ đúng lúc khi mẫu im, và để bộ đếm ân hạn chạy kể cả khi không có tin mới). Gọi vô điều kiện
+ * (quy tắc của hook): truyền `undefined` khi chưa có dữ liệu.
+ *
+ * Trạng thái xấu đi (mất kết nối, im lặng) chỉ hiển thị sau khi kéo dài liên tục
+ * `HEALTH_DOWNGRADE_GRACE_MS`, nên mất kết nối thoáng qua không làm huy hiệu và bộ đếm "cần chú ý" nhấp nháy.
  */
 export function useLinkRows(links: LinkSummary[] | undefined, connected: boolean): LinkRow[] {
   useSyncExternalStore(subscribeLive, liveVersion)
   useNow()
-  return buildRows(links ?? EMPTY, connected, performance.now())
+  const perfNow = performance.now()
+  return stabilizeRows(buildRows(links ?? EMPTY, connected, perfNow), perfNow)
 }
 
 export type Filter = 'all' | 'attention' | 'live'

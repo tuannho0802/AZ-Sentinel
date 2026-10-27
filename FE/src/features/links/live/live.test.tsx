@@ -4,6 +4,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { strings } from '../../../lib/strings'
 import { FakeWebSocket } from '../../../test/fake-websocket'
 import { json, me, renderApp } from '../../../test/render-app'
+import { HEALTH_DOWNGRADE_GRACE_MS } from '../health-stabilizer'
+import { resetHealthStabilizer } from '../links-view'
 import { clearLive } from './live-store'
 import { BACKOFF_SECONDS, HEARTBEAT_MS, PAUSED_STORAGE_KEY } from './useLiveLease'
 
@@ -89,6 +91,7 @@ beforeEach(() => {
   listCalls = 0
   localStorage.clear()
   clearLive()
+  resetHealthStabilizer()
 })
 afterEach(() => {
   cleanup()
@@ -424,8 +427,22 @@ describe('dữ liệu live và hiển thị (F-12, F-13, F-14, F-18)', () => {
     expect(screen.getByText(strings.badgeWaking)).toBeTruthy() // nối rồi mà chưa có tin
     act(() => s.serverSend({ t: 'live_state', id: 2, server_time: NOW, state: 'live' }))
     expect(screen.getByText(strings.badgeLive)).toBeTruthy()
+    // Im lặng thoáng qua: vẫn giữ Live (ân hạn), không nhấp nháy sang "không phản hồi".
     act(() => s.serverSend({ t: 'live_state', id: 2, server_time: NOW, state: 'idle' }))
-    expect(screen.getByText(strings.badgeIdle)).toBeTruthy()
+    expect(screen.getByText(strings.badgeLive)).toBeTruthy()
+    expect(screen.queryByText(strings.badgeIdle)).toBeNull()
+    // Im lặng liên tục quá ân hạn thì mới hiện "không phản hồi".
+    const base = performance.now()
+    const nowSpy = vi
+      .spyOn(performance, 'now')
+      .mockReturnValue(base + HEALTH_DOWNGRADE_GRACE_MS + 1000)
+    try {
+      await waitFor(() => expect(screen.getByText(strings.badgeIdle)).toBeTruthy(), {
+        timeout: 3000,
+      })
+    } finally {
+      nowSpy.mockRestore()
+    }
   })
 
   it('F-14: đang live thì cột "Nhận gần nhất" là huy hiệu Live cố định, đổi đồng hồ trình duyệt không làm nó đổi', async () => {
