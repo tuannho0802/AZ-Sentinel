@@ -7,6 +7,7 @@ import { strings } from '../../lib/strings'
 import { useNow } from '../../lib/use-now'
 import { LinkActions } from './LinkActions'
 import { classify } from './links-view'
+import { PositionsFooter } from './PositionsFooter'
 import { StatusBadge } from './StatusBadge'
 import { VpsNameCell } from './VpsNameCell'
 
@@ -160,7 +161,7 @@ export function LinkDetailView({
           <p className="text-sm text-muted">{strings.positionsEmpty}</p>
         ) : (
           <div className="-mx-4 overflow-x-auto px-4">
-            <table className="w-full min-w-[40rem] text-sm">
+            <table className="w-full min-w-[46rem] text-sm">
               <thead className="border-b border-line text-xs text-muted">
                 <tr>
                   <th className={th}>{strings.colTicket}</th>
@@ -169,6 +170,7 @@ export function LinkDetailView({
                   <th className={thNum}>{strings.colVolume}</th>
                   <th className={thNum}>{strings.colOpenPrice}</th>
                   <th className={th}>{strings.colOpenTime}</th>
+                  <th className={thNum}>{strings.colSwap}</th>
                   <th className={`${thNum} !pr-0`}>{strings.colProfit}</th>
                 </tr>
               </thead>
@@ -183,6 +185,9 @@ export function LinkDetailView({
                     <td className="py-2 pr-3 whitespace-nowrap" title={formatDateTime(p.time)}>
                       {formatDateShort(p.time)}
                     </td>
+                    <td className="py-2 pr-3 text-right">
+                      <Delta value={p.swap ?? null} currency={currency} />
+                    </td>
                     <td className="py-2 text-right">
                       <Delta value={p.profit} currency={currency} />
                     </td>
@@ -191,6 +196,14 @@ export function LinkDetailView({
               </tbody>
             </table>
           </div>
+        )}
+        {s && (
+          <PositionsFooter
+            state={s}
+            positions={link.positions}
+            live={liveState === 'live'}
+            currency={currency}
+          />
         )}
       </Card>
 
