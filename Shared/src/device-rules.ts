@@ -36,6 +36,18 @@ export const DEVICE_HANDOFF_TTL_SEC = 60
 export const deviceCookieHeader = (raw: string, secure: boolean): string =>
   `${DEVICE_COOKIE}=${raw}; Path=/; Max-Age=${DEVICE_COOKIE_MAX_AGE_SEC}; HttpOnly; SameSite=Lax${secure ? '; Secure' : ''}`
 
+/**
+ * "Cùng máy": app đã cài (PWA) hoặc trình duyệt khác trên CÙNG máy có kho cookie riêng nên bị coi là thiết bị mới.
+ * Khi bật bảo vệ thiết bị, thiết bị web lạ đến từ đúng IP mà một thiết bị web đã được quản trị viên duyệt vừa dùng
+ * (thấy trong `DEVICE_ADOPT_WINDOW_SEC` giây gần nhất, hoặc IP do thiết bị đó tự thêm) thì được duyệt theo, thừa kế
+ * chế độ của thiết bị gốc. Mỗi IP tối đa `DEVICE_ADOPT_LIMIT` thiết bị loại này để không bị làm ngập danh sách.
+ */
+export const DEVICE_ADOPT_WINDOW_SEC = 7 * 24 * 3600
+export const DEVICE_ADOPT_LIMIT = 5
+export const DEVICE_ADOPT_PREFIX = 'Cùng máy: '
+/** `server_meta` khóa này bằng '0' thì tắt tính năng (mặc định bật). */
+export const DEVICE_ADOPT_META_KEY = 'device_adopt'
+
 /** Số IP tối đa một thiết bị `any_ip` được tự thêm (vượt thì bỏ IP cũ nhất) để IP đổi liên tục không làm đầy danh sách. */
 export const DEVICE_AUTO_IP_LIMIT = 20
 

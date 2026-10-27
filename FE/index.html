@@ -8,6 +8,13 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="icon" href="/favicon.ico" sizes="48x48" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <!-- PWA: Server (VPS) tự gỡ dòng có data-az-pwa khi phục vụ (xem Server/src/static.ts): chỉ bản do Worker phục vụ
+         mới cài được, vì địa chỉ Worker cố định còn địa chỉ tunnel đổi mỗi lần chạy lại. -->
+    <link rel="manifest" href="/manifest.webmanifest" data-az-pwa />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="AZ Sentinel" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <title>AZ Sentinel</title>
   </head>
   <body>

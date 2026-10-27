@@ -2,6 +2,7 @@ import type { ReactNode } from 'react'
 import { Link, useRoute } from 'wouter'
 import { useLogout, useMe } from '../features/auth/api'
 import { NotificationBell } from '../features/notifications/NotificationBell'
+import { InstallBanner } from '../features/pwa/InstallBanner'
 import { FailoverBanner } from '../features/server/FailoverBanner'
 import { ServerBadge } from '../features/server/ServerBadge'
 import { UpdateBanner } from '../features/server/UpdateBanner'
@@ -100,6 +101,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       >
         <FailoverBanner />
         <UpdateBanner />
+        <InstallBanner />
         {children}
       </main>
     </div>

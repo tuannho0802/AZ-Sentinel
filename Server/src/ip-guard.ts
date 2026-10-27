@@ -1,5 +1,9 @@
 import type { DatabaseSync } from 'node:sqlite'
 import {
+  DEVICE_ADOPT_LIMIT,
+  DEVICE_ADOPT_META_KEY,
+  DEVICE_ADOPT_PREFIX,
+  DEVICE_ADOPT_WINDOW_SEC,
   DEVICE_AUTO_IP_LIMIT,
   type DeviceMode,
   IP_RULE_DEFAULT_MAX_CONNS,
@@ -53,6 +57,7 @@ const ALWAYS_ALLOWED_PATHS = new Set(['/api/health', '/api/server-info/self'])
 export class IpGuard {
   private enforce = false
   private deviceEnforce = false
+  private adoptEnabled = true
   private rules: Rule[] = []
   private devices = new Map<string, DeviceRow>()
   private readonly touched = new Map<string, number>()
@@ -71,7 +76,9 @@ export class IpGuard {
       return { allow: true, maxConns: null }
     }
     this.load()
-    const known = device ? this.devices.get(device.id) : undefined
+    let known = device ? this.devices.get(device.id) : undefined
+    if (this.deviceEnforce && !known && device)
+      known = this.adoptSameMachine(device, ip) ?? undefined
     if (this.deviceEnforce && !known) return { allow: false, reason: 'device' }
     if (device && known) this.touch(device.id, ip)
     if (device && known?.mode === 'any_ip') {
@@ -205,6 +212,50 @@ export class IpGuard {
     }
   }
 
+  /**
+   * "Cùng máy": thiết bị web lạ đến từ IP mà một thiết bị web ĐÃ được quản trị viên duyệt vừa dùng thì duyệt theo
+   * (xem `DEVICE_ADOPT_WINDOW_SEC`). Chỉ khi thiết bị gốc là web do người duyệt (không phải loại tự duyệt,
+   * không có chuyện duyệt dây chuyền) và, khi whitelist IP đang bật, IP đó thực sự nằm trong whitelist (bằng chứng
+   * thiết bị gốc vào được bằng IP này). Gateway không bao giờ được duyệt kiểu này. Trả null nếu không duyệt.
+   */
+  private adoptSameMachine(device: DeviceInfo, ip: string): DeviceRow | null {
+    if (!this.adoptEnabled || device.kind !== 'web') return null
+    if (this.enforce && !this.rules.some((r) => ipMatches(r.pattern, ip))) return null
+    try {
+      const nowSec = Math.floor(this.now() / 1000)
+      const taken = this.sqlite
+        .prepare(
+          "SELECT COUNT(*) AS n FROM device_rules WHERE created_by = 0 AND kind = 'web' AND last_ip = ?",
+        )
+        .get(ip) as { n: number }
+      if (taken.n >= DEVICE_ADOPT_LIMIT) return null
+      const source = this.sqlite
+        .prepare(
+          `SELECT d.label, d.mode FROM device_rules d
+           WHERE d.kind = 'web' AND d.device_id != ? AND COALESCE(d.created_by, -1) != 0
+             AND ((d.last_ip = ? AND d.last_seen >= ?)
+               OR EXISTS (SELECT 1 FROM ip_rules r WHERE r.device_id = d.device_id AND r.ip = ?))
+           ORDER BY d.last_seen DESC LIMIT 1`,
+        )
+        .get(device.id, ip, nowSec - DEVICE_ADOPT_WINDOW_SEC, ip) as DeviceRow | undefined
+      if (!source) return null
+      const label = `${DEVICE_ADOPT_PREFIX}${source.label || 'thiết bị đã duyệt'}`.slice(0, 64)
+      this.sqlite
+        .prepare(
+          `INSERT OR IGNORE INTO device_rules (device_id, kind, label, mode, last_ip, last_seen, created_by, created_at)
+           VALUES (?, 'web', ?, ?, ?, ?, 0, ?)`,
+        )
+        .run(device.id, label, source.mode, ip, nowSec, nowSec)
+      this.sqlite.prepare('DELETE FROM device_pending WHERE device_id = ?').run(device.id)
+      const row: DeviceRow = { mode: source.mode, label }
+      this.devices.set(device.id, row)
+      return row
+    } catch (error) {
+      this.onError(`không tự duyệt được thiết bị cùng máy: ${String(error).slice(0, 120)}`)
+      return null
+    }
+  }
+
   /** Giữ một chỗ kết nối cho IP; null nếu IP đã đủ `max` kết nối. Gọi hàm trả về khi kết nối đóng. */
   acquire(ip: string, max: number): (() => void) | null {
     const current = this.open.get(ip) ?? 0
@@ -259,6 +310,10 @@ export class IpGuard {
       }[]
       this.devices = new Map(rows.map((r) => [r.device_id, { mode: r.mode, label: r.label }]))
       this.deviceEnforce = flag?.v === '1'
+      const adopt = this.sqlite
+        .prepare('SELECT v FROM server_meta WHERE k = ?')
+        .get(DEVICE_ADOPT_META_KEY) as { v: string } | undefined
+      this.adoptEnabled = adopt?.v !== '0'
     } catch (error) {
       if (String(error).includes('no such table')) return
       this.onError(`không đọc được whitelist thiết bị: ${String(error).slice(0, 120)}`)

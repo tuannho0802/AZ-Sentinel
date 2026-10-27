@@ -1,0 +1,7 @@
+# Cloudflare Workers static assets (Worker dự phòng). Server VPS có quy tắc cache riêng ở Server/src/static.ts.
+/sw.js
+  Cache-Control: no-cache
+/manifest.webmanifest
+  Cache-Control: no-cache
+/offline.html
+  Cache-Control: no-cache

@@ -354,6 +354,16 @@ export const strings = {
     'Chạy bộ cài mới trên VPS để cập nhật. Bộ cài giữ nguyên cấu hình và dữ liệu; Server khởi động lại trong vài giây.',
   updateBannerGet: 'Tải bộ cài mới',
   updateBannerLater: 'Để sau',
+  installTitle: 'Cài AZ Sentinel như một ứng dụng',
+  installText: 'Mở nhanh từ màn hình chính hoặc thanh tác vụ, không cần nhớ địa chỉ.',
+  installBtn: 'Cài ứng dụng',
+  installOpenWorker: 'Mở trang cài đặt',
+  installLater: 'Để sau',
+  installIosTitle: 'Thêm vào Màn hình chính',
+  installIosSteps:
+    'Trong Safari: bấm nút Chia sẻ (hình vuông có mũi tên lên), chọn "Thêm vào Màn hình chính", rồi bấm Thêm.',
+  installIosNote:
+    'Trên iPhone/iPad, ứng dụng có kho lưu trữ riêng nên có thể cần đăng nhập lại và được quản trị viên duyệt thiết bị một lần.',
 
   notifBellLabel: (unread: number) => (unread > 0 ? `Thông báo, ${unread} chưa đọc` : 'Thông báo'),
   notifTitle: 'Thông báo',

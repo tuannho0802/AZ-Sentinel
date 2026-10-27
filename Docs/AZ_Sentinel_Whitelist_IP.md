@@ -69,3 +69,15 @@ Cách sửa (Plan 3K): Worker giữ cookie thiết bị ở địa chỉ cố đ
 4. Bấm **Bỏ** các dòng trình duyệt cũ bị trùng. Từ đó tunnel đổi bao nhiêu lần cũng không phải duyệt lại.
 
 Giới hạn: Gateway không bị ảnh hưởng (mã nằm trong file `device.id`). Chưa thử thật trên Worker/tunnel Cloudflare; đã có test tự động cho vé và cho luồng hai tunnel liên tiếp.
+
+## App đã cài (PWA) hoặc trình duyệt khác trên cùng máy: tự duyệt "cùng máy"
+Triệu chứng: đã đăng nhập được bằng trình duyệt qua tunnel, nhưng mở **app đã cài** (hoặc trình duyệt khác) trên đúng máy đó thì `403` kèm một mã thiết bị mới. Nguyên nhân: app/trình duyệt khác có kho cookie riêng nên cookie `az_dev` khác, tức thiết bị khác (iOS luôn như vậy; Chrome/Edge trên máy tính và Android thường dùng chung cookie với trình duyệt nên ít gặp).
+
+Cách xử lý (chỉ khi **bật bảo vệ thiết bị**): thiết bị web lạ được tự duyệt khi đến từ đúng IP mà một thiết bị web **do quản trị viên duyệt** vừa dùng:
+- thiết bị gốc thấy ở IP đó trong 7 ngày gần nhất, hoặc IP đó do chính nó tự thêm vào whitelist (chế độ Mọi IP);
+- nếu whitelist IP đang bật thì IP đó phải nằm trong whitelist (bằng chứng thiết bị gốc vào được bằng IP này);
+- thiết bị mới thừa kế chế độ (`any_ip`/`device_only`) và có nhãn `Cùng máy: <nhãn gốc>` trong **Whitelist thiết bị**; bấm **Bỏ** để gỡ như thiết bị thường.
+
+Giới hạn an toàn: mỗi IP tối đa 5 thiết bị loại này; thiết bị tự duyệt không làm gốc cho thiết bị khác (không dây chuyền); Gateway không bao giờ được duyệt kiểu này; IP quản trị viên nhập tay không tự duyệt thiết bị.
+**Đánh đổi:** cùng IP chứ không chứng minh được "cùng máy". Ở mạng dùng chung (Wi-Fi văn phòng, quán cà phê), thiết bị lạ cùng mạng cũng được duyệt theo (vẫn phải qua đăng nhập). Tắt trên VPS bằng `UPDATE server_meta` (khóa `device_adopt`, giá trị `0`; thiếu hoặc khác `0` là bật). Chưa thử thật trên VPS.
+

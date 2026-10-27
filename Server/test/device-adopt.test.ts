@@ -1,0 +1,195 @@
+import { DatabaseSync } from 'node:sqlite'
+import { DEVICE_ADOPT_LIMIT, DEVICE_ADOPT_WINDOW_SEC } from '@az-sentinel/shared'
+import { describe, expect, it } from 'vitest'
+import type { DeviceInfo } from '../src/device-id'
+import { IpGuard } from '../src/ip-guard'
+
+const T0 = 1_800_000_000_000
+const SEC0 = T0 / 1000
+const dev = (c: string, kind: 'web' | 'gateway' = 'web'): DeviceInfo => ({
+  id: c.repeat(32),
+  kind,
+  ua: 'UA',
+})
+const BROWSER = dev('a') // trình duyệt đã duyệt
+const APP = dev('b') // app cài (cookie riêng) = thiết bị lạ
+const IP = '203.0.113.7'
+
+function setup(o: { ip?: boolean; adoptOff?: boolean } = {}) {
+  const db = new DatabaseSync(':memory:')
+  db.exec(`
+    CREATE TABLE server_meta (k TEXT PRIMARY KEY, v TEXT NOT NULL, updated_at INTEGER);
+    CREATE TABLE ip_rules (id INTEGER PRIMARY KEY AUTOINCREMENT, ip TEXT NOT NULL UNIQUE, label TEXT NOT NULL DEFAULT '',
+      max_conns INTEGER NOT NULL DEFAULT 5, created_by INTEGER, created_at INTEGER NOT NULL, device_id TEXT);
+    CREATE TABLE ip_blocked (ip TEXT PRIMARY KEY, last_at INTEGER NOT NULL, count INTEGER NOT NULL DEFAULT 1, device_id TEXT) WITHOUT ROWID;
+    CREATE TABLE device_rules (id INTEGER PRIMARY KEY AUTOINCREMENT, device_id TEXT NOT NULL UNIQUE, kind TEXT NOT NULL DEFAULT 'web',
+      label TEXT NOT NULL DEFAULT '', mode TEXT NOT NULL DEFAULT 'device_only', last_ip TEXT, last_seen INTEGER,
+      created_by INTEGER, created_at INTEGER NOT NULL);
+    CREATE TABLE device_pending (device_id TEXT PRIMARY KEY, kind TEXT NOT NULL DEFAULT 'web', ip TEXT NOT NULL DEFAULT '',
+      user_agent TEXT NOT NULL DEFAULT '', last_at INTEGER NOT NULL, count INTEGER NOT NULL DEFAULT 1) WITHOUT ROWID;
+    INSERT INTO server_meta (k, v) VALUES ('device_guard', '1');
+  `)
+  if (o.ip) db.exec("INSERT INTO server_meta (k, v) VALUES ('ip_guard', '1')")
+  if (o.adoptOff) db.exec("INSERT INTO server_meta (k, v) VALUES ('device_adopt', '0')")
+  const clock = { t: T0 }
+  const errors: string[] = []
+  const guard = new IpGuard(
+    db,
+    () => clock.t,
+    (m) => errors.push(m),
+  )
+  /** Thiết bị do quản trị viên duyệt (created_by = 1), vừa thấy ở `lastIp`. */
+  const approve = (
+    d: DeviceInfo,
+    mode: 'any_ip' | 'device_only',
+    label: string,
+    lastIp: string | null = IP,
+    seenAgoSec = 60,
+    kind: 'web' | 'gateway' = 'web',
+  ) =>
+    db
+      .prepare(
+        'INSERT INTO device_rules (device_id, kind, label, mode, last_ip, last_seen, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, 1, 0)',
+      )
+      .run(d.id, kind, label, mode, lastIp, SEC0 - seenAgoSec)
+  const addIpRule = (ip: string, deviceId: string | null = null) =>
+    db
+      .prepare('INSERT INTO ip_rules (ip, created_at, device_id) VALUES (?, 0, ?)')
+      .run(ip, deviceId)
+  const rules = () =>
+    db.prepare('SELECT device_id, label, mode, last_ip, created_by FROM device_rules').all() as {
+      device_id: string
+      label: string
+      mode: string
+      last_ip: string
+      created_by: number
+    }[]
+  return { db, guard, clock, errors, approve, addIpRule, rules }
+}
+
+describe('duyệt thiết bị "cùng máy"', () => {
+  it('app cài (thiết bị lạ) cùng IP với trình duyệt đã duyệt: vào được, được ghi vào danh sách', () => {
+    const t = setup()
+    t.approve(BROWSER, 'device_only', 'Chrome · Windows')
+    expect(t.guard.decide(IP, '/api/me', APP)).toMatchObject({ allow: true })
+    const adopted = t.rules().find((r) => r.device_id === APP.id)
+    expect(adopted).toMatchObject({
+      label: 'Cùng máy: Chrome · Windows',
+      mode: 'device_only',
+      last_ip: IP,
+      created_by: 0,
+    })
+  })
+
+  it('thừa kế chế độ any_ip của thiết bị gốc', () => {
+    const t = setup()
+    t.approve(BROWSER, 'any_ip', 'Chrome')
+    t.guard.decide(IP, '/api/me', APP)
+    expect(t.rules().find((r) => r.device_id === APP.id)?.mode).toBe('any_ip')
+  })
+
+  it('xóa thiết bị khỏi danh sách chờ duyệt khi được duyệt theo', () => {
+    const t = setup()
+    t.approve(BROWSER, 'device_only', 'Chrome')
+    t.guard.noteBlocked(IP, APP) // lần đầu bị chặn, nằm ở danh sách chờ
+    expect(t.db.prepare('SELECT COUNT(*) AS n FROM device_pending').get()).toEqual({ n: 1 })
+    t.guard.decide(IP, '/api/me', APP)
+    expect(t.db.prepare('SELECT COUNT(*) AS n FROM device_pending').get()).toEqual({ n: 0 })
+  })
+
+  it('IP khác IP của thiết bị đã duyệt: vẫn 403 (thiết bị lạ thật sự)', () => {
+    const t = setup()
+    t.approve(BROWSER, 'device_only', 'Chrome')
+    expect(t.guard.decide('198.51.100.9', '/api/me', APP)).toEqual({
+      allow: false,
+      reason: 'device',
+    })
+    expect(t.rules()).toHaveLength(1)
+  })
+
+  it('thiết bị gốc đã quá lâu không thấy: không duyệt theo', () => {
+    const t = setup()
+    t.approve(BROWSER, 'device_only', 'Chrome', IP, DEVICE_ADOPT_WINDOW_SEC + 60)
+    expect(t.guard.decide(IP, '/api/me', APP)).toEqual({ allow: false, reason: 'device' })
+  })
+
+  it('IP do thiết bị gốc tự thêm vào whitelist thì tính dù lần thấy cuối đã cũ', () => {
+    const t = setup()
+    t.approve(BROWSER, 'any_ip', 'Chrome', '1.1.1.1', DEVICE_ADOPT_WINDOW_SEC + 60)
+    t.addIpRule(IP, BROWSER.id)
+    expect(t.guard.decide(IP, '/api/me', APP)).toMatchObject({ allow: true })
+  })
+
+  it('IP do quản trị viên nhập tay (không gắn thiết bị) KHÔNG tự duyệt thiết bị lạ', () => {
+    const t = setup()
+    t.addIpRule(IP, null)
+    expect(t.guard.decide(IP, '/api/me', APP)).toEqual({ allow: false, reason: 'device' })
+  })
+
+  it('Gateway: không bao giờ được duyệt kiểu này, và Gateway cũng không làm thiết bị gốc', () => {
+    const t = setup()
+    t.approve(BROWSER, 'device_only', 'Chrome')
+    expect(t.guard.decide(IP, '/api/gw/ws', dev('c', 'gateway'))).toEqual({
+      allow: false,
+      reason: 'device',
+    })
+    const t2 = setup()
+    t2.approve(dev('d', 'gateway'), 'device_only', 'VPS', IP, 60, 'gateway')
+    expect(t2.guard.decide(IP, '/api/me', APP)).toEqual({ allow: false, reason: 'device' })
+  })
+
+  it('không duyệt dây chuyền: thiết bị đã tự duyệt không làm thiết bị gốc cho thiết bị khác', () => {
+    const t = setup()
+    t.approve(BROWSER, 'device_only', 'Chrome')
+    t.guard.decide(IP, '/api/me', APP) // APP được duyệt theo BROWSER
+    t.db.prepare('DELETE FROM device_rules WHERE device_id = ?').run(BROWSER.id) // gỡ gốc
+    const other = dev('e')
+    expect(t.guard.decide(IP, '/api/me', other)).toEqual({ allow: false, reason: 'device' })
+  })
+
+  it(`mỗi IP tối đa ${DEVICE_ADOPT_LIMIT} thiết bị tự duyệt`, () => {
+    const t = setup()
+    t.approve(BROWSER, 'device_only', 'Chrome')
+    const chars = 'fghijklm'
+    const results = [...chars].map((c) => t.guard.decide(IP, '/api/me', dev(c)).allow)
+    expect(results.filter(Boolean)).toHaveLength(DEVICE_ADOPT_LIMIT)
+  })
+
+  it('request không mang mã thiết bị thì vẫn bị chặn như cũ', () => {
+    const t = setup()
+    t.approve(BROWSER, 'device_only', 'Chrome')
+    expect(t.guard.decide(IP, '/api/me', null)).toEqual({ allow: false, reason: 'device' })
+  })
+
+  it('có thể tắt bằng server_meta device_adopt = 0', () => {
+    const t = setup({ adoptOff: true })
+    t.approve(BROWSER, 'device_only', 'Chrome')
+    expect(t.guard.decide(IP, '/api/me', APP)).toEqual({ allow: false, reason: 'device' })
+  })
+})
+
+describe('kết hợp với whitelist IP', () => {
+  it('IP đang được bảo vệ mà chưa có trong whitelist: không duyệt thiết bị theo (chưa có bằng chứng đã vào được)', () => {
+    const t = setup({ ip: true })
+    t.approve(BROWSER, 'device_only', 'Chrome')
+    expect(t.guard.decide(IP, '/api/me', APP)).toEqual({ allow: false, reason: 'device' })
+  })
+
+  it('IP đã trong whitelist: thiết bị được duyệt theo và vào được', () => {
+    const t = setup({ ip: true })
+    t.approve(BROWSER, 'device_only', 'Chrome')
+    t.addIpRule(IP, null)
+    expect(t.guard.decide(IP, '/api/me', APP)).toMatchObject({ allow: true })
+  })
+
+  it('chế độ any_ip: app mới vào bằng IP nào thì IP đó cũng tự được thêm như trình duyệt gốc', () => {
+    const t = setup({ ip: true })
+    t.approve(BROWSER, 'any_ip', 'Chrome')
+    t.addIpRule(IP, BROWSER.id)
+    const d = t.guard.decide(IP, '/api/me', APP)
+    expect(d).toMatchObject({ allow: true })
+    // đổi mạng: IP mới tự vào whitelist qua chế độ any_ip thừa kế
+    // (IP mới chưa có luật nên cần nguồn: hai thiết bị cùng IP cũ đã đủ để chứng minh, IP mới do trustIp lo)
+    expect(t.guard.decide('203.0.113.99', '/api/me', APP)).toMatchObject({ allow: true })
+  })
+})

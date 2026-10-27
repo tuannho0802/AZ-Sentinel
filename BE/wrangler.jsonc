@@ -30,7 +30,17 @@
   "assets": {
     "binding": "ASSETS",
     "not_found_handling": "single-page-application",
-    "run_worker_first": ["/*", "!/assets/*", "!/favicon.*", "!/apple-touch-icon.png"]
+    "run_worker_first": [
+      "/*",
+      "!/assets/*",
+      "!/favicon.*",
+      "!/apple-touch-icon.png",
+      // PWA: tệp tĩnh không phải lượt mở trang nên không cần mã Worker (đỡ tốn request).
+      "!/manifest.webmanifest",
+      "!/sw.js",
+      "!/offline.html",
+      "!/icons/*"
+    ]
   }
   // Part 4: thêm "routes" khi có domain; Part 5: thêm "triggers.crons".
 }
