@@ -1,5 +1,5 @@
-import type { Position, TradeReason, TradeRequest } from '@az-sentinel/shared'
-import { useState, useSyncExternalStore } from 'react'
+import { type Position, TRADE, type TradeReason, type TradeRequest } from '@az-sentinel/shared'
+import { useEffect, useState, useSyncExternalStore } from 'react'
 import { Button } from '../../components/Button'
 import { Dialog } from '../../components/Dialog'
 import { inputClass } from '../../components/styles'
@@ -34,12 +34,31 @@ function errorText(e: unknown): string {
   return strings.tradeErrGeneric
 }
 
-function TradeOutcome({ cmdId }: { cmdId: string }) {
+/**
+ * Hạn chờ phía FE: hạn dùng của lệnh + ân hạn của Gateway + 5 giây dự phòng. Quá hạn mà vẫn chưa có kết quả
+ * (Gateway ở VPS khác còn bản cũ không hiểu lệnh, mất kết nối...) thì báo "không biết" thay vì chờ mãi.
+ * Kết quả thật đến muộn vẫn hiện và thắng.
+ */
+export const TRADE_CLIENT_WAIT_MS = TRADE.ttlMs + TRADE.graceMs + 5_000
+
+export function TradeOutcome({ cmdId }: { cmdId: string }) {
   const result = useSyncExternalStore(
     subscribeTrade,
     () => getTradeResult(cmdId),
     () => undefined,
   )
+  const [stale, setStale] = useState(false)
+  useEffect(() => {
+    const id = setTimeout(() => setStale(true), TRADE_CLIENT_WAIT_MS)
+    return () => clearTimeout(id)
+  }, [])
+  if (!result && stale) {
+    return (
+      <p role="alert" className="rounded-md bg-loss-bg px-3 py-2 text-sm text-loss">
+        {strings.tradeTimeout}
+      </p>
+    )
+  }
   if (!result) {
     return (
       <p role="status" className="rounded-md bg-live-bg px-3 py-2 text-sm text-live">

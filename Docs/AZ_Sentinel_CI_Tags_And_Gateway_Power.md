@@ -20,6 +20,18 @@ Lưu ý:
 - Đừng viết nguyên văn `[deploy]`, `[release]` hay `[release-server]` vào message khi chỉ muốn **nhắc** tới chúng (ví dụ commit sửa chính tài liệu này), vì chuỗi con nào khớp cũng kích hoạt workflow. Viết "tag deploy" thay vì "[deploy]".
 - Không phân biệt hoa thường (`[Deploy]` cũng khớp).
 
+### Chọn tag theo thư mục đã đổi
+
+| Thư mục có thay đổi | Cần tag | Ghi chú |
+|---|---|---|
+| `FE/` | `[release-server]` (VPS), `[deploy]` (Worker) | Tunnel phục vụ FE từ VPS; không có `[release-server]` thì VPS vẫn chạy giao diện cũ |
+| `BE/`, `Shared/` | `[release-server]` + `[deploy]` | Cả hai chạy cùng mã BE; có migration thì cần cả hai để lược đồ khớp |
+| `BE/migrations/` | `[deploy]` tự chạy migration D1; Server tự áp khi khởi động | Migration phải tương thích ngược với bản đang chạy |
+| `Server/` | `[release-server]` | Tăng `version` trong `Server/package.json` |
+| `Gateway/` | `[release]` | Tăng `version` trong `Gateway/package.json`; `[release-server]` chỉ kèm Gateway cho máy Admin |
+| `ea/` | Không có | Compile lại và chép vào terminal; không qua CI |
+| `Docs/` | Không | Đừng viết nguyên văn tag trong message |
+
 ## 2. Deploy cần gì
 
 Secret trong GitHub (Settings > Secrets and variables > Actions):
