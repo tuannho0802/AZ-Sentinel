@@ -16,6 +16,8 @@ import {
   type Sample,
   type SamplesRequest,
   type Snap,
+  TRADE,
+  type TradeResultRequest,
   terminalId,
 } from '@az-sentinel/shared'
 import { type Logger, silentLogger } from './log'
@@ -37,6 +39,13 @@ const MAX_PENDING_ALERTS = 5
 const ALERT_RESEND_MS = 30_000
 
 type PendingAlert = { req: AlertRequest; sentMs: number }
+
+/** Lệnh giao dịch thủ công đang chờ EA (v0.2.6). Mỗi terminal tối đa một. */
+type PendingTrade = {
+  cmd: Extract<GwServerMessage, { t: 'trade' }>
+  /** Hạn dùng (ms): quá hạn EA không bắt đầu thực thi. */
+  expiresMs: number
+}
 
 /** Gửi một tin lên cloud. Trả về false khi chưa có kết nối (tin bị bỏ, không xếp hàng ở đây). */
 export type CloudSend = (msg: GwClientMessage) => boolean
@@ -81,6 +90,10 @@ type Terminal = {
   lastPlJson?: string
   /** Báo cáo cảnh báo lỗ float chưa được cloud xác nhận (theo `aseq`), gửi lại cho tới khi có `alert_ack`. */
   alerts: Map<number, PendingAlert>
+  /** Lệnh giao dịch thủ công đang chờ kết quả của EA. */
+  trade?: PendingTrade
+  /** Kết quả EA báo chưa chắc đã tới cloud: giữ để gửi lại khi nối lại. */
+  tradeResults: Map<string, TradeResultRequest>
 }
 
 /** Hai mẫu cùng giá trị (bỏ qua `t`): không có gì mới để cho người xem. */
@@ -319,6 +332,28 @@ export class Gateway {
     return { ok: true, ack_aseq: req.aseq }
   }
 
+  /**
+   * EA báo kết quả lệnh giao dịch thủ công. Gateway chuyển lên cloud rồi xóa lệnh đang chờ. Kết quả của
+   * lệnh khác với lệnh đang chờ (đến muộn sau `timeout`, hoặc lệnh đã bị bỏ) vẫn được chuyển tiếp: đó là sự
+   * thật về những gì sàn đã làm. Terminal lạ trả null (Gateway vừa khởi động lại: EA gửi lại ở nhịp sau).
+   */
+  handleTradeResult(req: TradeResultRequest): { ok: true } | null {
+    const tid = terminalId(req.login, req.server)
+    const t = this.terminals.get(tid)
+    if (!t || t.key !== req.key) return null
+    t.lastSeenMs = this.now()
+    if (t.trade?.cmd.cmd_id === req.cmd_id) t.trade = undefined
+    if (t.bind === 'rejected') return { ok: true }
+    t.tradeResults.set(req.cmd_id, req)
+    while (t.tradeResults.size > 5) {
+      const oldest = t.tradeResults.keys().next().value
+      if (oldest === undefined) break
+      t.tradeResults.delete(oldest)
+    }
+    this.sendTradeResults(t)
+    return { ok: true }
+  }
+
   // -------------------------------------------------------------------------
   // Cloud -> Gateway
   // -------------------------------------------------------------------------
@@ -353,6 +388,9 @@ export class Gateway {
     for (const t of this.terminals.values()) {
       t.buffer = []
       t.pl = undefined
+      // Lệnh giao dịch chưa tới EA thì hủy: người dùng không còn thấy kết quả, không được tự chạy ngầm.
+      // Lệnh EA đã nhận thì kết quả vẫn được giữ (`tradeResults`) và gửi lại khi nối lại.
+      t.trade = undefined
     }
     this.log.warn('cloud đã ngắt, ngừng live, giữ hàng đợi sự kiện')
   }
@@ -368,6 +406,7 @@ export class Gateway {
         this.syncState(t)
         this.drainQueue(t)
         this.sendAlerts(t)
+        this.sendTradeResults(t)
         return
       }
       case 'alert_cfg':
@@ -386,6 +425,8 @@ export class Gateway {
         this.watch.delete(msg.tid)
         this.fast.delete(msg.tid)
         t.alerts.clear()
+        t.trade = undefined
+        t.tradeResults.clear()
         const dropped = this.queue.dropTerminal(msg.tid)
         this.log.warn(`bind bị từ chối ${msg.tid} mã ${msg.code}, bỏ ${dropped} lô sự kiện`)
         return
@@ -431,6 +472,9 @@ export class Gateway {
         this.queue.ack(msg.tid, msg.seq)
         return
       }
+      case 'trade':
+        this.acceptTrade(msg)
+        return
       case 'update':
         // Tự cập nhật thuộc patch 12 (bộ cài). Ghi nhận để không âm thầm bỏ qua.
         this.log.warn(`cloud yêu cầu cập nhật >= ${msg.min_ver} (chưa hỗ trợ ở bản này)`)
@@ -493,6 +537,7 @@ export class Gateway {
     if (this.send && this.watch.size === 0 && !this.holdDeferred()) this.flushDeferred()
     for (const t of this.terminals.values()) {
       if (t.alerts.size > 0) this.sendAlerts(t)
+      this.sweepTrade(t, now)
       if (t.online && now - t.lastSeenMs > GW.offlineAfterSec * 1000) {
         t.online = false
         t.buffer = []
@@ -566,6 +611,7 @@ export class Gateway {
       inflight: new Set(),
       lastSentAtMs: 0,
       alerts: new Map(),
+      tradeResults: new Map(),
     }
   }
 
@@ -720,6 +766,7 @@ export class Gateway {
       interval_ms: this.isFast(t) ? GW.fastIntervalMs : clampIntervalMs(this.pushSec * 1000),
       lease_ms: GW.leaseMs,
       alert_bp: this.alertBp,
+      ...this.tradeFields(t),
     }
   }
 
@@ -732,6 +779,95 @@ export class Gateway {
       interval_ms: clampIntervalMs(this.pushSec * 1000),
       lease_ms: GW.leaseMs,
       alert_bp: this.alertBp,
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // Giao dịch thủ công (v0.2.6)
+  // -------------------------------------------------------------------------
+
+  /** Báo cloud kết quả mà Gateway tự quyết (không do EA): lệnh bị từ chối ngay hoặc quá hạn. */
+  private failTrade(
+    tid: string,
+    cmdId: string,
+    status: 'failed' | 'timeout',
+    reason: 'terminal_offline' | 'busy' | 'bad_request' | 'no_reply',
+    detail: string,
+  ): void {
+    this.send?.({ t: 'trade_result', tid, cmd_id: cmdId, status, reason, code: 0, detail })
+  }
+
+  /**
+   * Nhận lệnh từ cloud. Từ chối ngay (không giữ) khi terminal lạ/offline, đang có lệnh khác, hoặc lệnh
+   * thiếu trường: lệnh thị trường không được xếp hàng chờ. Lệnh nhận được giữ tới khi EA báo kết quả.
+   */
+  private acceptTrade(msg: Extract<GwServerMessage, { t: 'trade' }>): void {
+    const t = this.terminals.get(msg.tid)
+    if (!t?.online || t.bind !== 'ok') {
+      this.failTrade(msg.tid, msg.cmd_id, 'failed', 'terminal_offline', 'terminal not ready')
+      return
+    }
+    if (t.trade) {
+      this.failTrade(msg.tid, msg.cmd_id, 'failed', 'busy', 'previous command pending')
+      return
+    }
+    const complete =
+      msg.op === 'close' ||
+      (msg.op === 'partial_close' && msg.volume !== undefined) ||
+      (msg.op === 'modify' && msg.sl !== undefined && msg.tp !== undefined)
+    if (!complete) {
+      this.failTrade(msg.tid, msg.cmd_id, 'failed', 'bad_request', 'missing fields')
+      return
+    }
+    t.trade = { cmd: msg, expiresMs: this.now() + TRADE.ttlMs }
+    this.log.info(`lệnh giao dịch ${msg.op} #${msg.ticket} cho ${msg.tid} (${msg.cmd_id})`)
+  }
+
+  /**
+   * Quá hạn thì EA không còn bắt đầu thực thi (EA tự kiểm `tr_ttl`). Gateway chờ thêm `graceMs` rồi mới báo
+   * `timeout`, để không báo sai khi EA đang chạy dở sát hạn. `timeout` nghĩa là KHÔNG BIẾT: người dùng phải
+   * xem lại bảng lệnh. Kết quả muộn của EA, nếu có, vẫn được chuyển tiếp và ghi đè.
+   */
+  private sweepTrade(t: Terminal, now: number): void {
+    const p = t.trade
+    if (!p || now < p.expiresMs + TRADE.graceMs) return
+    t.trade = undefined
+    this.failTrade(t.tid, p.cmd.cmd_id, 'timeout', 'no_reply', 'no reply from EA')
+  }
+
+  /** Các trường `tr_*` của phản hồi cho EA; rỗng khi không có lệnh hoặc lệnh đã hết hạn. */
+  private tradeFields(t: Terminal): Partial<LocalPingResponse> {
+    const p = t.trade
+    if (!p) return {}
+    const ttl = p.expiresMs - this.now()
+    if (ttl <= 0) return {}
+    const c = p.cmd
+    return {
+      tr_id: c.cmd_id,
+      tr_op: c.op,
+      tr_ticket: c.ticket,
+      ...(c.volume !== undefined ? { tr_vol: c.volume } : {}),
+      ...(c.sl !== undefined ? { tr_sl: c.sl } : {}),
+      ...(c.tp !== undefined ? { tr_tp: c.tp } : {}),
+      tr_ttl: ttl,
+    }
+  }
+
+  /** Gửi kết quả EA báo (chỉ khi bind ok). Xóa sau khi gửi: hub luôn xử lý, không cần ack riêng. */
+  private sendTradeResults(t: Terminal): void {
+    if (!this.send || t.bind !== 'ok') return
+    for (const [id, r] of t.tradeResults) {
+      const ok = this.send({
+        t: 'trade_result',
+        tid: t.tid,
+        cmd_id: r.cmd_id,
+        status: r.status,
+        reason: r.reason,
+        code: r.code,
+        detail: r.detail,
+        ...(r.left !== undefined ? { left: r.left } : {}),
+      })
+      if (ok) t.tradeResults.delete(id)
     }
   }
 

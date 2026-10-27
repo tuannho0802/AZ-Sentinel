@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { MAX_POSITIONS, MAX_SAMPLES, plSchema, positionSchema, sampleSchema } from './ingest-schema'
+import { tradeResultFields } from './trade-schema'
 
 /**
  * Giao thức live theo nhu cầu (Plan 3B). Hằng số dùng chung BE, FE, fake-ea; EA (MQL5) chép
@@ -113,6 +114,13 @@ export const serverMessageSchema = z.discriminatedUnion('t', [
     id: linkIdSchema,
     server_time: z.number().int(),
     state: liveStateSchema,
+  }),
+  /** Kết quả lệnh giao dịch thủ công của liên kết `id` (v0.2.6). FE ghép với lệnh đã gửi bằng `cmd_id`. */
+  z.object({
+    t: z.literal('trade_result'),
+    id: linkIdSchema,
+    server_time: z.number().int(),
+    ...tradeResultFields,
   }),
   z.object({ t: z.literal('kick'), reason: z.enum(KICK_REASONS) }),
 ])

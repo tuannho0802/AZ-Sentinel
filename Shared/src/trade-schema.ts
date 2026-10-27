@@ -14,17 +14,17 @@ export const TRADE_OPS = ['close', 'partial_close', 'modify'] as const
 export type TradeOp = (typeof TRADE_OPS)[number]
 
 export const TRADE = {
-    /** Hạn dùng của lệnh tính từ lúc Gateway nhận (ms). */
-    ttlMs: 15_000,
-    /** EA chỉ BẮT ĐẦU thực thi khi hạn còn ít nhất chừng này (ms), chừa thời gian cho sàn phản hồi. */
-    minStartMs: 3_000,
-    /** Quá hạn mà EA vẫn im thì Gateway báo `timeout` sau chừng này (ms) để không báo sai khi EA đang chạy dở. */
-    graceMs: 8_000,
-    /** Phiên bản EA tối thiểu hiểu lệnh giao dịch (so sánh theo số). */
-    minEaVer: '0.5.0',
-    maxVolume: 1000,
-    /** Server từ chối lệnh mới nếu lệnh trước của liên kết còn `sent` chưa quá chừng này (giây). */
-    busySec: 25,
+  /** Hạn dùng của lệnh tính từ lúc Gateway nhận (ms). */
+  ttlMs: 15_000,
+  /** EA chỉ BẮT ĐẦU thực thi khi hạn còn ít nhất chừng này (ms), chừa thời gian cho sàn phản hồi. */
+  minStartMs: 3_000,
+  /** Quá hạn mà EA vẫn im thì Gateway báo `timeout` sau chừng này (ms) để không báo sai khi EA đang chạy dở. */
+  graceMs: 8_000,
+  /** Phiên bản EA tối thiểu hiểu lệnh giao dịch (so sánh theo số). */
+  minEaVer: '0.5.0',
+  maxVolume: 1000,
+  /** Server từ chối lệnh mới nếu lệnh trước của liên kết còn `sent` chưa quá chừng này (giây). */
+  busySec: 25,
 } as const
 
 /** `cmd_id`: 16 ký tự hex do server sinh, EA và Gateway coi là chuỗi mờ. */
@@ -37,13 +37,13 @@ const price = z.number().finite().nonnegative().max(1e9)
 
 /** Thân `POST /api/links/:id/trade`. */
 export const tradeRequestSchema = z.discriminatedUnion('op', [
-    z.object({ op: z.literal('close'), ticket }),
-    z.object({
-        op: z.literal('partial_close'),
-        ticket,
-        volume: z.number().finite().positive().max(TRADE.maxVolume),
-    }),
-    z.object({ op: z.literal('modify'), ticket, sl: price, tp: price }),
+  z.object({ op: z.literal('close'), ticket }),
+  z.object({
+    op: z.literal('partial_close'),
+    ticket,
+    volume: z.number().finite().positive().max(TRADE.maxVolume),
+  }),
+  z.object({ op: z.literal('modify'), ticket, sl: price, tp: price }),
 ])
 export type TradeRequest = z.infer<typeof tradeRequestSchema>
 
@@ -55,19 +55,19 @@ export type TradeStatus = (typeof TRADE_STATUSES)[number]
  * (retcode của MT5) và `detail`.
  */
 export const TRADE_REASONS = [
-    'ok',
-    'remote_disabled',
-    'terminal_offline',
-    'busy',
-    'expired',
-    'no_position',
-    'bad_volume',
-    'bad_stops',
-    'bad_request',
-    'algo_off',
-    'market_closed',
-    'retcode',
-    'no_reply',
+  'ok',
+  'remote_disabled',
+  'terminal_offline',
+  'busy',
+  'expired',
+  'no_position',
+  'bad_volume',
+  'bad_stops',
+  'bad_request',
+  'algo_off',
+  'market_closed',
+  'retcode',
+  'no_reply',
 ] as const
 export type TradeReason = (typeof TRADE_REASONS)[number]
 
@@ -75,42 +75,42 @@ const shortText = (max: number) => z.string().max(max)
 
 /** Kết quả EA báo (qua Gateway). `detail` là mô tả ASCII của retcode, chỉ để chẩn đoán. */
 export const tradeResultFields = {
-    cmd_id: cmdId,
-    status: z.enum(['done', 'failed', 'timeout']),
-    reason: z.enum(TRADE_REASONS),
-    /** retcode MT5 (10009 = DONE); 0 khi lỗi trước khi gọi sàn. */
-    code: z.number().int(),
-    detail: shortText(120).default(''),
-    /** Khối lượng còn lại của lệnh sau khi thực thi (đóng một phần); vắng nếu không biết. */
-    left: z.number().finite().nonnegative().optional(),
+  cmd_id: cmdId,
+  status: z.enum(['done', 'failed', 'timeout']),
+  reason: z.enum(TRADE_REASONS),
+  /** retcode MT5 (10009 = DONE); 0 khi lỗi trước khi gọi sàn. */
+  code: z.number().int(),
+  detail: shortText(120).default(''),
+  /** Khối lượng còn lại của lệnh sau khi thực thi (đóng một phần); vắng nếu không biết. */
+  left: z.number().finite().nonnegative().optional(),
 }
 
 /** EA -> Gateway: `POST /v1/trade_result`. */
 export const tradeResultRequestSchema = z.object({
-    v: z.literal(1),
-    sid: shortText(32).min(1),
-    key: shortText(128).min(1),
-    login: z.number().int().positive(),
-    server: shortText(128).min(1),
-    ...tradeResultFields,
+  v: z.literal(1),
+  sid: shortText(32).min(1),
+  key: shortText(128).min(1),
+  login: z.number().int().positive(),
+  server: shortText(128).min(1),
+  ...tradeResultFields,
 })
 export type TradeResultRequest = z.infer<typeof tradeResultRequestSchema>
 
 /** Phần lệnh Gateway chuyển cho EA (và hub chuyển cho Gateway). */
 export type TradeCommand = {
-    cmd_id: string
+  cmd_id: string
 } & TradeRequest
 
 /** So sánh `a >= b` cho phiên bản dạng `x.y.z`; chuỗi lạ coi là nhỏ hơn. */
 export function eaVersionAtLeast(version: string | null | undefined, min: string): boolean {
-    const parse = (s: string) => /^(\d+)\.(\d+)\.(\d+)/.exec(s.trim())?.slice(1, 4).map(Number)
-    const a = version ? parse(version) : undefined
-    const b = parse(min)
-    if (!a || !b) return false
-    for (let i = 0; i < 3; i++) {
-        const x = a[i] ?? 0
-        const y = b[i] ?? 0
-        if (x !== y) return x > y
-    }
-    return true
+  const parse = (s: string) => /^(\d+)\.(\d+)\.(\d+)/.exec(s.trim())?.slice(1, 4).map(Number)
+  const a = version ? parse(version) : undefined
+  const b = parse(min)
+  if (!a || !b) return false
+  for (let i = 0; i < 3; i++) {
+    const x = a[i] ?? 0
+    const y = b[i] ?? 0
+    if (x !== y) return x > y
+  }
+  return true
 }

@@ -1,6 +1,7 @@
 import {
   type CreateLinkResponse,
   createLinkRequestSchema,
+  eaVersionAtLeast,
   LINK_STATUSES,
   type LinkDetail,
   type LinkEventView,
@@ -8,6 +9,9 @@ import {
   normalizeVpsName,
   positionSchema,
   setVpsNameSchema,
+  TRADE,
+  type TradeCommand,
+  tradeRequestSchema,
 } from '@az-sentinel/shared'
 import { zValidator } from '@hono/zod-validator'
 import { type Context, Hono } from 'hono'
@@ -24,6 +28,7 @@ import {
   revokeAtHub,
   SELECT_LINK_OWNED,
   safeJson,
+  sendTradeAtHub,
   toSummary,
 } from '../services/link-view'
 import type { AppEnv } from '../types'
@@ -34,6 +39,12 @@ const LIST_LIMIT = 200
 const EVENTS_LIMIT = 20
 
 const isAdmin = (v: Viewer) => v.role === 'root_admin' || v.role === 'admin'
+
+/** 16 ký tự hex ngẫu nhiên: định danh lệnh giao dịch (EA nhớ để không chạy lại). */
+function newCmdId(): string {
+  const b = crypto.getRandomValues(new Uint8Array(8))
+  return Array.from(b, (x) => x.toString(16).padStart(2, '0')).join('')
+}
 
 const viewerOf = (c: Context<AppEnv>): Viewer => {
   const viewer = c.get('viewer')
@@ -177,6 +188,117 @@ export function createLinkRoutes(viewerAuth: ViewerAuth) {
     },
   )
 
+  /**
+   * Bật/tắt giao dịch thủ công từ xa cho liên kết (v0.2.6). Chỉ admin. Mặc định tắt; gỡ gắn tài khoản cũng
+   * tắt lại. Đây mới chỉ là một lớp: EA còn công tắc `InpAllowRemoteTrading` do chủ terminal tự bật.
+   */
+  routes.post(
+    '/:id/trade-enabled',
+    zValidator('json', z.object({ enabled: z.boolean() }), (result, c) => {
+      if (!result.success)
+        return c.json(errorBody('VALIDATION_FAILED', 'Giá trị không hợp lệ'), 400)
+    }),
+    async (c) => {
+      const viewer = viewerOf(c)
+      if (!isAdmin(viewer)) {
+        throw new AppError(403, 'FORBIDDEN', 'Chỉ quản trị viên được bật giao dịch từ xa')
+      }
+      const id = parseId(c.req.param('id'))
+      await authorize(c, id)
+      await c.env.DB.prepare('UPDATE ea_links SET trade_enabled = ? WHERE id = ?')
+        .bind(c.req.valid('json').enabled ? 1 : 0, id)
+        .run()
+      return c.json(await loadLink(c.env, id, true))
+    },
+  )
+
+  /**
+   * Giao dịch thủ công từ xa: đóng lệnh, đóng một phần, sửa SL/TP (v0.2.6). Trả 202 kèm `cmd_id`; kết quả
+   * thật đến sau qua WebSocket (`trade_result`), không phải phản hồi này.
+   *
+   * Kiểm tra theo thứ tự: quyền admin, quyền với liên kết, hợp lệ thân lệnh, liên kết đang bật, đã bật
+   * giao dịch, đã gắn tài khoản, lệnh trước đã xong. Mọi lệnh được ghi nhật ký TRƯỚC khi gửi.
+   */
+  routes.post('/:id/trade', async (c) => {
+    const viewer = viewerOf(c)
+    if (!isAdmin(viewer)) {
+      throw new AppError(403, 'FORBIDDEN', 'Chỉ quản trị viên được giao dịch từ xa')
+    }
+    const id = parseId(c.req.param('id'))
+    await authorize(c, id)
+    const parsed = tradeRequestSchema.safeParse(await c.req.json().catch(() => null))
+    if (!parsed.success) throw new AppError(400, 'VALIDATION_FAILED', 'Lệnh giao dịch không hợp lệ')
+    const req = parsed.data
+
+    const link = await c.env.DB.prepare(
+      `SELECT l.status, l.trade_enabled, l.login, s.ea_ver
+       FROM ea_links l LEFT JOIN link_state s ON s.link_id = l.id WHERE l.id = ?`,
+    )
+      .bind(id)
+      .first<{
+        status: string
+        trade_enabled: number
+        login: number | null
+        ea_ver: string | null
+      }>()
+    if (!link) throw new AppError(404, 'NOT_FOUND', 'Không tìm thấy liên kết')
+    if (link.status !== 'active') throw new AppError(403, 'LINK_DISABLED', 'Liên kết đang tắt')
+    if (link.trade_enabled !== 1) {
+      throw new AppError(403, 'TRADE_DISABLED', 'Liên kết chưa bật giao dịch từ xa')
+    }
+    if (link.login === null) throw new AppError(409, 'CONFLICT', 'Liên kết chưa gắn tài khoản')
+    // Phiên bản EA đã biết mà cũ hơn thì EA không hiểu lệnh: từ chối rõ ràng thay vì để chờ timeout.
+    // Chưa biết phiên bản (null) thì cho qua, vì không có bằng chứng EA cũ.
+    if (link.ea_ver !== null && !eaVersionAtLeast(link.ea_ver, TRADE.minEaVer)) {
+      throw new AppError(
+        409,
+        'CONFLICT',
+        `EA chưa hỗ trợ giao dịch từ xa (cần >= ${TRADE.minEaVer})`,
+      )
+    }
+
+    const now = nowUnix()
+    const pending = await c.env.DB.prepare(
+      "SELECT 1 AS x FROM trade_log WHERE link_id = ? AND status = 'sent' AND created_at > ? LIMIT 1",
+    )
+      .bind(id, now - TRADE.busySec)
+      .first()
+    if (pending) {
+      throw new AppError(409, 'TRADE_BUSY', 'Lệnh trước chưa xong, chờ vài giây rồi thử lại')
+    }
+
+    const cmdId = newCmdId()
+    await c.env.DB.prepare(
+      `INSERT INTO trade_log (link_id, user_id, cmd_id, op, ticket, volume, sl, tp, status, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'sent', ?)`,
+    )
+      .bind(
+        id,
+        viewer.userId,
+        cmdId,
+        req.op,
+        req.ticket,
+        req.op === 'partial_close' ? req.volume : null,
+        req.op === 'modify' ? req.sl : null,
+        req.op === 'modify' ? req.tp : null,
+        now,
+      )
+      .run()
+
+    const cmd: TradeCommand = { cmd_id: cmdId, ...req }
+    const r = await sendTradeAtHub(c.env, id, cmd)
+    if (!r.sent) {
+      await c.env.DB.prepare(
+        `UPDATE trade_log SET status = 'failed', reason = 'terminal_offline', code = 0, finished_at = ?
+         WHERE cmd_id = ?`,
+      )
+        .bind(nowUnix(), cmdId)
+        .run()
+      throw new AppError(409, 'TRADE_BUSY', 'Terminal đang offline, chưa gửi được lệnh')
+    }
+    return c.json({ cmd_id: cmdId, op: req.op, ticket: req.ticket }, 202)
+  })
+
   /** Cấp lại khóa: khóa cũ vô hiệu ngay, giữ nguyên tài khoản đã gắn. Khóa mới chỉ trả ở phản hồi này. */
   routes.post('/:id/rotate-key', async (c) => {
     const id = parseId(c.req.param('id'))
@@ -197,7 +319,7 @@ export function createLinkRoutes(viewerAuth: ViewerAuth) {
     await c.env.DB.batch([
       c.env.DB.prepare(
         `UPDATE ea_links SET login = NULL, server = NULL, broker = NULL, name = NULL,
-           currency = NULL, mode = NULL, bound_at = NULL WHERE id = ?`,
+           currency = NULL, mode = NULL, bound_at = NULL, trade_enabled = 0 WHERE id = ?`,
       ).bind(id),
       c.env.DB.prepare('DELETE FROM link_state WHERE link_id = ?').bind(id),
       c.env.DB.prepare('DELETE FROM equity_m5 WHERE link_id = ?').bind(id),

@@ -121,8 +121,19 @@ describe('sendTrade: hub chuyển lệnh cho Gateway', () => {
     expect(await hub.sendTrade(linkId, { cmd_id: CMD, op: 'close', ticket: 777 })).toEqual({
       sent: true,
     })
-    await hub.sendTrade(linkId, { cmd_id: 'aaaaaaaaaaaaaaaa', op: 'partial_close', ticket: 5, volume: 0.02 })
-    await hub.sendTrade(linkId, { cmd_id: 'bbbbbbbbbbbbbbbb', op: 'modify', ticket: 6, sl: 0, tp: 4100.5 })
+    await hub.sendTrade(linkId, {
+      cmd_id: 'aaaaaaaaaaaaaaaa',
+      op: 'partial_close',
+      ticket: 5,
+      volume: 0.02,
+    })
+    await hub.sendTrade(linkId, {
+      cmd_id: 'bbbbbbbbbbbbbbbb',
+      op: 'modify',
+      ticket: 6,
+      sl: 0,
+      tp: 4100.5,
+    })
     await until(() => tradeMsgs(g).length === 3)
     const [a, b, c] = tradeMsgs(g)
     expect(a).toMatchObject({ tid: TID, cmd_id: CMD, op: 'close', ticket: 777 })
@@ -168,7 +179,12 @@ describe('trade_result: kết quả từ Gateway', () => {
   const logRow = () =>
     env.DB.prepare('SELECT status, reason, code, detail FROM trade_log WHERE cmd_id = ?')
       .bind(CMD)
-      .first<{ status: string; reason: string | null; code: number | null; detail: string | null }>()
+      .first<{
+        status: string
+        reason: string | null
+        code: number | null
+        detail: string | null
+      }>()
   const result = (over: Record<string, unknown> = {}) =>
     JSON.stringify({
       t: 'trade_result',

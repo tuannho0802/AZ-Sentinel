@@ -54,6 +54,8 @@ export type LinkSummary = {
   state: LinkStateView | null
   /** Chủ sở hữu (chỉ có ở API có phân quyền; null = chưa gắn chủ). */
   owner?: { id: number; name: string | null } | null
+  /** Đã bật giao dịch thủ công từ xa cho liên kết này (v0.2.6). Mặc định tắt. */
+  trade_enabled?: boolean
 }
 
 export type LinkEventView = {

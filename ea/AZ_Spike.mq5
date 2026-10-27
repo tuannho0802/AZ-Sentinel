@@ -10,25 +10,35 @@
 //|   Canh bao lo float: Gateway tra alert_bp (basis point Balance);   |
 //|             EA do Float P/L / Balance, vuot nguong thi POST       |
 //|             /v1/alert, het lenh thi bao clear (Plan 5, v0.4.0).   |
+//|   Giao dich thu cong tu xa (v0.5.0): Gateway dua lenh (tr_*) trong |
+//|             phan hoi ping/samples; EA dong lenh, dong mot phan,   |
+//|             sua SL/TP roi POST /v1/trade_result. MAC DINH TAT:    |
+//|             chi chay khi InpAllowRemoteTrading = true.            |
 //| Ten file giu nguyen de giu lich su git (Q2); doi ten khi phat hanh|
 //+------------------------------------------------------------------+
 #property copyright "AZ Team"
-#property version "0.40"
-#property description "AZ Sentinel tracking EA: ping, samples, event toi Gateway cuc bo"
+#property version "0.50"
+#property description "AZ Sentinel tracking EA: ping, samples, event toi Gateway cuc bo; tuy chon dieu khien lenh tu xa"
 
-#define EA_VER "0.4.0"
+#include <Trade\Trade.mqh>
+
+#define EA_VER "0.5.0"
 #define MAX_SAMPLES 20
 #define MAX_POSITIONS 200
 #define MAX_PENDING_EVENTS 100
 #define EVENTS_PER_REQUEST 50
 #define ALERT_REPORT_SEC 60      // nhac lai "dang vuot nguong lo float" moi chung nay giay (Server loc)
 #define ALERT_RETRY_SEC 10       // gui that bai (Gateway chua nhan): thu lai sau chung nay giay
+#define TR_MIN_START_MS 3000     // chi BAT DAU thuc thi lenh tu xa khi han dung (tr_ttl) con it nhat chung nay ms
+#define TR_RESULT_TRIES 20       // gui ket qua lenh toi Gateway that bai thi thu lai toi da chung nay lan (moi 2 giay)
 #define ALERT_ZERO_TICKS 3       // can chung nay lan do lien tiep thay 0 lenh moi bao "clear" (tranh sai luc moi khoi dong)
 
 input string InpGateway = "http://127.0.0.1:47800"; // Gateway cuc bo (phai nam trong Allow WebRequest)
 input string InpApiKey = "";            // De trong = tu dong theo token ca nhan cua Gateway. Neu nhap: API key cua lien ket, khong chia se
 input int InpPingSec = 5;                           // Nhip ping Gateway (giay, toi thieu 2)
 input int InpTimeoutMs = 1000;                      // Timeout WebRequest (ms). Gateway tra loi duoi 50 ms
+input bool InpAllowRemoteTrading = false;           // CHO PHEP dieu khien lenh tu xa (dong lenh, dong mot phan, sua SL/TP). MAC DINH TAT. Bat = ai co quyen tren web deu dieu khien duoc tai khoan nay
+input int InpSlippagePts = 30;                      // Do truot gia toi da (point) cho lenh dong tu xa
 input double InpMarginLevelAlert = 0.0;             // Canh bao khi margin level (%) xuong duoi muc nay. 0 = tat
 
 enum EaState
@@ -61,6 +71,7 @@ double g_sEq[];
 double g_sBal[];
 double g_sFl[];
 double g_sMl[]; // -1 nghia la null
+double g_sMg[]; // margin dang dung
 int g_nSamples = 0;
 long g_samplesSeq = 0;
 string g_lastPosHash = "";
@@ -73,6 +84,12 @@ long g_epStartUtc = 0;   // luc bat dau dot (UTC)
 ulong g_nextAlertMs = 0; // lich gui ke tiep (GetTickCount64)
 long g_lastAseq = 0;     // so thu tu bao cao cuoi, don dieu tang
 int g_zeroTicks = 0;     // so lan do lien tiep thay 0 lenh
+
+//--- giao dich thu cong tu xa (v0.5.0)
+CTrade g_trade;
+string g_trResult = "";    // JSON ket qua lenh chua gui duoc toi Gateway (mot lenh tai mot thoi diem)
+ulong g_trNextTryMs = 0;
+int g_trTries = 0;
 
 //--- hang doi su kien giao dich (JSON da dung san)
 string g_evJson[];
@@ -246,6 +263,32 @@ bool IdentityReady()
    return AccountInfoInteger(ACCOUNT_LOGIN) > 0 && StringLen(AccountInfoString(ACCOUNT_SERVER)) > 0;
 }
 
+bool JsonHas(const string s, const string key)
+{
+   return StringFind(s, "\"" + key + "\":") >= 0;
+}
+
+double JsonDbl(const string s, const string key, const double def)
+{
+   int p = StringFind(s, "\"" + key + "\":");
+   if (p < 0)
+      return def;
+   p += StringLen(key) + 3;
+   int e = p;
+   int n = StringLen(s);
+   while (e < n)
+   {
+      ushort c = StringGetCharacter(s, e);
+      if ((c >= '0' && c <= '9') || c == '-' || c == '+' || c == '.' || c == 'e' || c == 'E')
+         e++;
+      else
+         break;
+   }
+   if (e == p)
+      return def;
+   return StringToDouble(StringSubstr(s, p, e - p));
+}
+
 string Ident()
 {
    return "\"v\":1,\"sid\":" + Q(g_sid) + ",\"key\":" + Q(ApiKeyOrAuto()) +
@@ -372,6 +415,227 @@ ulong NextPingDelayMs()
    return (ulong)sec * 1000;
 }
 
+//+------------------------------------------------------------------+
+//| Giao dich thu cong tu xa (v0.5.0)                                  |
+//| Gateway dua lenh vao phan hoi ping/samples (tr_*). Nguyen tac:    |
+//|  - Mac dinh TAT (InpAllowRemoteTrading). Tat thi chi bao lai loi.  |
+//|  - Toi da MOT LAN: cmd_id duoc ghi nho (GlobalVariable, song sot   |
+//|    khi EA khoi dong lai) TRUOC khi goi san. Mat ket qua thi nguoi  |
+//|    dung tu xem lai bang lenh, khong bao gio chay lenh hai lan.     |
+//|  - Chi BAT DAU khi han dung con >= TR_MIN_START_MS.                |
+//|  - Ket qua la retcode that cua MT5, khong bao thanh cong gia.      |
+//+------------------------------------------------------------------+
+string CmdVarName()
+{
+   return "AZ_LC_" + IntegerToString(AccountInfoInteger(ACCOUNT_LOGIN));
+}
+
+//--- 13 ky tu hex dau cua cmd_id (52 bit) -> so nguyen chinh xac trong double
+double CmdHash(const string id)
+{
+   ulong h = 0;
+   int n = MathMin(13, StringLen(id));
+   for (int i = 0; i < n; i++)
+   {
+      ushort c = StringGetCharacter(id, i);
+      ulong v = 0;
+      if (c >= '0' && c <= '9')
+         v = (ulong)(c - '0');
+      else if (c >= 'a' && c <= 'f')
+         v = (ulong)(c - 'a' + 10);
+      else if (c >= 'A' && c <= 'F')
+         v = (ulong)(c - 'A' + 10);
+      h = h * 16 + v;
+   }
+   return (double)h;
+}
+
+bool CmdAlreadyDone(const string id)
+{
+   string v = CmdVarName();
+   return GlobalVariableCheck(v) && GlobalVariableGet(v) == CmdHash(id);
+}
+
+void MarkCmdDone(const string id)
+{
+   GlobalVariableSet(CmdVarName(), CmdHash(id));
+}
+
+//--- Gui ket qua toi Gateway; that bai thi giu lai va thu lai tu OnTimer (SendPendingTradeResult).
+void SendPendingTradeResult()
+{
+   if (StringLen(g_trResult) == 0)
+      return;
+   ulong now = GetTickCount64();
+   if (now < g_trNextTryMs)
+      return;
+   string resp;
+   int code = HttpPost("/v1/trade_result", g_trResult, resp);
+   if (code == 200)
+   {
+      g_trResult = "";
+      g_trTries = 0;
+      return;
+   }
+   g_trTries++;
+   if (g_trTries >= TR_RESULT_TRIES)
+   {
+      Print("AZ: bo ket qua lenh tu xa, Gateway khong nhan duoc. Hay kiem tra lai bang lenh.");
+      g_trResult = "";
+      g_trTries = 0;
+      return;
+   }
+   g_trNextTryMs = now + 2000;
+}
+
+//--- left < 0 nghia la khong biet khoi luong con lai
+void QueueTradeResult(const string id, const string status, const string reason, const int code, const string detail, const double left)
+{
+   g_trResult = "{" + Ident() +
+                ",\"cmd_id\":" + Q(id) +
+                ",\"status\":" + Q(status) +
+                ",\"reason\":" + Q(reason) +
+                ",\"code\":" + IntegerToString(code) +
+                ",\"detail\":" + Q(StringSubstr(detail, 0, 120)) +
+                ((left >= 0.0) ? ",\"left\":" + P(left) : "") + "}";
+   g_trTries = 0;
+   g_trNextTryMs = 0;
+   PrintFormat("AZ: lenh tu xa %s -> %s (%s, retcode %d)", id, status, reason, code);
+   SendPendingTradeResult();
+}
+
+string ReasonForRetcode(const uint rc)
+{
+   switch (rc)
+   {
+   case TRADE_RETCODE_DONE:
+   case TRADE_RETCODE_DONE_PARTIAL:
+      return "ok";
+   case TRADE_RETCODE_MARKET_CLOSED:
+      return "market_closed";
+   case TRADE_RETCODE_INVALID_STOPS:
+      return "bad_stops";
+   case TRADE_RETCODE_INVALID_VOLUME:
+      return "bad_volume";
+   case TRADE_RETCODE_CLIENT_DISABLES_AT:
+   case TRADE_RETCODE_SERVER_DISABLES_AT:
+      return "algo_off";
+   default:
+      return "retcode";
+   }
+}
+
+//--- Doc retcode cua CTrade sau mot thao tac roi bao ket qua. `ticket` de tinh khoi luong con lai.
+void ReportTradeOutcome(const string id, const ulong ticket)
+{
+   uint rc = g_trade.ResultRetcode();
+   bool done = (rc == TRADE_RETCODE_DONE || rc == TRADE_RETCODE_DONE_PARTIAL);
+   string detail = g_trade.ResultRetcodeDescription();
+   if (rc == 0)
+      detail = StringFormat("call failed, err %d", GetLastError());
+   double left = PositionSelectByTicket(ticket) ? PositionGetDouble(POSITION_VOLUME) : 0.0;
+   QueueTradeResult(id, done ? "done" : "failed", ReasonForRetcode(rc), (int)rc, detail, left);
+}
+
+void ProcessTradeCommand(const string resp, const string id)
+{
+   if (StringLen(id) != 16 || CmdAlreadyDone(id))
+      return;
+   MarkCmdDone(id); // TRUOC khi chay: toi da mot lan
+
+   string op = JsonStr(resp, "tr_op");
+   ulong ticket = (ulong)JsonInt(resp, "tr_ticket", 0);
+   long ttl = JsonInt(resp, "tr_ttl", 0);
+
+   if (!InpAllowRemoteTrading)
+   {
+      QueueTradeResult(id, "failed", "remote_disabled", 0, "InpAllowRemoteTrading is off", -1.0);
+      return;
+   }
+   if (ttl < TR_MIN_START_MS)
+   {
+      QueueTradeResult(id, "failed", "expired", 0, "command expired before start", -1.0);
+      return;
+   }
+   if (!(bool)TerminalInfoInteger(TERMINAL_TRADE_ALLOWED) || !(bool)MQLInfoInteger(MQL_TRADE_ALLOWED) ||
+       !(bool)AccountInfoInteger(ACCOUNT_TRADE_ALLOWED) || !(bool)AccountInfoInteger(ACCOUNT_TRADE_EXPERT))
+   {
+      QueueTradeResult(id, "failed", "algo_off", 0, "trading not allowed (Algo Trading / account)", -1.0);
+      return;
+   }
+   if (ticket == 0 || !PositionSelectByTicket(ticket))
+   {
+      QueueTradeResult(id, "failed", "no_position", 0, "position not found", -1.0);
+      return;
+   }
+
+   string sym = PositionGetString(POSITION_SYMBOL);
+   double posVol = PositionGetDouble(POSITION_VOLUME);
+   g_trade.SetTypeFillingBySymbol(sym);
+
+   if (op == "close")
+   {
+      g_trade.PositionClose(ticket, (ulong)InpSlippagePts);
+      ReportTradeOutcome(id, ticket);
+      return;
+   }
+
+   if (op == "partial_close")
+   {
+      double want = JsonDbl(resp, "tr_vol", 0.0);
+      double step = SymbolInfoDouble(sym, SYMBOL_VOLUME_STEP);
+      double minv = SymbolInfoDouble(sym, SYMBOL_VOLUME_MIN);
+      if (step <= 0.0 || want <= 0.0 || want > posVol + 1e-9)
+      {
+         QueueTradeResult(id, "failed", "bad_volume", 0, "volume exceeds position or invalid", -1.0);
+         return;
+      }
+      double aligned = MathRound(want / step) * step;
+      // Khong tu y lam tron: khoi luong khong dung buoc thi tu choi de nguoi dung biet.
+      if (MathAbs(aligned - want) > step * 1e-6 || aligned < minv - 1e-9)
+      {
+         QueueTradeResult(id, "failed", "bad_volume", 0, "volume not a multiple of step or below minimum", -1.0);
+         return;
+      }
+      double rest = posVol - aligned;
+      if (rest > 1e-9 && rest < minv - 1e-9)
+      {
+         QueueTradeResult(id, "failed", "bad_volume", 0, "remaining volume would be below minimum", -1.0);
+         return;
+      }
+      if (rest <= 1e-9)
+         g_trade.PositionClose(ticket, (ulong)InpSlippagePts);
+      else
+         g_trade.PositionClosePartial(ticket, NormalizeDouble(aligned, 8), (ulong)InpSlippagePts);
+      ReportTradeOutcome(id, ticket);
+      return;
+   }
+
+   if (op == "modify")
+   {
+      if (!JsonHas(resp, "tr_sl") || !JsonHas(resp, "tr_tp"))
+      {
+         QueueTradeResult(id, "failed", "bad_request", 0, "modify needs tr_sl and tr_tp", -1.0);
+         return;
+      }
+      double sl = JsonDbl(resp, "tr_sl", 0.0);
+      double tp = JsonDbl(resp, "tr_tp", 0.0);
+      if (sl < 0.0 || tp < 0.0)
+      {
+         QueueTradeResult(id, "failed", "bad_stops", 0, "negative price", -1.0);
+         return;
+      }
+      int digits = (int)SymbolInfoInteger(sym, SYMBOL_DIGITS);
+      sl = (sl > 0.0) ? NormalizeDouble(sl, digits) : 0.0; // 0 = bo SL
+      tp = (tp > 0.0) ? NormalizeDouble(tp, digits) : 0.0; // 0 = bo TP
+      g_trade.PositionModify(ticket, sl, tp);
+      ReportTradeOutcome(id, ticket);
+      return;
+   }
+
+   QueueTradeResult(id, "failed", "bad_request", 0, "unknown op", -1.0);
+}
+
 //--- Xu ly phan hoi cua /v1/ping va /v1/samples. Tra ve true neu HTTP 200.
 bool HandleReply(const int code, const string resp)
 {
@@ -410,6 +674,12 @@ bool HandleReply(const int code, const string resp)
       EnterLive();
    else if (!watch && g_state == ST_LIVE)
       LeaveLive();
+
+   // Lenh giao dich thu cong tu xa (neu co). Gateway gui lai cung lenh moi phan hoi cho toi khi nhan ket qua;
+   // ProcessTradeCommand tu loai trung theo cmd_id nen chi chay mot lan.
+   string trId = JsonStr(resp, "tr_id");
+   if (StringLen(trId) > 0)
+      ProcessTradeCommand(resp, trId);
    return true;
 }
 
@@ -451,6 +721,7 @@ void CollectSample()
          g_sBal[i - 1] = g_sBal[i];
          g_sFl[i - 1] = g_sFl[i];
          g_sMl[i - 1] = g_sMl[i];
+         g_sMg[i - 1] = g_sMg[i];
       }
       g_nSamples--;
    }
@@ -460,6 +731,7 @@ void CollectSample()
    g_sBal[k] = AccountInfoDouble(ACCOUNT_BALANCE);
    g_sFl[k] = AccountInfoDouble(ACCOUNT_PROFIT);
    g_sMl[k] = (AccountInfoDouble(ACCOUNT_MARGIN) > 0.0) ? AccountInfoDouble(ACCOUNT_MARGIN_LEVEL) : -1.0;
+   g_sMg[k] = AccountInfoDouble(ACCOUNT_MARGIN);
    g_nSamples++;
 }
 
@@ -474,7 +746,8 @@ string SamplesJson()
              ",\"eq\":" + Num(g_sEq[i]) +
              ",\"bal\":" + Num(g_sBal[i]) +
              ",\"fl\":" + Num(g_sFl[i]) +
-             ",\"ml\":" + ((g_sMl[i] >= 0.0) ? Num(g_sMl[i]) : "null") + "}";
+             ",\"ml\":" + ((g_sMl[i] >= 0.0) ? Num(g_sMl[i]) : "null") +
+             ",\"mg\":" + Num(g_sMg[i]) + "}";
    }
    return out + "]";
 }
@@ -1070,6 +1343,7 @@ int OnInit()
    ArrayResize(g_sBal, MAX_SAMPLES);
    ArrayResize(g_sFl, MAX_SAMPLES);
    ArrayResize(g_sMl, MAX_SAMPLES);
+   ArrayResize(g_sMg, MAX_SAMPLES);
    ArrayResize(g_evJson, MAX_PENDING_EVENTS);
    ArrayResize(g_evDeal, MAX_PENDING_EVENTS);
    ArrayResize(g_evTime, MAX_PENDING_EVENTS);
@@ -1111,6 +1385,11 @@ int OnInit()
    }
    if (!TerminalInfoInteger(TERMINAL_TRADE_ALLOWED))
       Print("AZ: canh bao: Algo Trading dang tat tren terminal.");
+   g_trade.SetDeviationInPoints((ulong)InpSlippagePts);
+   g_trade.SetAsyncMode(false);
+   g_trade.LogLevel(LOG_LEVEL_ERRORS);
+   if (InpAllowRemoteTrading)
+      Print("AZ: CANH BAO: da BAT dieu khien lenh tu xa (InpAllowRemoteTrading = true).");
    PrintFormat("AZ: bat dau, ver %s, sid %s, Gateway %s", EA_VER, g_sid, InpGateway);
    return (INIT_SUCCEEDED);
 }
@@ -1153,6 +1432,7 @@ void OnTimer()
 
    FlushEvents();
    CheckLossAlert();
+   SendPendingTradeResult();
 }
 
 //--- Moi tick: chi lam viec khi dang LIVE va da toi nhip (re khi khong co ai xem).

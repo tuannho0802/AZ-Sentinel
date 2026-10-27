@@ -4,6 +4,7 @@ import type {
   LinkListResponse,
   LinkStatus,
   LinkSummary,
+  TradeRequest,
 } from '@az-sentinel/shared'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiDelete, apiGet, apiPost } from '../../lib/api-client'
@@ -96,5 +97,31 @@ export function useDeleteLink(id: number) {
       client.removeQueries({ queryKey: linkKey(id) })
       return client.invalidateQueries({ queryKey: LINKS_KEY })
     },
+  })
+}
+
+/** Bật/tắt giao dịch thủ công từ xa của liên kết (chỉ admin; mặc định tắt). */
+export function useSetTradeEnabled(id: number) {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: (enabled: boolean) =>
+      apiPost<LinkSummary>(`${BASE}/${id}/trade-enabled`, { enabled }),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: linkKey(id) })
+      return client.invalidateQueries({ queryKey: LINKS_KEY })
+    },
+  })
+}
+
+export type TradeAccepted = { cmd_id: string; op: TradeRequest['op']; ticket: number }
+
+/**
+ * Gửi lệnh giao dịch thủ công. Phản hồi 202 chỉ nghĩa là lệnh đã được chuyển đi; kết quả thật (retcode của
+ * MT5) đến sau qua WebSocket (`trade_result`, xem `getTradeResult`). Không tự thử lại: gửi trùng là rủi ro.
+ */
+export function useSendTrade(id: number) {
+  return useMutation({
+    retry: false,
+    mutationFn: (req: TradeRequest) => apiPost<TradeAccepted>(`${BASE}/${id}/trade`, req),
   })
 }

@@ -7,6 +7,7 @@ import {
   type LocalErrorResponse,
   pingRequestSchema,
   samplesRequestSchema,
+  tradeResultRequestSchema,
 } from '@az-sentinel/shared'
 import type { ZodType } from 'zod'
 import { applyConnectCodeToBody, type EditableConfig, editableSchema } from './config'
@@ -75,6 +76,10 @@ export class LocalServer {
       '/v1/alert': this.parsed(
         alertRequestSchema,
         (b) => this.gw.handleAlert(b) ?? fail(409, 'unknown_terminal'),
+      ),
+      '/v1/trade_result': this.parsed(
+        tradeResultRequestSchema,
+        (b) => this.gw.handleTradeResult(b) ?? fail(409, 'unknown_terminal'),
       ),
     }
     this.server = http.createServer((req, res) => this.onRequest(routes, req, res))

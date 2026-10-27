@@ -7,6 +7,7 @@ import { Skeleton } from '../../components/Skeleton'
 import { ApiError } from '../../lib/api-client'
 import { formatTime } from '../../lib/format'
 import { strings } from '../../lib/strings'
+import { useMe } from '../auth/api'
 import { linkKey, useLink } from './api'
 import { LinkDetailView } from './LinkDetailView'
 import { LiveBanners, LiveControl } from './live/LiveControl'
@@ -24,6 +25,9 @@ const EVENTS_REFRESH_DELAY_MS = 1500
 export function LinkDetailPanel({ id }: { id: number }) {
   const client = useQueryClient()
   const q = useLink(id)
+  const me = useMe()
+  // Giao dịch từ xa chỉ dành cho quản trị viên (server cũng kiểm lại; đây chỉ để ẩn/hiện nút).
+  const tradeAdmin = me.data?.role === 'admin' || me.data?.role === 'root_admin'
   const notFound = q.error instanceof ApiError && q.error.status === 404
   const live = useLiveLease({
     // Chỉ nối khi đã tải được liên kết (không mở socket cho id không tồn tại hoặc không có quyền).
@@ -104,7 +108,11 @@ export function LinkDetailPanel({ id }: { id: number }) {
           </div>
         )}
         {q.isSuccess && (
-          <LinkDetailView link={mergeLiveDetail(q.data, entry)} liveState={liveState} />
+          <LinkDetailView
+            link={mergeLiveDetail(q.data, entry)}
+            liveState={liveState}
+            tradeAdmin={tradeAdmin}
+          />
         )}
       </div>
     </div>

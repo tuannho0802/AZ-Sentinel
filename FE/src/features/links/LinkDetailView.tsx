@@ -9,6 +9,7 @@ import { LinkActions } from './LinkActions'
 import { classify } from './links-view'
 import { PositionsFooter } from './PositionsFooter'
 import { StatusBadge } from './StatusBadge'
+import { PositionTradeActions, TradeEnableToggle } from './TradeControls'
 import { VpsNameCell } from './VpsNameCell'
 
 function Row({ label, children }: { label: string; children: ReactNode }) {
@@ -47,17 +48,21 @@ const th = 'py-2 pr-3 text-left font-medium'
 export function LinkDetailView({
   link,
   liveState = null,
+  tradeAdmin = false,
 }: {
   /** Đã phủ số liệu live (`mergeLiveDetail`) nếu đang nối. */
   link: LinkDetail
   /** Trạng thái live hiệu dụng. */
   liveState?: LiveState | null
+  /** Quản trị viên: thấy công tắc và nút giao dịch từ xa. Mặc định tắt. */
+  tradeAdmin?: boolean
 }) {
   const now = useNow()
   const a = link.account
   const s = link.state
   const currency = a?.currency ?? null
   const health = classify(link, liveState)
+  const showTrade = tradeAdmin && link.trade_enabled === true
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-3">
@@ -105,6 +110,11 @@ export function LinkDetailView({
             <Row label={strings.fieldVpsName}>
               <VpsNameCell linkId={link.id} value={link.vps_name} />
             </Row>
+            {tradeAdmin && a && (
+              <Row label={strings.tradeRemoteTitle}>
+                <TradeEnableToggle linkId={link.id} enabled={link.trade_enabled === true} />
+              </Row>
+            )}
             {a ? (
               <>
                 <Row label={strings.fieldLogin}>
@@ -161,7 +171,7 @@ export function LinkDetailView({
           <p className="text-sm text-muted">{strings.positionsEmpty}</p>
         ) : (
           <div className="-mx-4 overflow-x-auto px-4">
-            <table className="w-full min-w-[46rem] text-sm">
+            <table className={`w-full text-sm ${showTrade ? 'min-w-[64rem]' : 'min-w-[54rem]'}`}>
               <thead className="border-b border-line text-xs text-muted">
                 <tr>
                   <th className={th}>{strings.colTicket}</th>
@@ -169,9 +179,12 @@ export function LinkDetailView({
                   <th className={th}>{strings.colType}</th>
                   <th className={thNum}>{strings.colVolume}</th>
                   <th className={thNum}>{strings.colOpenPrice}</th>
+                  <th className={thNum}>{strings.colSl}</th>
+                  <th className={thNum}>{strings.colTp}</th>
                   <th className={th}>{strings.colOpenTime}</th>
                   <th className={thNum}>{strings.colSwap}</th>
-                  <th className={`${thNum} !pr-0`}>{strings.colProfit}</th>
+                  <th className={`${thNum} ${showTrade ? '' : '!pr-0'}`}>{strings.colProfit}</th>
+                  {showTrade && <th className={`${thNum} !pr-0`}>{strings.colTradeActions}</th>}
                 </tr>
               </thead>
               <tbody className="divide-y divide-line">
@@ -182,15 +195,26 @@ export function LinkDetailView({
                     <td className={`py-2 pr-3 font-medium ${typeClass(p.type)}`}>{p.type}</td>
                     <td className="num py-2 pr-3 text-right">{p.volume}</td>
                     <td className="num py-2 pr-3 text-right">{p.price}</td>
+                    <td className="num py-2 pr-3 text-right">{p.sl ? p.sl : '—'}</td>
+                    <td className="num py-2 pr-3 text-right">{p.tp ? p.tp : '—'}</td>
                     <td className="py-2 pr-3 whitespace-nowrap" title={formatDateTime(p.time)}>
                       {formatDateShort(p.time)}
                     </td>
                     <td className="py-2 pr-3 text-right">
                       <Delta value={p.swap ?? null} currency={currency} />
                     </td>
-                    <td className="py-2 text-right">
+                    <td className={`py-2 text-right ${showTrade ? 'pr-3' : ''}`}>
                       <Delta value={p.profit} currency={currency} />
                     </td>
+                    {showTrade && (
+                      <td className="py-2 text-right">
+                        <PositionTradeActions
+                          linkId={link.id}
+                          position={p}
+                          disabled={liveState !== 'live'}
+                        />
+                      </td>
+                    )}
                   </tr>
                 ))}
               </tbody>

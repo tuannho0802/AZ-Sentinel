@@ -15,6 +15,7 @@ import {
   type Sample,
   type ServerMessage,
   type SnapshotLink,
+  type TradeCommand,
   terminalId,
 } from '@az-sentinel/shared'
 import { sha256Hex } from '../lib/crypto'
@@ -458,6 +459,36 @@ export class LiveHub extends DurableObject<Bindings> {
     return n
   }
 
+  /**
+   * Chuyển một lệnh giao dịch thủ công cho Gateway đang giữ terminal của liên kết (v0.2.6). Hub chỉ
+   * chuyển tiếp; mọi kiểm tra quyền, công tắc và nhật ký do route làm trước khi gọi. Không có Gateway nối
+   * hoặc terminal đang offline thì không gửi (`terminal_offline`): lệnh không được xếp hàng chờ, vì lệnh
+   * thị trường để lâu rồi mới chạy là nguy hiểm.
+   */
+  async sendTrade(
+    linkId: number,
+    cmd: TradeCommand,
+  ): Promise<{ sent: true } | { sent: false; reason: 'terminal_offline' }> {
+    this.rpcCalls += 1
+    for (const ws of this.ctx.getWebSockets(GW_TAG)) {
+      const att = this.readGw(ws)
+      if (!att || ws.readyState !== WS_OPEN) continue
+      const term = this.loadTerms(att.connId).find((t) => t.linkId === linkId)
+      if (!term) continue
+      if (!term.online) return { sent: false, reason: 'terminal_offline' }
+      const base = { t: 'trade' as const, tid: term.tid, cmd_id: cmd.cmd_id, ticket: cmd.ticket }
+      if (cmd.op === 'partial_close') {
+        this.sendGw(ws, { ...base, op: cmd.op, volume: cmd.volume })
+      } else if (cmd.op === 'modify') {
+        this.sendGw(ws, { ...base, op: cmd.op, sl: cmd.sl, tp: cmd.tp })
+      } else {
+        this.sendGw(ws, { ...base, op: cmd.op })
+      }
+      return { sent: true }
+    }
+    return { sent: false, reason: 'terminal_offline' }
+  }
+
   async stats(nowMs: number): Promise<HubStats> {
     return {
       viewers: this.aliveConns(nowMs).length,
@@ -690,7 +721,40 @@ export class LiveHub extends DurableObject<Bindings> {
       case 'alert':
         await this.gwAlert(ws, msg.data, now)
         return
+      case 'trade_result':
+        await this.gwTradeResult(ws, msg.data, now)
+        return
     }
+  }
+
+  /**
+   * Kết quả lệnh giao dịch thủ công từ EA (qua Gateway): phát ngay cho người xem liên kết đó rồi cập nhật
+   * nhật ký. Chỉ nhận terminal thuộc chính kết nối Gateway này (không thể báo thay terminal của Gateway khác).
+   * Kết quả muộn (sau `timeout`) vẫn ghi đè; kết quả `done` thì không bị ghi đè nữa.
+   */
+  private async gwTradeResult(
+    ws: WebSocket,
+    msg: Extract<GwClientMessage, { t: 'trade_result' }>,
+    nowMs: number,
+  ): Promise<void> {
+    const att = this.readGw(ws)
+    const term = att ? this.loadTerms(att.connId).find((t) => t.tid === msg.tid) : undefined
+    if (!att || !term) return
+    const { t: _t, tid: _tid, ...res } = msg
+    const nowSec = Math.floor(nowMs / 1000)
+    const viewers = this.aliveConns(nowMs).filter((v) =>
+      scopeMatches(v.att.scope, { linkId: term.linkId, ownerId: term.ownerId }),
+    )
+    this.broadcast(viewers, { t: 'trade_result', id: term.linkId, server_time: nowSec, ...res })
+    await this.withDb((db) =>
+      db
+        .prepare(
+          `UPDATE trade_log SET status = ?, reason = ?, code = ?, detail = ?, finished_at = ?
+           WHERE cmd_id = ? AND link_id = ? AND status != 'done'`,
+        )
+        .bind(res.status, res.reason, res.code, res.detail, nowSec, res.cmd_id, term.linkId)
+        .run(),
+    )
   }
 
   private async gwBind(

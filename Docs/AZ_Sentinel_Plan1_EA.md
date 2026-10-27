@@ -8,12 +8,13 @@
 
 - **Mục tiêu:** mỗi tài khoản MT5 chạy một EA “reporter” gửi dữ liệu tài khoản và lệnh về server, để web theo dõi khoảng 30 tài khoản: online/offline, balance, equity, floating P/L, lệnh đang mở, lịch sử lệnh, và biết VPS nào đang treo EA nào.
 - **User:** tài khoản đăng nhập web. **TKGD:** tài khoản giao dịch MT5 mà EA đang chạy. **Liên kết EA:** một TKGD gắn với một API key.
-- **Nguyên tắc xuyên suốt:** EA chỉ đọc và báo cáo; gửi theo sự kiện thay vì gửi liên tục; mọi request idempotent; ít request nhất có thể nhưng không bao giờ mất sự kiện giao dịch.
+- **Nguyên tắc xuyên suốt:** EA mặc định chỉ đọc và báo cáo (từ v0.5.0 có tùy chọn giao dịch từ xa, mặc định TẮT, xem `AZ_Sentinel_Remote_Trading.md`); gửi theo sự kiện thay vì gửi liên tục; mọi request idempotent; ít request nhất có thể nhưng không bao giờ mất sự kiện giao dịch.
 - **Giả định cần xác nhận:** EA chạy MT5; mỗi EA theo dõi symbol của chart (có thể thêm danh sách symbol cho trigger biến động).
 
 ## 1. Vai trò và nguyên tắc
 
-- EA **chỉ đọc**: không gọi lệnh giao dịch và không thực thi lệnh giao dịch nhận từ server. Server chỉ được gửi lệnh điều khiển báo cáo (đổi chu kỳ, ping).
+- EA **mặc định chỉ đọc**: không gọi lệnh giao dịch và không thực thi lệnh giao dịch nhận từ server. Server chỉ được gửi lệnh điều khiển báo cáo (đổi chu kỳ, ping).
+- **Ngoại lệ có chủ đích (v0.5.0):** khi chủ terminal tự bật `InpAllowRemoteTrading = true`, EA thực thi đóng lệnh, đóng một phần và sửa SL/TP do quản trị viên gửi từ web. Công tắc này mặc định TẮT; xem `AZ_Sentinel_Remote_Trading.md`.
 - Tách thành thư viện `AZ_Reporter.mqh` và EA vỏ `AZ_Sentinel_Reporter.mq5`. Sau này nhúng thư viện vào EA giao dịch của bạn mà không phải viết lại.
 - Mỗi TKGD chỉ chạy **một** reporter. Khóa chống chạy trùng bằng biến toàn cục của terminal, **có thời hạn**: reporter ghi dấu thời gian vào biến khóa mỗi nhịp; reporter mới chỉ chiếm khóa khi dấu cũ quá 30 giây. Cách này tránh khóa “mồ côi” sau khi terminal hoặc EA bị tắt đột ngột (biến toàn cục của terminal còn lại sau khi tắt).
 - Mọi việc chạy trong `OnTimer` (nhịp 1 giây). `OnTick` không gọi mạng. Việc kiểm tra điều kiện là tính toán cục bộ, chỉ gọi `WebRequest` khi có trigger.

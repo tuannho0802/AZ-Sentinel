@@ -94,6 +94,8 @@ export const sampleSchema = z.object({
   bal: z.number().finite(),
   fl: z.number().finite(),
   ml: z.number().finite().nullish(),
+  /** Margin đang dùng (ACCOUNT_MARGIN), từ EA 0.5.0; vắng ở EA cũ. */
+  mg: z.number().finite().nonnegative().optional(),
 })
 export type Sample = z.infer<typeof sampleSchema>
 export const MAX_EVENTS = 100

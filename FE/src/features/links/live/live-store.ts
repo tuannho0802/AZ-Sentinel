@@ -30,6 +30,37 @@ export type LiveEntry = {
   sampleAtPerf: number | null
 }
 
+/** Kết quả lệnh giao dịch thủ công (v0.2.6), ghép với lệnh đã gửi bằng `cmd_id`. Tách khỏi `entries` vì không phải số liệu liên kết. */
+export type TradeResultMsg = Extract<ServerMessage, { t: 'trade_result' }>
+const MAX_TRADE_RESULTS = 20
+const tradeResults = new Map<string, TradeResultMsg>()
+const tradeListeners = new Set<() => void>()
+
+export const subscribeTrade = (l: () => void) => {
+  tradeListeners.add(l)
+  return () => {
+    tradeListeners.delete(l)
+  }
+}
+export const getTradeResult = (cmdId: string | null): TradeResultMsg | undefined =>
+  cmdId === null ? undefined : tradeResults.get(cmdId)
+
+function storeTradeResult(msg: TradeResultMsg): void {
+  tradeResults.delete(msg.cmd_id) // đẩy xuống cuối để giữ thứ tự mới nhất
+  tradeResults.set(msg.cmd_id, msg)
+  while (tradeResults.size > MAX_TRADE_RESULTS) {
+    const oldest = tradeResults.keys().next().value
+    if (oldest === undefined) break
+    tradeResults.delete(oldest)
+  }
+  for (const l of tradeListeners) l()
+}
+
+/** Chỉ dùng trong test. */
+export function clearTradeResults(): void {
+  tradeResults.clear()
+}
+
 const entries = new Map<number, LiveEntry>()
 const listeners = new Set<() => void>()
 let version = 0
@@ -117,6 +148,9 @@ export function applyLiveMessage(msg: ServerMessage, perfNow: number = performan
       entries.set(msg.id, { ...prev, state: msg.state })
       break
     }
+    case 'trade_result':
+      storeTradeResult(msg)
+      return
     case 'kick':
       return
   }
@@ -166,6 +200,8 @@ export function mergeLive(link: LinkSummary, entry: LiveEntry | undefined): Link
       ...base,
       balance: s.bal,
       equity: s.eq,
+      // EA >= 0.5.0 gửi margin theo mẫu; EA cũ không có thì giữ số D1.
+      margin: s.mg ?? base.margin,
       floating_pl: s.fl,
       margin_level: s.ml ?? null,
       last_seen_at: s.t,

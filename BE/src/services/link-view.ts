@@ -2,6 +2,7 @@ import {
   LINK_ONLINE_THRESHOLD_SECONDS,
   type LinkStatus,
   type LinkSummary,
+  type TradeCommand,
 } from '@az-sentinel/shared'
 import { AppError } from '../lib/app-error'
 import { nowUnix } from '../lib/time'
@@ -17,6 +18,7 @@ export type LinkRow = {
   created_at: number
   bound_at: number | null
   vps_name: string | null
+  trade_enabled: number
   login: number | null
   server: string | null
   broker: string | null
@@ -45,7 +47,7 @@ const LINK_FROM = `
   FROM ea_links l LEFT JOIN link_state s ON s.link_id = l.id`
 
 const LINK_FIELDS = `
-  l.id, l.key_prefix, l.status, l.created_at, l.bound_at, l.vps_name,
+  l.id, l.key_prefix, l.status, l.created_at, l.bound_at, l.vps_name, l.trade_enabled,
          l.login, l.server, l.broker, l.name, l.currency, l.mode,
          s.balance, s.equity, s.margin, s.margin_free, s.margin_level, s.floating_pl,
          s.last_reason, s.last_seen_at, s.last_seq, s.ea_ver, s.vps_label,
@@ -80,6 +82,23 @@ export async function revokeAtHub(env: Bindings, linkId: number): Promise<void> 
   }
 }
 
+/**
+ * Gửi lệnh giao dịch thủ công qua hub. Khác `revokeAtHub`: lỗi hub KHÔNG được nuốt, vì báo "đã gửi" khi
+ * lệnh chưa đi là nguy hiểm hơn báo lỗi. Hub lỗi hoặc chưa có Gateway đều coi là `terminal_offline`.
+ */
+export async function sendTradeAtHub(
+  env: Bindings,
+  linkId: number,
+  cmd: TradeCommand,
+): Promise<{ sent: boolean }> {
+  try {
+    const r = await env.LIVE_HUB.getByName(HUB_NAME).sendTrade(linkId, cmd)
+    return { sent: r.sent }
+  } catch {
+    return { sent: false }
+  }
+}
+
 function ownerOf(r: LinkRow): { id: number; name: string | null } | null {
   return r.owner_id === null || r.owner_id === undefined
     ? null
@@ -94,6 +113,7 @@ export function toSummary(r: LinkRow, now: number, viaGateway: Set<number>): Lin
     created_at: r.created_at,
     bound_at: r.bound_at,
     vps_name: r.vps_name,
+    trade_enabled: r.trade_enabled === 1,
     account:
       r.login !== null && r.server !== null
         ? {

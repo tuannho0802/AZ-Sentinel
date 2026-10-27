@@ -16,6 +16,10 @@ export const ERROR_CODES = [
   'UPSTREAM_FAILED',
   /** Plan 3E: đang chạy dự phòng Cloudflare, tạm chặn ghi liên kết. */
   'READ_ONLY_FALLBACK',
+  /** v0.2.6: liên kết chưa bật giao dịch từ xa. */
+  'TRADE_DISABLED',
+  /** v0.2.6: lệnh trước của terminal chưa xong, hoặc terminal không sẵn sàng nhận lệnh. */
+  'TRADE_BUSY',
 ] as const
 export type ErrorCode = (typeof ERROR_CODES)[number]
 

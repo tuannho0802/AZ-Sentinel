@@ -10,6 +10,7 @@ import {
   sampleSchema,
   tradeEventSchema,
 } from './ingest-schema'
+import { CMD_ID, TRADE_OPS, tradeResultFields } from './trade-schema'
 
 /**
  * Giao thức Gateway (Plan 3C mục 3 và 4). Hằng số dùng chung Gateway, BE, test; EA (MQL5) chép
@@ -172,6 +173,18 @@ export type LocalPingResponse = {
    * chuyển tiếp; EA không có input riêng cho việc này.
    */
   alert_bp: number
+  /**
+   * Lệnh giao dịch thủ công đang chờ EA (v0.2.6). Phẳng, tiền tố `tr_`, để EA (MQL5) tách bằng tìm chuỗi.
+   * Vắng cả nhóm = không có lệnh. `tr_ttl` là số ms CÒN LẠI của hạn dùng tại lúc Gateway trả lời.
+   * `tr_vol` chỉ có với `partial_close`; `tr_sl`/`tr_tp` chỉ có với `modify` (0 = bỏ).
+   */
+  tr_id?: string
+  tr_op?: (typeof TRADE_OPS)[number]
+  tr_ticket?: number
+  tr_vol?: number
+  tr_sl?: number
+  tr_tp?: number
+  tr_ttl?: number
 }
 
 /** Phản hồi `POST /v1/event`. `ack_seq` chỉ nghĩa là Gateway đã nhận và lưu hàng đợi. */
@@ -236,6 +249,8 @@ export const gwClientMessageSchema = z.discriminatedUnion('t', [
     snap: snapSchema.optional(),
   }),
   z.object({ t: z.literal('alert'), tid, ...alertFields }),
+  /** Kết quả lệnh giao dịch thủ công (v0.2.6). */
+  z.object({ t: z.literal('trade_result'), tid, ...tradeResultFields }),
 ])
 export type GwClientMessage = z.infer<typeof gwClientMessageSchema>
 
@@ -257,6 +272,20 @@ export const gwServerMessageSchema = z.discriminatedUnion('t', [
   z.object({ t: z.literal('alert_cfg'), loss_bp: z.number().int().min(0).max(10_000) }),
   /** Server đã xử lý báo cáo cảnh báo `aseq` của terminal: Gateway ngừng gửi lại. */
   z.object({ t: z.literal('alert_ack'), tid, aseq: z.number().int().nonnegative() }),
+  /**
+   * Lệnh giao dịch thủ công cho một terminal (v0.2.6). Gateway giữ tối đa một lệnh mỗi terminal và
+   * chuyển cho EA qua phản hồi ping/samples. `volume` chỉ cho `partial_close`, `sl`/`tp` chỉ cho `modify`.
+   */
+  z.object({
+    t: z.literal('trade'),
+    tid,
+    cmd_id: z.string().regex(CMD_ID),
+    op: z.enum(TRADE_OPS),
+    ticket: z.number().int().positive(),
+    volume: z.number().finite().positive().optional(),
+    sl: z.number().finite().nonnegative().optional(),
+    tp: z.number().finite().nonnegative().optional(),
+  }),
   z.object({
     t: z.literal('update'),
     min_ver: text(16),
