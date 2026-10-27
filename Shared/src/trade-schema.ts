@@ -2,6 +2,8 @@ import { z } from 'zod'
 
 /**
  * Giao dịch thủ công từ xa (v0.2.6, Pha 1): đóng lệnh, đóng một phần, sửa SL/TP.
+ * Pha 2 (EA 0.6.0): đóng hàng loạt theo bộ lọc (`close_all`), mở lệnh market và đặt lệnh chờ limit/stop
+ * kèm SL/TP. Lệnh MỞ cần thêm công tắc `InpAllowRemoteOpen` của EA (mặc định tắt) và bị chặn bởi `InpMaxRemoteVolume`.
  *
  * Đường đi: FE -> `POST /api/links/:id/trade` -> hub -> Gateway (WebSocket `trade`) -> EA (nằm trong
  * phản hồi `/v1/ping` hoặc `/v1/samples`) -> EA thực thi -> `POST /v1/trade_result` -> Gateway -> hub
@@ -10,7 +12,14 @@ import { z } from 'zod'
  * An toàn: EA có công tắc `InpAllowRemoteTrading` (mặc định tắt), lệnh có `cmd_id` duy nhất và hạn
  * dùng ngắn, EA nhớ `cmd_id` đã chạy để không chạy lại khi bị gửi trùng hay khởi động lại.
  */
-export const TRADE_OPS = ['close', 'partial_close', 'modify'] as const
+export const TRADE_OPS = [
+  'close',
+  'partial_close',
+  'modify',
+  'market',
+  'pending',
+  'close_all',
+] as const
 export type TradeOp = (typeof TRADE_OPS)[number]
 
 export const TRADE = {
@@ -22,6 +31,8 @@ export const TRADE = {
   graceMs: 8_000,
   /** Phiên bản EA tối thiểu hiểu lệnh giao dịch (so sánh theo số). */
   minEaVer: '0.5.0',
+  /** Phiên bản EA tối thiểu hiểu market, pending, close_all. */
+  minEaVerOpen: '0.6.0',
   maxVolume: 1000,
   /** Server từ chối lệnh mới nếu lệnh trước của liên kết còn `sent` chưa quá chừng này (giây). */
   busySec: 25,
@@ -35,8 +46,55 @@ const ticket = z.number().int().positive().max(Number.MAX_SAFE_INTEGER)
 /** Giá SL/TP; 0 = không đặt (bỏ). */
 const price = z.number().finite().nonnegative().max(1e9)
 
+/** Hướng của lệnh market. */
+export const ORDER_SIDES = ['buy', 'sell'] as const
+/** Loại lệnh chờ. */
+export const PENDING_KINDS = ['buy_limit', 'sell_limit', 'buy_stop', 'sell_stop'] as const
+/** Bộ lọc đóng hàng loạt: all (mặc định), profit (lãi + swap > 0), loss (< 0), buy, sell. */
+export const CLOSE_ALL_FILTERS = ['all', 'profit', 'loss', 'buy', 'sell'] as const
+
+/**
+ * Mã giao dịch: chỉ ký tự an toàn. EA tách JSON bằng tìm chuỗi nên cấm dấu nháy, gạch chéo, khoảng trắng...
+ */
+export const SYMBOL_RE = /^[A-Za-z0-9._#@+-]{1,32}$/
+const symbol = z.string().regex(SYMBOL_RE)
+const lots = z.number().finite().positive().max(TRADE.maxVolume)
+/** Giá vào lệnh chờ: phải > 0. */
+const entryPrice = z.number().finite().positive().max(1e9)
+
+/** SL/TP đúng phía so với giá vào: mua SL < giá < TP; bán TP < giá < SL; 0 = không đặt. */
+export function pendingStopsOk(
+  kind: (typeof PENDING_KINDS)[number],
+  px: number,
+  sl: number,
+  tp: number,
+): boolean {
+  if (kind.startsWith('buy')) return (sl === 0 || sl < px) && (tp === 0 || tp > px)
+  return (sl === 0 || sl > px) && (tp === 0 || tp < px)
+}
+
+/** Lệnh có khớp bộ lọc close_all không (cùng quy tắc với EA): lãi/lỗ tính cả swap, đúng 0 không thuộc profit/loss. */
+export function matchesCloseAll(
+  filter: (typeof CLOSE_ALL_FILTERS)[number],
+  p: { type: string; profit?: number; swap?: number },
+): boolean {
+  const net = (p.profit ?? 0) + (p.swap ?? 0)
+  switch (filter) {
+    case 'all':
+      return true
+    case 'profit':
+      return net > 0
+    case 'loss':
+      return net < 0
+    case 'buy':
+      return p.type === 'buy'
+    case 'sell':
+      return p.type === 'sell'
+  }
+}
+
 /** Thân `POST /api/links/:id/trade`. */
-export const tradeRequestSchema = z.discriminatedUnion('op', [
+const tradeUnion = z.discriminatedUnion('op', [
   z.object({ op: z.literal('close'), ticket }),
   z.object({
     op: z.literal('partial_close'),
@@ -44,8 +102,43 @@ export const tradeRequestSchema = z.discriminatedUnion('op', [
     volume: z.number().finite().positive().max(TRADE.maxVolume),
   }),
   z.object({ op: z.literal('modify'), ticket, sl: price, tp: price }),
+  z.object({
+    op: z.literal('market'),
+    symbol,
+    side: z.enum(ORDER_SIDES),
+    volume: lots,
+    sl: price,
+    tp: price,
+  }),
+  z.object({
+    op: z.literal('pending'),
+    symbol,
+    kind: z.enum(PENDING_KINDS),
+    volume: lots,
+    price: entryPrice,
+    sl: price,
+    tp: price,
+  }),
+  z.object({ op: z.literal('close_all'), filter: z.enum(CLOSE_ALL_FILTERS) }),
 ])
-export type TradeRequest = z.infer<typeof tradeRequestSchema>
+export const tradeRequestSchema = tradeUnion.superRefine((r, ctx) => {
+  if (r.op === 'pending' && !pendingStopsOk(r.kind, r.price, r.sl, r.tp)) {
+    ctx.addIssue({ code: 'custom', message: 'SL/TP sai phía so với giá vào', path: ['sl'] })
+  }
+})
+export type TradeRequest = z.infer<typeof tradeUnion>
+
+/** Lệnh có gắn với một ticket có sẵn (close, partial_close, modify) không. */
+export function hasTicket(r: TradeRequest): r is Extract<TradeRequest, { ticket: number }> {
+  return r.op === 'close' || r.op === 'partial_close' || r.op === 'modify'
+}
+
+/** Phiên bản EA tối thiểu cho một op. */
+export function minEaVerForOp(op: TradeOp): string {
+  return op === 'market' || op === 'pending' || op === 'close_all'
+    ? TRADE.minEaVerOpen
+    : TRADE.minEaVer
+}
 
 export const TRADE_STATUSES = ['sent', 'done', 'failed', 'timeout'] as const
 export type TradeStatus = (typeof TRADE_STATUSES)[number]
@@ -63,6 +156,11 @@ export const TRADE_REASONS = [
   'no_position',
   'bad_volume',
   'bad_stops',
+  'bad_price',
+  'bad_symbol',
+  'no_money',
+  'no_match',
+  'partial',
   'bad_request',
   'algo_off',
   'market_closed',
@@ -83,6 +181,11 @@ export const tradeResultFields = {
   detail: shortText(120).default(''),
   /** Khối lượng còn lại của lệnh sau khi thực thi (đóng một phần); vắng nếu không biết. */
   left: z.number().finite().nonnegative().optional(),
+  /** Ticket lệnh vừa tạo (market, pending); vắng nếu không có. */
+  order: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional(),
+  /** close_all: số lệnh đóng được / lỗi. */
+  n_ok: z.number().int().nonnegative().optional(),
+  n_fail: z.number().int().nonnegative().optional(),
 }
 
 /** EA -> Gateway: `POST /v1/trade_result`. */

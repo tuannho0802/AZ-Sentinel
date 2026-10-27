@@ -28,6 +28,14 @@ function processBody(): string {
   return src.slice(start, next + 3)
 }
 
+/** Thân một hàm MQL5 ở cột 0 (từ dòng khai báo tới `}` ở cột 0 kế tiếp). */
+function funcBody(name: string): string {
+  const m = new RegExp(`^\\w[\\w ]*\\b${name}\\(`, 'm').exec(src)
+  expect(m, `hàm ${name} phải có`).not.toBeNull()
+  const start = m?.index ?? 0
+  return src.slice(start, src.indexOf('\n}\n', start) + 3)
+}
+
 describe('EA: các bất biến an toàn của giao dịch từ xa', () => {
   it('InpAllowRemoteTrading mặc định false', () => {
     expect(src).toMatch(/input\s+bool\s+InpAllowRemoteTrading\s*=\s*false\s*;/)
@@ -37,10 +45,11 @@ describe('EA: các bất biến an toàn của giao dịch từ xa', () => {
     const ver = /#define\s+EA_VER\s+"(\d+\.\d+\.\d+)"/.exec(src)?.[1]
     expect(ver).toBeDefined()
     expect(eaVersionAtLeast(ver, TRADE.minEaVer)).toBe(true)
+    expect(eaVersionAtLeast(ver, TRADE.minEaVerOpen)).toBe(true)
     const prop = /#property\s+version\s+"(\d+)\.(\d+)"/.exec(src)
     const [maj, min] = (ver ?? '').split('.')
     expect(prop?.[1]).toBe(maj)
-    // `#property version` có dạng M.mm; "0.5.0" -> "0.50".
+    // `#property version` có dạng M.mm; "0.6.0" -> "0.60".
     expect(Number(prop?.[2])).toBe(Number(min) * 10 + Number((ver ?? '').split('.')[2]))
   })
 
@@ -71,21 +80,68 @@ describe('EA: các bất biến an toàn của giao dịch từ xa', () => {
     expect(body.indexOf('MarkCmdDone(id)')).toBeLessThan(body.indexOf('InpAllowRemoteTrading'))
   })
 
-  it('Pha 1 không có đường đặt lệnh mới', () => {
-    for (const banned of [
-      'OrderSend(',
-      'OrderSendAsync(',
-      'g_trade.Buy(',
-      'g_trade.Sell(',
-      'g_trade.PositionOpen(',
-      'g_trade.OrderOpen(',
-      'g_trade.BuyLimit(',
-      'g_trade.SellLimit(',
-      'g_trade.BuyStop(',
-      'g_trade.SellStop(',
-    ]) {
+  it('InpAllowRemoteOpen (mở lệnh mới) mặc định false, tách riêng khỏi InpAllowRemoteTrading', () => {
+    expect(src).toMatch(/input\s+bool\s+InpAllowRemoteOpen\s*=\s*false\s*;/)
+  })
+
+  it('InpMaxRemoteVolume có trần mặc định nhỏ (<= 1 lot)', () => {
+    const v = /input\s+double\s+InpMaxRemoteVolume\s*=\s*([\d.]+)\s*;/.exec(src)?.[1]
+    expect(Number(v)).toBeGreaterThan(0)
+    expect(Number(v)).toBeLessThanOrEqual(1)
+  })
+
+  it('lệnh MỞ (Buy/Sell/Limit/Stop) chỉ nằm trong RemoteMarket và RemotePending', () => {
+    for (const banned of ['OrderSend(', 'OrderSendAsync(', 'g_trade.PositionOpen(', 'g_trade.OrderOpen(']) {
       expect(src, banned).not.toContain(banned)
     }
+    const allowed = [funcBody('RemoteMarket'), funcBody('RemotePending')]
+    for (const call of ['Buy(', 'Sell(', 'BuyLimit(', 'SellLimit(', 'BuyStop(', 'SellStop(']) {
+      const key = `g_trade.${call}`
+      const total = src.split(key).length - 1
+      const inAllowed = allowed.reduce((n, body) => n + (body.split(key).length - 1), 0)
+      expect(total, `${key} phải có`).toBeGreaterThan(0)
+      expect(inAllowed, `${key} chỉ được gọi trong RemoteMarket/RemotePending`).toBe(total)
+    }
+  })
+
+  it('RemoteMarket và RemotePending qua cửa OpenAllowed TRƯỚC mọi lệnh gọi sàn', () => {
+    for (const name of ['RemoteMarket', 'RemotePending']) {
+      const body = funcBody(name)
+      const gate = body.indexOf('OpenAllowed(id,')
+      expect(gate, `${name} phải gọi OpenAllowed`).toBeGreaterThan(-1)
+      expect(gate).toBeLessThan(body.indexOf('g_trade.'))
+    }
+  })
+
+  it('OpenAllowed kiểm công tắc InpAllowRemoteOpen, mã giao dịch, khối lượng (trần InpMaxRemoteVolume)', () => {
+    const gate = funcBody('OpenAllowed')
+    expect(gate).toContain('InpAllowRemoteOpen')
+    expect(gate).toContain('SymbolSelect(')
+    expect(gate).toContain('OpenVolumeError(')
+    expect(gate).not.toContain('g_trade.')
+    expect(funcBody('OpenVolumeError')).toContain('InpMaxRemoteVolume')
+  })
+
+  it('lệnh mới/hàng loạt chỉ được xử lý sau khi qua công tắc, hạn dùng và Algo Trading', () => {
+    const body = processBody()
+    for (const call of ['RemoteMarket(', 'RemotePending(', 'RemoteCloseAll(']) {
+      const i = body.indexOf(call)
+      expect(i, `${call} phải được gọi từ ProcessTradeCommand`).toBeGreaterThan(-1)
+      expect(i).toBeGreaterThan(body.indexOf('InpAllowRemoteTrading'))
+      expect(i).toBeGreaterThan(body.indexOf('ttl < TR_MIN_START_MS'))
+      expect(i).toBeGreaterThan(body.indexOf('TERMINAL_TRADE_ALLOWED'))
+    }
+  })
+
+  it('close_all chỉ đóng vị thế (PositionClose), có giới hạn thời gian TR_MAX_RUN_MS < hạn dùng lệnh', () => {
+    const body = funcBody('RemoteCloseAll')
+    expect(body).toContain('g_trade.PositionClose(')
+    expect(body).toContain('TR_MAX_RUN_MS')
+    for (const banned of ['g_trade.Buy', 'g_trade.Sell', 'OrderDelete', 'PositionModify']) {
+      expect(body, banned).not.toContain(banned)
+    }
+    const v = /#define\s+TR_MAX_RUN_MS\s+(\d+)/.exec(src)?.[1]
+    expect(Number(v)).toBeLessThan(TRADE.ttlMs)
   })
 
   it('chỉ ba thao tác sàn: PositionClose, PositionClosePartial, PositionModify', () => {

@@ -10,7 +10,15 @@ import {
   sampleSchema,
   tradeEventSchema,
 } from './ingest-schema'
-import { CMD_ID, TRADE_OPS, tradeResultFields } from './trade-schema'
+import {
+  CLOSE_ALL_FILTERS,
+  CMD_ID,
+  ORDER_SIDES,
+  PENDING_KINDS,
+  SYMBOL_RE,
+  TRADE_OPS,
+  tradeResultFields,
+} from './trade-schema'
 
 /**
  * Giao thức Gateway (Plan 3C mục 3 và 4). Hằng số dùng chung Gateway, BE, test; EA (MQL5) chép
@@ -176,7 +184,9 @@ export type LocalPingResponse = {
   /**
    * Lệnh giao dịch thủ công đang chờ EA (v0.2.6). Phẳng, tiền tố `tr_`, để EA (MQL5) tách bằng tìm chuỗi.
    * Vắng cả nhóm = không có lệnh. `tr_ttl` là số ms CÒN LẠI của hạn dùng tại lúc Gateway trả lời.
-   * `tr_vol` chỉ có với `partial_close`; `tr_sl`/`tr_tp` chỉ có với `modify` (0 = bỏ).
+   * `tr_ticket` có với close/partial_close/modify. `tr_vol` có với partial_close, market, pending.
+   * `tr_sl`/`tr_tp` có với modify, market, pending (0 = bỏ). Pha 2: `tr_sym` (market, pending), `tr_side`
+   * (market), `tr_kind` (pending), `tr_px` (giá vào lệnh chờ), `tr_filter` (close_all).
    */
   tr_id?: string
   tr_op?: (typeof TRADE_OPS)[number]
@@ -184,6 +194,11 @@ export type LocalPingResponse = {
   tr_vol?: number
   tr_sl?: number
   tr_tp?: number
+  tr_sym?: string
+  tr_side?: (typeof ORDER_SIDES)[number]
+  tr_kind?: (typeof PENDING_KINDS)[number]
+  tr_px?: number
+  tr_filter?: (typeof CLOSE_ALL_FILTERS)[number]
   tr_ttl?: number
 }
 
@@ -274,17 +289,22 @@ export const gwServerMessageSchema = z.discriminatedUnion('t', [
   z.object({ t: z.literal('alert_ack'), tid, aseq: z.number().int().nonnegative() }),
   /**
    * Lệnh giao dịch thủ công cho một terminal (v0.2.6). Gateway giữ tối đa một lệnh mỗi terminal và
-   * chuyển cho EA qua phản hồi ping/samples. `volume` chỉ cho `partial_close`, `sl`/`tp` chỉ cho `modify`.
+   * chuyển cho EA qua phản hồi ping/samples. Trường nào bắt buộc cho `op` nào do Gateway kiểm (`acceptTrade`).
    */
   z.object({
     t: z.literal('trade'),
     tid,
     cmd_id: z.string().regex(CMD_ID),
     op: z.enum(TRADE_OPS),
-    ticket: z.number().int().positive(),
+    ticket: z.number().int().positive().optional(),
     volume: z.number().finite().positive().optional(),
     sl: z.number().finite().nonnegative().optional(),
     tp: z.number().finite().nonnegative().optional(),
+    symbol: z.string().regex(SYMBOL_RE).optional(),
+    side: z.enum(ORDER_SIDES).optional(),
+    kind: z.enum(PENDING_KINDS).optional(),
+    price: z.number().finite().positive().optional(),
+    filter: z.enum(CLOSE_ALL_FILTERS).optional(),
   }),
   z.object({
     t: z.literal('update'),

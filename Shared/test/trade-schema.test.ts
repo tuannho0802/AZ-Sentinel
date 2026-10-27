@@ -19,7 +19,7 @@ describe('tradeRequestSchema', () => {
     ).toBe(true)
   })
 
-  it('từ chối lệnh đặt mới (Pha 2 chưa làm) và op lạ', () => {
+  it('từ chối op lạ (không có đường tắt kiểu buy/open)', () => {
     expect(tradeRequestSchema.safeParse({ op: 'buy', ticket: 1 }).success).toBe(false)
     expect(tradeRequestSchema.safeParse({ op: 'open', symbol: 'XAUUSD', volume: 1 }).success).toBe(
       false,

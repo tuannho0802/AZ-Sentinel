@@ -9,6 +9,7 @@ import { LinkActions } from './LinkActions'
 import { classify } from './links-view'
 import { PositionsFooter } from './PositionsFooter'
 import { StatusBadge } from './StatusBadge'
+import { PositionsToolbar } from './OrderControls'
 import { PositionTradeActions, TradeEnableToggle } from './TradeControls'
 import { VpsNameCell } from './VpsNameCell'
 
@@ -166,7 +167,18 @@ export function LinkDetailView({
         </Card>
       </div>
 
-      <Card title={`${strings.positionsTitle} (${link.positions.length})`}>
+      <Card
+        title={`${strings.positionsTitle} (${link.positions.length})`}
+        action={
+          showTrade ? (
+            <PositionsToolbar
+              linkId={link.id}
+              positions={link.positions}
+              disabled={liveState !== 'live'}
+            />
+          ) : undefined
+        }
+      >
         {link.positions.length === 0 ? (
           <p className="text-sm text-muted">{strings.positionsEmpty}</p>
         ) : (

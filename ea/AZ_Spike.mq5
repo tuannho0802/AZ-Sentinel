@@ -14,15 +14,19 @@
 //|             phan hoi ping/samples; EA dong lenh, dong mot phan,   |
 //|             sua SL/TP roi POST /v1/trade_result. MAC DINH TAT:    |
 //|             chi chay khi InpAllowRemoteTrading = true.            |
+//|   Pha 2 (v0.6.0): dong hang loat theo bo loc (close_all), va MO   |
+//|             lenh moi (market, lenh cho limit/stop kem SL/TP). MO   |
+//|             lenh can THEM InpAllowRemoteOpen = true (mac dinh tat) |
+//|             va bi chan boi InpMaxRemoteVolume.                    |
 //| Ten file giu nguyen de giu lich su git (Q2); doi ten khi phat hanh|
 //+------------------------------------------------------------------+
 #property copyright "AZ Team"
-#property version "0.50"
-#property description "AZ Sentinel tracking EA: ping, samples, event toi Gateway cuc bo; tuy chon dieu khien lenh tu xa"
+#property version "0.60"
+#property description "AZ Sentinel tracking EA: ping, samples, event toi Gateway cuc bo; tuy chon dieu khien lenh tu xa (dong, sua, mo lenh)"
 
 #include <Trade\Trade.mqh>
 
-#define EA_VER "0.5.0"
+#define EA_VER "0.6.0"
 #define MAX_SAMPLES 20
 #define MAX_POSITIONS 200
 #define MAX_PENDING_EVENTS 100
@@ -30,6 +34,7 @@
 #define ALERT_REPORT_SEC 60      // nhac lai "dang vuot nguong lo float" moi chung nay giay (Server loc)
 #define ALERT_RETRY_SEC 10       // gui that bai (Gateway chua nhan): thu lai sau chung nay giay
 #define TR_MIN_START_MS 3000     // chi BAT DAU thuc thi lenh tu xa khi han dung (tr_ttl) con it nhat chung nay ms
+#define TR_MAX_RUN_MS 8000       // close_all: ngung dong them khi da chay chung nay ms (de ket qua kip ve truoc khi Gateway bao timeout)
 #define TR_RESULT_TRIES 20       // gui ket qua lenh toi Gateway that bai thi thu lai toi da chung nay lan (moi 2 giay)
 #define ALERT_ZERO_TICKS 3       // can chung nay lan do lien tiep thay 0 lenh moi bao "clear" (tranh sai luc moi khoi dong)
 
@@ -37,7 +42,9 @@ input string InpGateway = "http://127.0.0.1:47800"; // Gateway cuc bo (phai nam 
 input string InpApiKey = "";            // De trong = tu dong theo token ca nhan cua Gateway. Neu nhap: API key cua lien ket, khong chia se
 input int InpPingSec = 5;                           // Nhip ping Gateway (giay, toi thieu 2)
 input int InpTimeoutMs = 1000;                      // Timeout WebRequest (ms). Gateway tra loi duoi 50 ms
-input bool InpAllowRemoteTrading = false;           // CHO PHEP dieu khien lenh tu xa (dong lenh, dong mot phan, sua SL/TP). MAC DINH TAT. Bat = ai co quyen tren web deu dieu khien duoc tai khoan nay
+input bool InpAllowRemoteTrading = false;           // CHO PHEP dieu khien lenh tu xa (dong lenh, dong mot phan, sua SL/TP, close all). MAC DINH TAT. Bat = ai co quyen tren web deu dieu khien duoc tai khoan nay
+input bool InpAllowRemoteOpen = false;              // CHO PHEP MO LENH MOI tu xa (market, lenh cho). MAC DINH TAT, can bat them InpAllowRemoteTrading. Bat = nguoi co quyen tren web co the tang rui ro tai khoan nay
+input double InpMaxRemoteVolume = 1.0;              // Khoi luong toi da (lot) cua MOT lenh MO MOI tu xa; vuot thi tu choi. Chan go nham so lot
 input int InpSlippagePts = 30;                      // Do truot gia toi da (point) cho lenh dong tu xa
 input double InpMarginLevelAlert = 0.0;             // Canh bao khi margin level (%) xuong duoi muc nay. 0 = tat
 
@@ -489,7 +496,9 @@ void SendPendingTradeResult()
 }
 
 //--- left < 0 nghia la khong biet khoi luong con lai
-void QueueTradeResult(const string id, const string status, const string reason, const int code, const string detail, const double left)
+//--- order > 0: ticket lenh vua tao; nOk/nFail >= 0: ket qua dong hang loat (close_all)
+void QueueTradeResult(const string id, const string status, const string reason, const int code, const string detail, const double left,
+                      const long order = 0, const int nOk = -1, const int nFail = -1)
 {
    g_trResult = "{" + Ident() +
                 ",\"cmd_id\":" + Q(id) +
@@ -497,7 +506,10 @@ void QueueTradeResult(const string id, const string status, const string reason,
                 ",\"reason\":" + Q(reason) +
                 ",\"code\":" + IntegerToString(code) +
                 ",\"detail\":" + Q(StringSubstr(detail, 0, 120)) +
-                ((left >= 0.0) ? ",\"left\":" + P(left) : "") + "}";
+                ((left >= 0.0) ? ",\"left\":" + P(left) : "") +
+                ((order > 0) ? ",\"order\":" + IntegerToString(order) : "") +
+                ((nOk >= 0) ? ",\"n_ok\":" + IntegerToString(nOk) : "") +
+                ((nFail >= 0) ? ",\"n_fail\":" + IntegerToString(nFail) : "") + "}";
    g_trTries = 0;
    g_trNextTryMs = 0;
    PrintFormat("AZ: lenh tu xa %s -> %s (%s, retcode %d)", id, status, reason, code);
@@ -510,11 +522,16 @@ string ReasonForRetcode(const uint rc)
    {
    case TRADE_RETCODE_DONE:
    case TRADE_RETCODE_DONE_PARTIAL:
+   case TRADE_RETCODE_PLACED:
       return "ok";
    case TRADE_RETCODE_MARKET_CLOSED:
       return "market_closed";
    case TRADE_RETCODE_INVALID_STOPS:
       return "bad_stops";
+   case TRADE_RETCODE_INVALID_PRICE:
+      return "bad_price";
+   case TRADE_RETCODE_NO_MONEY:
+      return "no_money";
    case TRADE_RETCODE_INVALID_VOLUME:
       return "bad_volume";
    case TRADE_RETCODE_CLIENT_DISABLES_AT:
@@ -535,6 +552,270 @@ void ReportTradeOutcome(const string id, const ulong ticket)
       detail = StringFormat("call failed, err %d", GetLastError());
    double left = PositionSelectByTicket(ticket) ? PositionGetDouble(POSITION_VOLUME) : 0.0;
    QueueTradeResult(id, done ? "done" : "failed", ReasonForRetcode(rc), (int)rc, detail, left);
+}
+
+//--- Bao ket qua mot lenh MO MOI (market, lenh cho): retcode that cua san va ticket lenh vua tao.
+void ReportOrderOutcome(const string id)
+{
+   uint rc = g_trade.ResultRetcode();
+   bool done = (rc == TRADE_RETCODE_DONE || rc == TRADE_RETCODE_DONE_PARTIAL || rc == TRADE_RETCODE_PLACED);
+   string detail = g_trade.ResultRetcodeDescription();
+   if (rc == 0)
+      detail = StringFormat("call failed, err %d", GetLastError());
+   long ord = done ? (long)g_trade.ResultOrder() : 0;
+   QueueTradeResult(id, done ? "done" : "failed", ReasonForRetcode(rc), (int)rc, detail, -1.0, ord);
+}
+
+//--- Khoi luong cua lenh MO MOI: dung buoc lot, trong [min, max] cua san, khong vuot InpMaxRemoteVolume.
+//--- Khong tu lam tron (giong dong mot phan). Tra ve chuoi rong neu hop le, nguoc lai la mo ta loi.
+string OpenVolumeError(const string sym, const double vol)
+{
+   double step = SymbolInfoDouble(sym, SYMBOL_VOLUME_STEP);
+   double minv = SymbolInfoDouble(sym, SYMBOL_VOLUME_MIN);
+   double maxv = SymbolInfoDouble(sym, SYMBOL_VOLUME_MAX);
+   if (step <= 0.0 || vol <= 0.0)
+      return "invalid volume";
+   if (vol > InpMaxRemoteVolume + 1e-9)
+      return "volume exceeds InpMaxRemoteVolume";
+   double aligned = MathRound(vol / step) * step;
+   if (MathAbs(aligned - vol) > step * 1e-6)
+      return "volume not a multiple of step";
+   if (vol < minv - 1e-9 || (maxv > 0.0 && vol > maxv + 1e-9))
+      return "volume outside symbol min/max";
+   return "";
+}
+
+//--- Cua chung cua MOI thao tac MO lenh moi: cong tac rieng InpAllowRemoteOpen, ma giao dich, khoi luong.
+//--- Tra ve false (da bao ket qua that bai) neu khong duoc phep.
+bool OpenAllowed(const string id, const string sym, const double vol)
+{
+   if (!InpAllowRemoteOpen)
+   {
+      QueueTradeResult(id, "failed", "remote_disabled", 0, "InpAllowRemoteOpen is off", -1.0);
+      return false;
+   }
+   if (StringLen(sym) == 0 || !SymbolSelect(sym, true))
+   {
+      QueueTradeResult(id, "failed", "bad_symbol", 0, "symbol not found: " + sym, -1.0);
+      return false;
+   }
+   long tm = SymbolInfoInteger(sym, SYMBOL_TRADE_MODE);
+   if (tm == SYMBOL_TRADE_MODE_DISABLED || tm == SYMBOL_TRADE_MODE_CLOSEONLY)
+   {
+      QueueTradeResult(id, "failed", "bad_symbol", 0, "symbol does not allow opening trades", -1.0);
+      return false;
+   }
+   string verr = OpenVolumeError(sym, vol);
+   if (StringLen(verr) > 0)
+   {
+      QueueTradeResult(id, "failed", "bad_volume", 0, verr, -1.0);
+      return false;
+   }
+   return true;
+}
+
+//--- Mo vi the theo gia thi truong (tr_sym, tr_side, tr_vol, tr_sl, tr_tp). sl/tp = 0: khong dat.
+void RemoteMarket(const string resp, const string id)
+{
+   string sym = JsonStr(resp, "tr_sym");
+   string side = JsonStr(resp, "tr_side");
+   double vol = JsonDbl(resp, "tr_vol", 0.0);
+   if ((side != "buy" && side != "sell") || !JsonHas(resp, "tr_sl") || !JsonHas(resp, "tr_tp"))
+   {
+      QueueTradeResult(id, "failed", "bad_request", 0, "market needs tr_side, tr_sl and tr_tp", -1.0);
+      return;
+   }
+   if (!OpenAllowed(id, sym, vol))
+      return;
+
+   double sl = JsonDbl(resp, "tr_sl", 0.0);
+   double tp = JsonDbl(resp, "tr_tp", 0.0);
+   if (sl < 0.0 || tp < 0.0)
+   {
+      QueueTradeResult(id, "failed", "bad_stops", 0, "negative price", -1.0);
+      return;
+   }
+   int digits = (int)SymbolInfoInteger(sym, SYMBOL_DIGITS);
+   sl = (sl > 0.0) ? NormalizeDouble(sl, digits) : 0.0;
+   tp = (tp > 0.0) ? NormalizeDouble(tp, digits) : 0.0;
+
+   bool isBuy = (side == "buy");
+   // Vi the mua dong o Bid, vi the ban dong o Ask: SL/TP phai dung phia so voi gia do.
+   double ref = isBuy ? SymbolInfoDouble(sym, SYMBOL_BID) : SymbolInfoDouble(sym, SYMBOL_ASK);
+   if (ref <= 0.0)
+   {
+      QueueTradeResult(id, "failed", "market_closed", 0, "no quote for symbol", -1.0);
+      return;
+   }
+   bool sideOk = isBuy ? ((sl == 0.0 || sl < ref) && (tp == 0.0 || tp > ref))
+                       : ((sl == 0.0 || sl > ref) && (tp == 0.0 || tp < ref));
+   if (!sideOk)
+   {
+      QueueTradeResult(id, "failed", "bad_stops", 0, "SL/TP on the wrong side of the market price", -1.0);
+      return;
+   }
+
+   g_trade.SetTypeFillingBySymbol(sym);
+   if (isBuy)
+      g_trade.Buy(vol, sym, 0.0, sl, tp, "AZ remote");
+   else
+      g_trade.Sell(vol, sym, 0.0, sl, tp, "AZ remote");
+   ReportOrderOutcome(id);
+}
+
+//--- Dat lenh cho (tr_sym, tr_kind, tr_vol, tr_px, tr_sl, tr_tp). sl/tp = 0: khong dat. Het han: GTC.
+void RemotePending(const string resp, const string id)
+{
+   string sym = JsonStr(resp, "tr_sym");
+   string kind = JsonStr(resp, "tr_kind");
+   double vol = JsonDbl(resp, "tr_vol", 0.0);
+   double px = JsonDbl(resp, "tr_px", 0.0);
+   if (px <= 0.0 || !JsonHas(resp, "tr_sl") || !JsonHas(resp, "tr_tp") ||
+       (kind != "buy_limit" && kind != "sell_limit" && kind != "buy_stop" && kind != "sell_stop"))
+   {
+      QueueTradeResult(id, "failed", "bad_request", 0, "pending needs tr_kind, tr_px, tr_sl and tr_tp", -1.0);
+      return;
+   }
+   if (!OpenAllowed(id, sym, vol))
+      return;
+
+   double sl = JsonDbl(resp, "tr_sl", 0.0);
+   double tp = JsonDbl(resp, "tr_tp", 0.0);
+   if (sl < 0.0 || tp < 0.0)
+   {
+      QueueTradeResult(id, "failed", "bad_stops", 0, "negative price", -1.0);
+      return;
+   }
+   int digits = (int)SymbolInfoInteger(sym, SYMBOL_DIGITS);
+   px = NormalizeDouble(px, digits);
+   sl = (sl > 0.0) ? NormalizeDouble(sl, digits) : 0.0;
+   tp = (tp > 0.0) ? NormalizeDouble(tp, digits) : 0.0;
+
+   bool isBuy = (StringFind(kind, "buy") == 0);
+   // SL/TP phai dung phia so voi gia vao: mua SL < gia < TP; ban TP < gia < SL.
+   bool sideOk = isBuy ? ((sl == 0.0 || sl < px) && (tp == 0.0 || tp > px))
+                       : ((sl == 0.0 || sl > px) && (tp == 0.0 || tp < px));
+   if (!sideOk)
+   {
+      QueueTradeResult(id, "failed", "bad_stops", 0, "SL/TP on the wrong side of the entry price", -1.0);
+      return;
+   }
+
+   // Gia vao phai dung phia so voi thi truong: buy_limit < Ask, buy_stop > Ask, sell_limit > Bid, sell_stop < Bid.
+   double ask = SymbolInfoDouble(sym, SYMBOL_ASK);
+   double bid = SymbolInfoDouble(sym, SYMBOL_BID);
+   if (ask <= 0.0 || bid <= 0.0)
+   {
+      QueueTradeResult(id, "failed", "market_closed", 0, "no quote for symbol", -1.0);
+      return;
+   }
+   bool pxOk = false;
+   if (kind == "buy_limit")
+      pxOk = (px < ask);
+   else if (kind == "buy_stop")
+      pxOk = (px > ask);
+   else if (kind == "sell_limit")
+      pxOk = (px > bid);
+   else
+      pxOk = (px < bid);
+   if (!pxOk)
+   {
+      QueueTradeResult(id, "failed", "bad_price", 0, "entry price on the wrong side of the market price", -1.0);
+      return;
+   }
+
+   g_trade.SetTypeFilling(ORDER_FILLING_RETURN);
+   if (kind == "buy_limit")
+      g_trade.BuyLimit(vol, px, sym, sl, tp, ORDER_TIME_GTC, 0, "AZ remote");
+   else if (kind == "sell_limit")
+      g_trade.SellLimit(vol, px, sym, sl, tp, ORDER_TIME_GTC, 0, "AZ remote");
+   else if (kind == "buy_stop")
+      g_trade.BuyStop(vol, px, sym, sl, tp, ORDER_TIME_GTC, 0, "AZ remote");
+   else
+      g_trade.SellStop(vol, px, sym, sl, tp, ORDER_TIME_GTC, 0, "AZ remote");
+   ReportOrderOutcome(id);
+}
+
+//--- Dong hang loat vi the theo bo loc tr_filter: all | profit | loss | buy | sell.
+//--- profit: lai + swap > 0; loss: lai + swap < 0 (cung quy tac voi matchesCloseAll cua Shared). Khong dung lenh cho.
+//--- Chi GIAM rui ro nen dung chung cong tac InpAllowRemoteTrading. Dung them lenh khi qua TR_MAX_RUN_MS.
+void RemoteCloseAll(const string resp, const string id)
+{
+   string filter = JsonStr(resp, "tr_filter");
+   if (filter != "all" && filter != "profit" && filter != "loss" && filter != "buy" && filter != "sell")
+   {
+      QueueTradeResult(id, "failed", "bad_request", 0, "close_all needs tr_filter", -1.0);
+      return;
+   }
+
+   // Chot danh sach ticket truoc, vi dong lenh lam doi chi so cua PositionsTotal.
+   ulong tickets[];
+   int n = 0;
+   int total = PositionsTotal();
+   for (int i = 0; i < total; i++)
+   {
+      ulong t = PositionGetTicket(i);
+      if (t == 0)
+         continue;
+      double net = PositionGetDouble(POSITION_PROFIT) + PositionGetDouble(POSITION_SWAP);
+      long type = PositionGetInteger(POSITION_TYPE);
+      bool hit = (filter == "all") ||
+                 (filter == "profit" && net > 0.0) ||
+                 (filter == "loss" && net < 0.0) ||
+                 (filter == "buy" && type == POSITION_TYPE_BUY) ||
+                 (filter == "sell" && type == POSITION_TYPE_SELL);
+      if (!hit)
+         continue;
+      ArrayResize(tickets, n + 1);
+      tickets[n] = t;
+      n++;
+   }
+   if (n == 0)
+   {
+      QueueTradeResult(id, "failed", "no_match", 0, "no open position matches the filter", -1.0, 0, 0, 0);
+      return;
+   }
+
+   ulong startMs = GetTickCount64();
+   int okN = 0;
+   int failN = 0;
+   uint lastRc = 0;
+   string lastDetail = "";
+   bool stopped = false;
+   for (int k = 0; k < n; k++)
+   {
+      if (GetTickCount64() - startMs > TR_MAX_RUN_MS)
+      {
+         failN += n - k;
+         stopped = true;
+         break;
+      }
+      if (!PositionSelectByTicket(tickets[k]))
+         continue; // da bi dong o noi khac trong luc chay: khong tinh vao ket qua
+      g_trade.SetTypeFillingBySymbol(PositionGetString(POSITION_SYMBOL));
+      g_trade.PositionClose(tickets[k], (ulong)InpSlippagePts);
+      uint rc = g_trade.ResultRetcode();
+      if (rc == TRADE_RETCODE_DONE || rc == TRADE_RETCODE_DONE_PARTIAL)
+         okN++;
+      else
+      {
+         failN++;
+         lastRc = rc;
+         lastDetail = (rc == 0) ? StringFormat("call failed, err %d", GetLastError()) : g_trade.ResultRetcodeDescription();
+      }
+   }
+
+   string detail = StringFormat("closed %d, failed %d", okN, failN);
+   if (stopped)
+      detail += ", stopped at time limit";
+   else if (failN > 0)
+      detail += ", last: " + lastDetail;
+   if (failN == 0)
+      QueueTradeResult(id, "done", "ok", (int)TRADE_RETCODE_DONE, detail, -1.0, 0, okN, 0);
+   else if (okN > 0)
+      QueueTradeResult(id, "failed", "partial", (int)lastRc, detail, -1.0, 0, okN, failN);
+   else
+      QueueTradeResult(id, "failed", ReasonForRetcode(lastRc), (int)lastRc, detail, -1.0, 0, 0, failN);
 }
 
 void ProcessTradeCommand(const string resp, const string id)
@@ -561,6 +842,22 @@ void ProcessTradeCommand(const string resp, const string id)
        !(bool)AccountInfoInteger(ACCOUNT_TRADE_ALLOWED) || !(bool)AccountInfoInteger(ACCOUNT_TRADE_EXPERT))
    {
       QueueTradeResult(id, "failed", "algo_off", 0, "trading not allowed (Algo Trading / account)", -1.0);
+      return;
+   }
+   // Pha 2: lenh khong gan voi mot ticket co san. Moi ham tu kiem cong tac/gioi han cua minh truoc khi goi san.
+   if (op == "market")
+   {
+      RemoteMarket(resp, id);
+      return;
+   }
+   if (op == "pending")
+   {
+      RemotePending(resp, id);
+      return;
+   }
+   if (op == "close_all")
+   {
+      RemoteCloseAll(resp, id);
       return;
    }
    if (ticket == 0 || !PositionSelectByTicket(ticket))
@@ -1390,6 +1687,8 @@ int OnInit()
    g_trade.LogLevel(LOG_LEVEL_ERRORS);
    if (InpAllowRemoteTrading)
       Print("AZ: CANH BAO: da BAT dieu khien lenh tu xa (InpAllowRemoteTrading = true).");
+   if (InpAllowRemoteTrading && InpAllowRemoteOpen)
+      PrintFormat("AZ: CANH BAO: da BAT MO LENH MOI tu xa (InpAllowRemoteOpen = true, toi da %.2f lot/lenh).", InpMaxRemoteVolume);
    PrintFormat("AZ: bat dau, ver %s, sid %s, Gateway %s", EA_VER, g_sid, InpGateway);
    return (INIT_SUCCEEDED);
 }

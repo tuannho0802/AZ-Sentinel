@@ -811,16 +811,30 @@ export class Gateway {
       this.failTrade(msg.tid, msg.cmd_id, 'failed', 'busy', 'previous command pending')
       return
     }
+    const hasTicket = msg.ticket !== undefined
+    const stops = msg.sl !== undefined && msg.tp !== undefined
     const complete =
-      msg.op === 'close' ||
-      (msg.op === 'partial_close' && msg.volume !== undefined) ||
-      (msg.op === 'modify' && msg.sl !== undefined && msg.tp !== undefined)
+      (msg.op === 'close' && hasTicket) ||
+      (msg.op === 'partial_close' && hasTicket && msg.volume !== undefined) ||
+      (msg.op === 'modify' && hasTicket && stops) ||
+      (msg.op === 'market' &&
+        msg.symbol !== undefined &&
+        msg.side !== undefined &&
+        msg.volume !== undefined &&
+        stops) ||
+      (msg.op === 'pending' &&
+        msg.symbol !== undefined &&
+        msg.kind !== undefined &&
+        msg.volume !== undefined &&
+        msg.price !== undefined &&
+        stops) ||
+      (msg.op === 'close_all' && msg.filter !== undefined)
     if (!complete) {
       this.failTrade(msg.tid, msg.cmd_id, 'failed', 'bad_request', 'missing fields')
       return
     }
     t.trade = { cmd: msg, expiresMs: this.now() + TRADE.ttlMs }
-    this.log.info(`lệnh giao dịch ${msg.op} #${msg.ticket} cho ${msg.tid} (${msg.cmd_id})`)
+    this.log.info(`lệnh giao dịch ${msg.op}${msg.ticket !== undefined ? ` #${msg.ticket}` : ''} cho ${msg.tid} (${msg.cmd_id})`)
   }
 
   /**
@@ -845,7 +859,12 @@ export class Gateway {
     return {
       tr_id: c.cmd_id,
       tr_op: c.op,
-      tr_ticket: c.ticket,
+      ...(c.ticket !== undefined ? { tr_ticket: c.ticket } : {}),
+      ...(c.symbol !== undefined ? { tr_sym: c.symbol } : {}),
+      ...(c.side !== undefined ? { tr_side: c.side } : {}),
+      ...(c.kind !== undefined ? { tr_kind: c.kind } : {}),
+      ...(c.price !== undefined ? { tr_px: c.price } : {}),
+      ...(c.filter !== undefined ? { tr_filter: c.filter } : {}),
       ...(c.volume !== undefined ? { tr_vol: c.volume } : {}),
       ...(c.sl !== undefined ? { tr_sl: c.sl } : {}),
       ...(c.tp !== undefined ? { tr_tp: c.tp } : {}),
@@ -866,6 +885,9 @@ export class Gateway {
         code: r.code,
         detail: r.detail,
         ...(r.left !== undefined ? { left: r.left } : {}),
+        ...(r.order !== undefined ? { order: r.order } : {}),
+        ...(r.n_ok !== undefined ? { n_ok: r.n_ok } : {}),
+        ...(r.n_fail !== undefined ? { n_fail: r.n_fail } : {}),
       })
       if (ok) t.tradeResults.delete(id)
     }

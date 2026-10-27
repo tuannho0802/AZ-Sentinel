@@ -113,7 +113,7 @@ export function useSetTradeEnabled(id: number) {
   })
 }
 
-export type TradeAccepted = { cmd_id: string; op: TradeRequest['op']; ticket: number }
+export type TradeAccepted = { cmd_id: string; op: TradeRequest['op']; ticket: number | null }
 
 /**
  * Gửi lệnh giao dịch thủ công. Phản hồi 202 chỉ nghĩa là lệnh đã được chuyển đi; kết quả thật (retcode của

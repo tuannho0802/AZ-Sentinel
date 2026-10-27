@@ -2,15 +2,18 @@ import {
   type CreateLinkResponse,
   createLinkRequestSchema,
   eaVersionAtLeast,
+  hasTicket,
   LINK_STATUSES,
   type LinkDetail,
   type LinkEventView,
   type LinkListResponse,
+  minEaVerForOp,
   normalizeVpsName,
   positionSchema,
   setVpsNameSchema,
   TRADE,
   type TradeCommand,
+  type TradeRequest,
   tradeRequestSchema,
 } from '@az-sentinel/shared'
 import { zValidator } from '@hono/zod-validator'
@@ -39,6 +42,37 @@ const LIST_LIMIT = 200
 const EVENTS_LIMIT = 20
 
 const isAdmin = (v: Viewer) => v.role === 'root_admin' || v.role === 'admin'
+
+type LogCols = [
+  number | null,
+  string | null,
+  string | null,
+  number | null,
+  number | null,
+  number | null,
+  number | null,
+]
+
+/**
+ * Các cột mô tả lệnh trong `trade_log`, theo thứ tự `ticket, symbol, kind, volume, price, sl, tp`.
+ * `kind` = hướng (market), loại lệnh chờ (pending) hoặc bộ lọc (close_all).
+ */
+function logColumns(req: TradeRequest): LogCols {
+  switch (req.op) {
+    case 'close':
+      return [req.ticket, null, null, null, null, null, null]
+    case 'partial_close':
+      return [req.ticket, null, null, req.volume, null, null, null]
+    case 'modify':
+      return [req.ticket, null, null, null, null, req.sl, req.tp]
+    case 'market':
+      return [null, req.symbol, req.side, req.volume, null, req.sl, req.tp]
+    case 'pending':
+      return [null, req.symbol, req.kind, req.volume, req.price, req.sl, req.tp]
+    case 'close_all':
+      return [null, null, req.filter, null, null, null, null]
+  }
+}
 
 /** 16 ký tự hex ngẫu nhiên: định danh lệnh giao dịch (EA nhớ để không chạy lại). */
 function newCmdId(): string {
@@ -213,7 +247,7 @@ export function createLinkRoutes(viewerAuth: ViewerAuth) {
   )
 
   /**
-   * Giao dịch thủ công từ xa: đóng lệnh, đóng một phần, sửa SL/TP (v0.2.6). Trả 202 kèm `cmd_id`; kết quả
+   * Giao dịch thủ công từ xa: đóng lệnh, đóng một phần, sửa SL/TP (v0.2.6); market, lệnh chờ, close all (Pha 2). Trả 202 kèm `cmd_id`; kết quả
    * thật đến sau qua WebSocket (`trade_result`), không phải phản hồi này.
    *
    * Kiểm tra theo thứ tự: quyền admin, quyền với liên kết, hợp lệ thân lệnh, liên kết đang bật, đã bật
@@ -249,12 +283,9 @@ export function createLinkRoutes(viewerAuth: ViewerAuth) {
     if (link.login === null) throw new AppError(409, 'CONFLICT', 'Liên kết chưa gắn tài khoản')
     // Phiên bản EA đã biết mà cũ hơn thì EA không hiểu lệnh: từ chối rõ ràng thay vì để chờ timeout.
     // Chưa biết phiên bản (null) thì cho qua, vì không có bằng chứng EA cũ.
-    if (link.ea_ver !== null && !eaVersionAtLeast(link.ea_ver, TRADE.minEaVer)) {
-      throw new AppError(
-        409,
-        'CONFLICT',
-        `EA chưa hỗ trợ giao dịch từ xa (cần >= ${TRADE.minEaVer})`,
-      )
+    const needVer = minEaVerForOp(req.op)
+    if (link.ea_ver !== null && !eaVersionAtLeast(link.ea_ver, needVer)) {
+      throw new AppError(409, 'CONFLICT', `EA chưa hỗ trợ lệnh này (cần >= ${needVer})`)
     }
 
     const now = nowUnix()
@@ -269,20 +300,10 @@ export function createLinkRoutes(viewerAuth: ViewerAuth) {
 
     const cmdId = newCmdId()
     await c.env.DB.prepare(
-      `INSERT INTO trade_log (link_id, user_id, cmd_id, op, ticket, volume, sl, tp, status, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'sent', ?)`,
+      `INSERT INTO trade_log (link_id, user_id, cmd_id, op, ticket, symbol, kind, volume, price, sl, tp, status, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'sent', ?)`,
     )
-      .bind(
-        id,
-        viewer.userId,
-        cmdId,
-        req.op,
-        req.ticket,
-        req.op === 'partial_close' ? req.volume : null,
-        req.op === 'modify' ? req.sl : null,
-        req.op === 'modify' ? req.tp : null,
-        now,
-      )
+      .bind(id, viewer.userId, cmdId, req.op, ...logColumns(req), now)
       .run()
 
     const cmd: TradeCommand = { cmd_id: cmdId, ...req }
@@ -296,7 +317,7 @@ export function createLinkRoutes(viewerAuth: ViewerAuth) {
         .run()
       throw new AppError(409, 'TRADE_BUSY', 'Terminal đang offline, chưa gửi được lệnh')
     }
-    return c.json({ cmd_id: cmdId, op: req.op, ticket: req.ticket }, 202)
+    return c.json({ cmd_id: cmdId, op: req.op, ticket: hasTicket(req) ? req.ticket : null }, 202)
   })
 
   /** Cấp lại khóa: khóa cũ vô hiệu ngay, giữ nguyên tài khoản đã gắn. Khóa mới chỉ trả ở phản hồi này. */

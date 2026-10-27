@@ -476,14 +476,9 @@ export class LiveHub extends DurableObject<Bindings> {
       const term = this.loadTerms(att.connId).find((t) => t.linkId === linkId)
       if (!term) continue
       if (!term.online) return { sent: false, reason: 'terminal_offline' }
-      const base = { t: 'trade' as const, tid: term.tid, cmd_id: cmd.cmd_id, ticket: cmd.ticket }
-      if (cmd.op === 'partial_close') {
-        this.sendGw(ws, { ...base, op: cmd.op, volume: cmd.volume })
-      } else if (cmd.op === 'modify') {
-        this.sendGw(ws, { ...base, op: cmd.op, sl: cmd.sl, tp: cmd.tp })
-      } else {
-        this.sendGw(ws, { ...base, op: cmd.op })
-      }
+      // Mọi trường của lệnh (trừ cmd_id) đi nguyên sang Gateway; Gateway kiểm trường nào bắt buộc cho `op` nào.
+      const { cmd_id: _id, ...fields } = cmd
+      this.sendGw(ws, { t: 'trade', tid: term.tid, cmd_id: cmd.cmd_id, ...fields })
       return { sent: true }
     }
     return { sent: false, reason: 'terminal_offline' }

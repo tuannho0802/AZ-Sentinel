@@ -9,23 +9,24 @@ import { useSendTrade, useSetTradeEnabled } from './api'
 import { getTradeResult, subscribeTrade } from './live/live-store'
 
 /**
- * Giao dịch thủ công từ xa (v0.2.6): đóng lệnh, đóng một phần, sửa SL/TP.
+ * Giao dịch thủ công từ xa (v0.2.6): đóng lệnh, đóng một phần, sửa SL/TP. Đặt lệnh mới và đóng hàng loạt nằm ở
+ * `OrderControls.tsx`, dùng chung `TradeOutcome`, `errorText`, `toNum`, `parseStop` của tệp này.
  * Mọi lệnh đều qua hộp thoại xác nhận nêu rõ ticket, symbol, khối lượng. Kết quả hiện là retcode thật của MT5
  * (đến qua WebSocket), không báo thành công giả: 202 từ server chỉ nghĩa là lệnh đã được chuyển đi.
  */
 
 type Mode = 'close' | 'partial' | 'modify'
 
-const toNum = (s: string): number => Number(s.trim().replace(',', '.'))
+export const toNum = (s: string): number => Number(s.trim().replace(',', '.'))
 
 /** Ô SL/TP: trống = 0 (bỏ). Trả NaN nếu không hợp lệ. */
-function parseStop(s: string): number {
+export function parseStop(s: string): number {
   if (s.trim() === '') return 0
   const n = toNum(s)
   return Number.isFinite(n) && n >= 0 ? n : Number.NaN
 }
 
-function errorText(e: unknown): string {
+export function errorText(e: unknown): string {
   if (e instanceof ApiError) {
     if (e.code === 'TRADE_DISABLED') return strings.tradeErrDisabled
     if (e.code === 'TRADE_BUSY') return strings.tradeErrBusy
@@ -81,6 +82,10 @@ export function TradeOutcome({ cmdId }: { cmdId: string }) {
         {result.left !== undefined && result.left > 0
           ? ` · ${strings.tradeDoneLeft}: ${result.left}`
           : ''}
+        {result.order !== undefined && result.order > 0
+          ? ` · ${strings.tradeOrderTicket}: ${result.order}`
+          : ''}
+        {result.n_ok !== undefined ? ` · ${strings.tradeCounts(result.n_ok, result.n_fail ?? 0)}` : ''}
         {result.code > 0 ? ` · ${strings.tradeRetcode} ${result.code}` : ''}
       </p>
     )
@@ -90,6 +95,9 @@ export function TradeOutcome({ cmdId }: { cmdId: string }) {
       <p className="font-medium">
         {strings.tradeFailed}: {reason}
       </p>
+      {result.n_ok !== undefined && (
+        <p className="mt-0.5 text-xs">{strings.tradeCounts(result.n_ok, result.n_fail ?? 0)}</p>
+      )}
       {(result.detail !== '' || result.code > 0) && (
         <p className="mt-0.5 text-xs">
           {result.code > 0 ? `${strings.tradeRetcode} ${result.code}` : ''}
