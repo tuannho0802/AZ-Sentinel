@@ -43,3 +43,4 @@ Mở http://localhost:5173, đăng nhập `admin@az.local` / `admin1234` (tài k
 - Online/Offline do server tính theo ngưỡng 60 giây (EA gửi mỗi 10 giây). Cron đánh dấu offline thật là Part 5.
 - Giới hạn 20 liên kết ở chế độ thử; xóa bớt bằng nút **Xóa liên kết**.
 - Khi có Part 2/3: xóa `BE/src/routes/dev-links.ts` và thay màn hình bằng API có phân quyền (xem BE/FE Workflow).
+- Giao dịch từ xa (đóng lệnh, Đặt lệnh, Đóng tất cả) có bộ kiểm thử demo riêng T-01..T-19 trong `AZ_Sentinel_Remote_Trading.md`; EA 0.6.0 cần `InpAllowRemoteOpen` để đặt lệnh mới.
