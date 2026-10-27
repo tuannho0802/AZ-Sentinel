@@ -12,7 +12,7 @@ import { Dialog } from '../../components/Dialog'
 import { inputClass } from '../../components/styles'
 import { strings } from '../../lib/strings'
 import { useSendTrade } from './api'
-import { errorText, parseStop, toNum, TradeOutcome } from './TradeControls'
+import { errorText, parseStop, TradeOutcome, toNum } from './TradeControls'
 
 /**
  * Giao dịch từ xa Pha 2: đặt lệnh mới (market, limit, stop kèm SL/TP) và đóng hàng loạt (tất cả, lãi, lỗ,
@@ -335,7 +335,13 @@ export function PositionsToolbar({
   const hint = disabled ? strings.tradeNeedLive : undefined
   return (
     <div className="flex gap-1.5">
-      <Button size="sm" variant="primary" disabled={disabled} title={hint} onClick={() => setDlg('order')}>
+      <Button
+        size="sm"
+        variant="primary"
+        disabled={disabled}
+        title={hint}
+        onClick={() => setDlg('order')}
+      >
         {strings.orderBtnOpen}
       </Button>
       <Button

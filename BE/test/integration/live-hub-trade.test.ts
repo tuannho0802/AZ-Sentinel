@@ -249,3 +249,99 @@ describe('trade_result: kết quả từ Gateway', () => {
     expect(v.msgs.some((m) => m.t === 'trade_result')).toBe(false)
   })
 })
+
+describe('Pha 2: hub chuyển market, pending, close_all', () => {
+  it('market tới Gateway đủ trường, không có ticket, hợp schema', async () => {
+    const hub = hubFor()
+    const g = await onlineGateway(hub, key)
+    expect(
+      await hub.sendTrade(linkId, {
+        cmd_id: CMD,
+        op: 'market',
+        symbol: 'XAUUSD',
+        side: 'sell',
+        volume: 0.1,
+        sl: 4100,
+        tp: 0,
+      }),
+    ).toEqual({ sent: true })
+    await until(() => tradeMsgs(g).length === 1)
+    const m = tradeMsgs(g)[0]
+    expect(m).toMatchObject({
+      tid: TID,
+      cmd_id: CMD,
+      op: 'market',
+      symbol: 'XAUUSD',
+      side: 'sell',
+      volume: 0.1,
+      sl: 4100,
+      tp: 0,
+    })
+    expect(m?.ticket).toBeUndefined()
+    expect(gwServerMessageSchema.safeParse(m).success).toBe(true)
+  })
+
+  it('pending tới Gateway kèm kind và price', async () => {
+    const hub = hubFor()
+    const g = await onlineGateway(hub, key)
+    await hub.sendTrade(linkId, {
+      cmd_id: CMD,
+      op: 'pending',
+      symbol: 'EURUSD',
+      kind: 'sell_stop',
+      volume: 0.5,
+      price: 1.08,
+      sl: 1.09,
+      tp: 1.07,
+    })
+    await until(() => tradeMsgs(g).length === 1)
+    const m = tradeMsgs(g)[0]
+    expect(m).toMatchObject({ op: 'pending', kind: 'sell_stop', price: 1.08, volume: 0.5 })
+    expect(gwServerMessageSchema.safeParse(m).success).toBe(true)
+  })
+
+  it('close_all tới Gateway chỉ kèm filter', async () => {
+    const hub = hubFor()
+    const g = await onlineGateway(hub, key)
+    await hub.sendTrade(linkId, { cmd_id: CMD, op: 'close_all', filter: 'profit' })
+    await until(() => tradeMsgs(g).length === 1)
+    const m = tradeMsgs(g)[0]
+    expect(m).toMatchObject({ op: 'close_all', filter: 'profit' })
+    expect(m?.ticket).toBeUndefined()
+    expect(m?.volume).toBeUndefined()
+    expect(gwServerMessageSchema.safeParse(m).success).toBe(true)
+  })
+
+  it('terminal offline: lệnh mới cũng không được gửi', async () => {
+    const hub = hubFor()
+    const g = await onlineGateway(hub, key, false)
+    expect(
+      await hub.sendTrade(linkId, { cmd_id: CMD, op: 'close_all', filter: 'all' }),
+    ).toMatchObject({ sent: false })
+    await tick()
+    expect(tradeMsgs(g)).toHaveLength(0)
+  })
+
+  it('trade_result mang order, n_ok, n_fail tới viewer nguyên vẹn', async () => {
+    const hub = hubFor()
+    const g = await onlineGateway(hub, key)
+    const v = await connectViewer(hub, linkId)
+    const base = { t: 'trade_result', tid: TID, status: 'done', reason: 'ok', code: 10009 }
+    g.ws.send(JSON.stringify({ ...base, cmd_id: CMD, detail: '', order: 123456 }))
+    g.ws.send(
+      JSON.stringify({
+        ...base,
+        cmd_id: 'cccccccccccccccc',
+        status: 'failed',
+        reason: 'partial',
+        detail: '',
+        n_ok: 3,
+        n_fail: 1,
+      }),
+    )
+    await until(() => v.msgs.filter((m) => m.t === 'trade_result').length === 2)
+    const rs = v.msgs.filter((m) => m.t === 'trade_result')
+    expect(rs[0]).toMatchObject({ cmd_id: CMD, order: 123456 })
+    expect(rs[1]).toMatchObject({ reason: 'partial', n_ok: 3, n_fail: 1 })
+  })
+})

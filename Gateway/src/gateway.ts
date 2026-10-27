@@ -834,7 +834,9 @@ export class Gateway {
       return
     }
     t.trade = { cmd: msg, expiresMs: this.now() + TRADE.ttlMs }
-    this.log.info(`lệnh giao dịch ${msg.op}${msg.ticket !== undefined ? ` #${msg.ticket}` : ''} cho ${msg.tid} (${msg.cmd_id})`)
+    this.log.info(
+      `lệnh giao dịch ${msg.op}${msg.ticket !== undefined ? ` #${msg.ticket}` : ''} cho ${msg.tid} (${msg.cmd_id})`,
+    )
   }
 
   /**

@@ -186,3 +186,157 @@ describe('an toàn khi mất cloud', () => {
     expect(gw.handlePing(ping()).tr_id).toBeUndefined()
   })
 })
+
+const marketCmd = (over: Record<string, unknown> = {}) =>
+  ({
+    t: 'trade',
+    tid: TID,
+    cmd_id: CMD,
+    op: 'market',
+    symbol: 'XAUUSD',
+    side: 'buy',
+    volume: 0.1,
+    sl: 0,
+    tp: 4100,
+    ...over,
+  }) as const
+
+const pendingCmd = (over: Record<string, unknown> = {}) =>
+  ({
+    t: 'trade',
+    tid: TID,
+    cmd_id: CMD,
+    op: 'pending',
+    symbol: 'XAUUSD',
+    kind: 'buy_limit',
+    volume: 0.1,
+    price: 3990,
+    sl: 3980,
+    tp: 4010,
+    ...over,
+  }) as const
+
+describe('Pha 2: market, pending, close_all chuyển cho EA', () => {
+  it('market: tr_sym, tr_side, tr_vol, tr_sl, tr_tp; KHÔNG có tr_ticket', () => {
+    const { gw } = make()
+    gw.onCloudMessage(marketCmd())
+    const r = gw.handlePing(ping())
+    expect(r).toMatchObject({
+      tr_id: CMD,
+      tr_op: 'market',
+      tr_sym: 'XAUUSD',
+      tr_side: 'buy',
+      tr_vol: 0.1,
+      tr_sl: 0,
+      tr_tp: 4100,
+    })
+    expect(r.tr_ticket).toBeUndefined()
+    expect(r.tr_kind).toBeUndefined()
+    expect(r.tr_px).toBeUndefined()
+  })
+
+  it('pending: thêm tr_kind và tr_px', () => {
+    const { gw } = make()
+    gw.onCloudMessage(pendingCmd())
+    const r = gw.handlePing(ping())
+    expect(r).toMatchObject({
+      tr_op: 'pending',
+      tr_sym: 'XAUUSD',
+      tr_kind: 'buy_limit',
+      tr_px: 3990,
+      tr_vol: 0.1,
+      tr_sl: 3980,
+      tr_tp: 4010,
+    })
+    expect(r.tr_side).toBeUndefined()
+    expect(r.tr_ticket).toBeUndefined()
+  })
+
+  it('close_all: chỉ mang tr_filter', () => {
+    const { gw } = make()
+    gw.onCloudMessage({ t: 'trade', tid: TID, cmd_id: CMD, op: 'close_all', filter: 'loss' })
+    const r = gw.handlePing(ping())
+    expect(r.tr_op).toBe('close_all')
+    expect(r.tr_filter).toBe('loss')
+    for (const k of ['tr_ticket', 'tr_vol', 'tr_sl', 'tr_tp', 'tr_sym', 'tr_px']) {
+      expect(r, k).not.toHaveProperty(k)
+    }
+  })
+
+  it('lệnh mới cũng có ttl còn lại và được gửi lại tới khi có kết quả', () => {
+    const { gw } = make()
+    gw.onCloudMessage(marketCmd())
+    clock += 2000
+    expect(gw.handlePing(ping()).tr_ttl).toBe(TRADE.ttlMs - 2000)
+    expect(gw.handlePing(ping()).tr_id).toBe(CMD)
+  })
+})
+
+describe('Pha 2: thiếu trường thì từ chối ngay', () => {
+  it.each([
+    ['market thiếu symbol', marketCmd({ symbol: undefined })],
+    ['market thiếu side', marketCmd({ side: undefined })],
+    ['market thiếu volume', marketCmd({ volume: undefined })],
+    ['market thiếu sl', marketCmd({ sl: undefined })],
+    ['market thiếu tp', marketCmd({ tp: undefined })],
+    ['pending thiếu kind', pendingCmd({ kind: undefined })],
+    ['pending thiếu price', pendingCmd({ price: undefined })],
+    ['pending thiếu symbol', pendingCmd({ symbol: undefined })],
+    ['close_all thiếu filter', { t: 'trade', tid: TID, cmd_id: CMD, op: 'close_all' }],
+    ['close thiếu ticket', { t: 'trade', tid: TID, cmd_id: CMD, op: 'close' }],
+    ['modify thiếu ticket', closeCmd({ op: 'modify', ticket: undefined, sl: 1, tp: 1 })],
+  ])('%s -> bad_request, không giữ lệnh', (_n, msg) => {
+    const { gw, cloud } = make()
+    gw.onCloudMessage(msg as never)
+    const r = cloud.of('trade_result')
+    expect(r).toHaveLength(1)
+    expect(r[0]).toMatchObject({ status: 'failed', reason: 'bad_request' })
+    expect(gw.handlePing(ping()).tr_id).toBeUndefined()
+  })
+
+  it('lệnh mới khi terminal đang có lệnh khác: busy và giữ nguyên lệnh đang chờ', () => {
+    const { gw, cloud } = make()
+    gw.onCloudMessage(closeCmd())
+    gw.onCloudMessage(marketCmd({ cmd_id: 'ffffffffffffffff' }))
+    expect(cloud.of('trade_result')[0]).toMatchObject({ reason: 'busy' })
+    expect(gw.handlePing(ping()).tr_id).toBe(CMD)
+  })
+})
+
+describe('Pha 2: kết quả mang order, n_ok, n_fail', () => {
+  it('order của market được chuyển lên cloud', () => {
+    const { gw, cloud } = make()
+    gw.onCloudMessage(marketCmd())
+    gw.handleTradeResult(result({ order: 987654 }))
+    expect(cloud.of('trade_result')[0]).toMatchObject({
+      cmd_id: CMD,
+      status: 'done',
+      order: 987654,
+    })
+  })
+
+  it('close_all: n_ok và n_fail đi nguyên, kể cả khi thất bại một phần', () => {
+    const { gw, cloud } = make()
+    gw.onCloudMessage({ t: 'trade', tid: TID, cmd_id: CMD, op: 'close_all', filter: 'all' })
+    gw.handleTradeResult(
+      result({ status: 'failed', reason: 'partial', code: 10018, n_ok: 4, n_fail: 2 }),
+    )
+    expect(cloud.of('trade_result')[0]).toMatchObject({
+      status: 'failed',
+      reason: 'partial',
+      n_ok: 4,
+      n_fail: 2,
+    })
+    expect(gw.handlePing(ping()).tr_id).toBeUndefined()
+  })
+
+  it('kết quả không có order/n_ok thì cloud không nhận các trường đó', () => {
+    const { gw, cloud } = make()
+    gw.onCloudMessage(closeCmd())
+    gw.handleTradeResult(result())
+    const r = cloud.of('trade_result')[0] as Record<string, unknown>
+    expect(r).not.toHaveProperty('order')
+    expect(r).not.toHaveProperty('n_ok')
+    expect(r).not.toHaveProperty('n_fail')
+  })
+})

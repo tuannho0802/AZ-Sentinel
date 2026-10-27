@@ -85,7 +85,9 @@ export function TradeOutcome({ cmdId }: { cmdId: string }) {
         {result.order !== undefined && result.order > 0
           ? ` · ${strings.tradeOrderTicket}: ${result.order}`
           : ''}
-        {result.n_ok !== undefined ? ` · ${strings.tradeCounts(result.n_ok, result.n_fail ?? 0)}` : ''}
+        {result.n_ok !== undefined
+          ? ` · ${strings.tradeCounts(result.n_ok, result.n_fail ?? 0)}`
+          : ''}
         {result.code > 0 ? ` · ${strings.tradeRetcode} ${result.code}` : ''}
       </p>
     )

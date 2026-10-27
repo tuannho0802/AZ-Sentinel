@@ -91,7 +91,12 @@ describe('EA: các bất biến an toàn của giao dịch từ xa', () => {
   })
 
   it('lệnh MỞ (Buy/Sell/Limit/Stop) chỉ nằm trong RemoteMarket và RemotePending', () => {
-    for (const banned of ['OrderSend(', 'OrderSendAsync(', 'g_trade.PositionOpen(', 'g_trade.OrderOpen(']) {
+    for (const banned of [
+      'OrderSend(',
+      'OrderSendAsync(',
+      'g_trade.PositionOpen(',
+      'g_trade.OrderOpen(',
+    ]) {
       expect(src, banned).not.toContain(banned)
     }
     const allowed = [funcBody('RemoteMarket'), funcBody('RemotePending')]
