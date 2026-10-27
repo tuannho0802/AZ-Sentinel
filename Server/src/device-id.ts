@@ -4,13 +4,13 @@ import {
   DEVICE_COOKIE,
   DEVICE_HEADER,
   type DeviceKind,
+  deviceCookieHeader,
   deviceHashInput,
   isRawDeviceId,
 } from '@az-sentinel/shared'
 
 export type DeviceInfo = { id: string; kind: DeviceKind; ua: string }
 
-const COOKIE_MAX_AGE_SEC = 400 * 24 * 3600
 const one = (v: string | string[] | undefined): string | undefined => (Array.isArray(v) ? v[0] : v)
 
 /** Mã thiết bị đã băm (32 ký tự hex): Server, BE và Gateway cùng công thức nên mã hiển thị khớp nhau. */
@@ -18,7 +18,7 @@ export function hashDeviceId(raw: string): string {
   return createHash('sha256').update(deviceHashInput(raw)).digest('hex').slice(0, 32)
 }
 
-function cookieValue(header: string | undefined, name: string): string | undefined {
+export function cookieValue(header: string | undefined, name: string): string | undefined {
   if (!header) return undefined
   for (const part of header.split(';')) {
     const eq = part.indexOf('=')
@@ -43,7 +43,7 @@ function looksLikeBrowserPage(h: IncomingHttpHeaders): boolean {
   return (one(h.accept) ?? '').includes('text/html')
 }
 
-function isHttps(h: IncomingHttpHeaders): boolean {
+export function isHttps(h: IncomingHttpHeaders): boolean {
   const proto = one(h['x-forwarded-proto']) ?? ''
   return proto.toLowerCase().includes('https') || (one(h['cf-visitor']) ?? '').includes('https')
 }
@@ -74,9 +74,8 @@ export function identifyDevice(headers: IncomingHttpHeaders, mint: boolean): Dev
   }
   if (!mint || !looksLikeBrowserPage(headers)) return { info: null, setCookie: null }
   const raw = randomBytes(24).toString('base64url')
-  const flags = `Path=/; Max-Age=${COOKIE_MAX_AGE_SEC}; HttpOnly; SameSite=Lax${isHttps(headers) ? '; Secure' : ''}`
   return {
     info: { id: hashDeviceId(raw), kind: 'web', ua },
-    setCookie: `${DEVICE_COOKIE}=${raw}; ${flags}`,
+    setCookie: deviceCookieHeader(raw, isHttps(headers)),
   }
 }

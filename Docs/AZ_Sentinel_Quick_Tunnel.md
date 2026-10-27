@@ -139,3 +139,6 @@ Qua Worker, VPS chỉ thấy IP của Cloudflare. Worker chuyển IP thật củ
 | `BE/src/edge/page-router.ts` | Lượt tải trang: dò tunnel, 302 sang tunnel hoặc phục vụ giao diện dự phòng (Plan 3J) |
 | `Server/src/activity.ts`, `Server/src/sync-agent.ts` (`touch`, `hasVisitors`) | Chỉ nhịp sống/đồng bộ khi có người truy cập |
 | `FE/public/favicon.*`, `FE/index.html` | Logo trên tab trình duyệt |
+
+#### Mã thiết bị đi theo người dùng qua các tunnel (Plan 3K)
+Cookie thiết bị gắn theo tên miền nên tunnel đổi địa chỉ thì trình duyệt thành "thiết bị mới" (phải duyệt lại ở whitelist thiết bị). Worker vì vậy giữ cookie `az_dev` ở địa chỉ cố định và gắn vé mã hóa `az_dh` (hạn 60 giây, dùng một lần) vào link 302 sang tunnel; Server cấp lại cùng mã cho tunnel mới. Cần `SYNC_TOKEN` trùng ở Worker và Server; thiếu thì Worker chuyển hướng như cũ. Chi tiết và cách chuyển đổi một lần: `AZ_Sentinel_Whitelist_IP.md`.

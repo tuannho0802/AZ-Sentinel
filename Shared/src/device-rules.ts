@@ -20,6 +20,22 @@ export const DEVICE_HEADER = 'X-AZ-Device'
 /** Server đặt header này (mã đã băm) cho BE sau khi gỡ mọi header cùng tên do client gửi. */
 export const DEVICE_ID_HEADER = 'X-AZ-Device-Id'
 
+/** Cookie thiết bị sống 400 ngày (tối đa trình duyệt cho phép). */
+export const DEVICE_COOKIE_MAX_AGE_SEC = 400 * 24 * 3600
+
+/**
+ * Trao mã thiết bị từ Worker sang tunnel (Plan 3K). Quick Tunnel đổi địa chỉ mỗi lần chạy lại nên cookie gắn
+ * với địa chỉ tunnel mất theo. Worker (địa chỉ cố định) giữ mã thiết bị của trình duyệt, khi chuyển hướng sang
+ * tunnel thì gắn một vé mã hóa ngắn hạn vào tham số này; Server giải vé, cấp lại cookie cho địa chỉ tunnel mới
+ * rồi bỏ tham số khỏi URL. Nhờ vậy cùng một trình duyệt luôn là cùng một thiết bị, dù tunnel đổi bao nhiêu lần.
+ */
+export const DEVICE_HANDOFF_PARAM = 'az_dh'
+export const DEVICE_HANDOFF_TTL_SEC = 60
+
+/** Giá trị `Set-Cookie` của cookie thiết bị (một công thức duy nhất cho Worker và Server). */
+export const deviceCookieHeader = (raw: string, secure: boolean): string =>
+  `${DEVICE_COOKIE}=${raw}; Path=/; Max-Age=${DEVICE_COOKIE_MAX_AGE_SEC}; HttpOnly; SameSite=Lax${secure ? '; Secure' : ''}`
+
 /** Số IP tối đa một thiết bị `any_ip` được tự thêm (vượt thì bỏ IP cũ nhất) để IP đổi liên tục không làm đầy danh sách. */
 export const DEVICE_AUTO_IP_LIMIT = 20
 

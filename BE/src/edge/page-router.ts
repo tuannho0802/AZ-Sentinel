@@ -1,7 +1,14 @@
-import { PAGE_STAY_PARAM } from '@az-sentinel/shared'
+import {
+  DEVICE_COOKIE,
+  DEVICE_HANDOFF_PARAM,
+  deviceCookieHeader,
+  isRawDeviceId,
+  PAGE_STAY_PARAM,
+} from '@az-sentinel/shared'
 import type { Handler } from 'hono'
 import { notFound } from '../middleware/error-handler'
 import type { AppEnv } from '../types'
+import { sealDeviceHandoff } from './device-handoff'
 import type { FetchFn } from './timed-fetch'
 import { sharedOriginStore, type VpsOriginStore } from './vps-origin'
 import { type ProbeRegistry, probeFor } from './vps-probe'
@@ -20,6 +27,46 @@ export function isPageNavigation(req: Request): boolean {
   const dest = req.headers.get('Sec-Fetch-Dest')
   if (dest) return dest === 'document'
   return (req.headers.get('Accept') ?? '').includes('text/html')
+}
+
+function cookieValue(header: string | null, name: string): string | undefined {
+  for (const part of (header ?? '').split(';')) {
+    const eq = part.indexOf('=')
+    if (eq !== -1 && part.slice(0, eq).trim() === name) return part.slice(eq + 1).trim()
+  }
+  return undefined
+}
+
+/** 32 ký tự base64url (192 bit ngẫu nhiên), hợp lệ với `isRawDeviceId`. */
+function mintDeviceId(): string {
+  const b = crypto.getRandomValues(new Uint8Array(24))
+  let s = ''
+  for (const x of b) s += String.fromCharCode(x)
+  return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+}
+
+/**
+ * Plan 3K: giữ mã thiết bị ổn định qua các lần tunnel đổi địa chỉ. Worker có địa chỉ cố định nên là nơi giữ cookie
+ * thiết bị của trình duyệt (cấp mới nếu chưa có); đi kèm mỗi lần chuyển hướng là một vé mã hóa ngắn hạn để Server
+ * cấp lại cùng mã đó cho địa chỉ tunnel hiện tại. Không có `SYNC_TOKEN` thì không có khóa chung: chuyển hướng như cũ.
+ */
+async function withDeviceHandoff(
+  target: string,
+  req: Request,
+  secret: string | undefined,
+): Promise<{ location: string; setCookie: string | null }> {
+  if (!secret) return { location: target, setCookie: null }
+  const existing = cookieValue(req.headers.get('Cookie'), DEVICE_COOKIE)
+  const raw = isRawDeviceId(existing) ? existing : mintDeviceId()
+  const url = new URL(target)
+  url.searchParams.set(
+    DEVICE_HANDOFF_PARAM,
+    await sealDeviceHandoff(secret, raw, Math.floor(Date.now() / 1000)),
+  )
+  return {
+    location: url.toString(),
+    setCookie: raw === existing ? null : deviceCookieHeader(raw, true),
+  }
 }
 
 /**
@@ -64,14 +111,18 @@ export function createPageHandler(opts: PageRouterOptions = {}): Handler<AppEnv>
       // Trùng host với chính Worker (cấu hình sai) thì không chuyển, tránh vòng lặp.
       if (origin && new URL(origin).host !== url.host) {
         if (await probeFor(origin, opts.registry, opts.fetchFn).isUp()) {
-          return new Response(null, {
-            status: 302,
-            headers: {
-              Location: `${origin}${url.pathname}${url.search}`,
-              'Cache-Control': 'no-store',
-              'Referrer-Policy': 'no-referrer',
-            },
+          const next = await withDeviceHandoff(
+            `${origin}${url.pathname}${url.search}`,
+            req,
+            c.env.SYNC_TOKEN,
+          )
+          const headers = new Headers({
+            Location: next.location,
+            'Cache-Control': 'no-store',
+            'Referrer-Policy': 'no-referrer',
           })
+          if (next.setCookie) headers.append('Set-Cookie', next.setCookie)
+          return new Response(null, { status: 302, headers })
         }
       }
     }

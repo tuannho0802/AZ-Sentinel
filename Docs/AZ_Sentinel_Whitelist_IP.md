@@ -30,7 +30,9 @@ Bộ cài Server có ô **IP được phép truy cập** (tùy chọn, cách nha
 Đi kèm whitelist IP: ngoài "IP nào được vào" còn có "**thiết bị nào** được vào". Giúp người dùng đổi IP liên tục (4G/5G, nhà mạng đổi IP) mà Admin không phải thêm tay từng IP.
 
 ## Thiết bị là gì
-- **Trình duyệt**: lần đầu mở web, Server cấp cookie `az_dev` (HttpOnly, sống 400 ngày). Xóa cookie / đổi trình duyệt / chế độ ẩn danh = thiết bị mới.
+- **Trình duyệt**: lần đầu mở web, cấp cookie `az_dev` (HttpOnly, sống 400 ngày). Xóa cookie / đổi trình duyệt / chế độ ẩn danh = thiết bị mới.
+  - **Đi qua địa chỉ Worker (khuyên dùng, Plan 3K):** cookie do **Worker** giữ (địa chỉ cố định) và được trao lại cho tunnel mỗi lần chuyển hướng, nên **cùng một trình duyệt luôn là cùng một thiết bị dù Quick Tunnel đổi địa chỉ** (cần `SYNC_TOKEN` giống nhau ở Worker và Server).
+  - **Vào thẳng địa chỉ tunnel** (bookmark địa chỉ `*.trycloudflare.com`): cookie chỉ gắn với địa chỉ tunnel đó, tunnel đổi thì thành thiết bị mới. Luôn dùng địa chỉ Worker để vào.
 - **Gateway**: tự tạo mã ngẫu nhiên lưu ở `<thư mục dữ liệu>/device.id` và gửi bằng header `X-AZ-Device`. Xóa file = thiết bị mới. Gateway ghi mã ngắn 8 ký tự vào log lúc khởi động (`mã thiết bị: ...`).
 - Server chỉ lưu bản **băm** của mã (không lưu mã thô). Admin đối chiếu bằng mã ngắn 8 ký tự hiện trên web. Header `X-AZ-Device` và `X-AZ-Device-Id` do client gửi luôn bị Server gỡ trước khi chuyển cho BE.
 
@@ -54,3 +56,16 @@ Bộ cài Server có ô **IP được phép truy cập** (tùy chọn, cách nha
 - Giống whitelist IP, chặn chạy ở **Server VPS**; bản dự phòng Cloudflare không áp whitelist thiết bị và `Mã thiết bị của bạn` hiện "không xác định" khi Admin vào qua Cloudflare.
 - Bật bảo vệ thiết bị thì **Gateway cũ** (chưa cập nhật, không gửi `X-AZ-Device`) bị chặn: cập nhật Gateway lên bản mới rồi duyệt trước khi bật.
 - Chưa chạy test và chưa thử thật trên VPS; cần thử: duyệt thiết bị chế độ Mọi IP rồi đổi mạng (IP mới tự vào), chế độ Chỉ thiết bị với IP lạ (403 và hiện ở IP bị chặn), bật bảo vệ thiết bị với thiết bị lạ (403 + hiện ở chờ duyệt), gỡ thiết bị (IP tự thêm bị gỡ).
+
+## Mã thiết bị đổi mỗi lần tunnel đổi (đã sửa ở Server 0.2.9)
+Triệu chứng: cùng một trình duyệt, mỗi lần chạy lại Server (Quick Tunnel mới) lại bị `403` kèm một mã thiết bị mới; danh sách thiết bị được phép có nhiều dòng "Chrome · Windows" cùng IP. Nguyên nhân: cookie gắn theo tên miền mà tunnel có tên miền ngẫu nhiên mới mỗi lần.
+
+Cách sửa (Plan 3K): Worker giữ cookie thiết bị ở địa chỉ cố định; khi chuyển hướng sang tunnel, Worker gắn tham số `az_dh` là **vé mã hóa AES-GCM** (khóa dẫn xuất từ `SYNC_TOKEN`, hạn 60 giây, mã thiết bị không lộ trong URL). Server giải vé, cấp lại cookie `az_dev` cho tunnel hiện tại, rồi chuyển hướng bỏ `az_dh` khỏi URL. Mỗi vé chỉ dùng một lần (Server nhớ nonce tới khi hết hạn). Vé sai/hết hạn/dùng lại bị bỏ qua êm: trình duyệt vẫn vào như trước, chỉ không được trao mã.
+
+**Sau khi nâng cấp (làm một lần):** mã thiết bị của trình duyệt chuyển từ cookie trên tunnel sang cookie của Worker nên **mỗi trình duyệt là thiết bị mới đúng một lần**:
+1. Cập nhật Worker (`[deploy]`) và Server 0.2.9 (`[release-server]`).
+2. Nếu đang bật bảo vệ thiết bị và bị chặn: trên VPS chạy `ip.cmd device-off`.
+3. Mở web bằng **địa chỉ Worker**, vào **Whitelist IP**, bấm **Duyệt thiết bị của tôi**, rồi **Bật bảo vệ thiết bị**. Các trình duyệt khác bị 403 thì gửi mã 8 ký tự cho Admin duyệt ở **Thiết bị chờ duyệt**.
+4. Bấm **Bỏ** các dòng trình duyệt cũ bị trùng. Từ đó tunnel đổi bao nhiêu lần cũng không phải duyệt lại.
+
+Giới hạn: Gateway không bị ảnh hưởng (mã nằm trong file `device.id`). Chưa thử thật trên Worker/tunnel Cloudflare; đã có test tự động cho vé và cho luồng hai tunnel liên tiếp.

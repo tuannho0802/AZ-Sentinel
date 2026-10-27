@@ -3,6 +3,7 @@ import type { Duplex } from 'node:stream'
 import { DEVICE_HEADER, DEVICE_ID_HEADER } from '@az-sentinel/shared'
 import { serve } from '@hono/node-server'
 import { WebSocketServer } from 'ws'
+import { HandoffNonces, handleDeviceHandoff } from './device-handoff'
 import { type DeviceInfo, identifyDevice } from './device-id'
 import { EDGE_HEADERS, verifyEdgeClientIp } from './edge-ip'
 import type { IpGuard } from './ip-guard'
@@ -106,12 +107,31 @@ async function writeRaw(socket: Duplex, res: Response): Promise<void> {
  * vào đầu server của cặp. Phản hồi không mang mã (401, 403...) được ghi nguyên văn ra socket.
  */
 export function startHttpServer(opts: HttpServerOptions): Server {
+  const nonces = new HandoffNonces()
   const server = serve(
     {
       port: opts.port,
       hostname: opts.host,
-      fetch: (req, env) => {
+      fetch: async (req, env) => {
         const incoming = (env as { incoming?: IncomingMessage } | undefined)?.incoming
+        // Plan 3K: vé trao mã thiết bị từ Worker. Chỉ đặt cookie rồi chuyển hướng, không chạm dữ liệu nên xử lý trước whitelist.
+        if (incoming && req.method === 'GET') {
+          const handoff = await handleDeviceHandoff(
+            new URL(req.url),
+            incoming.headers,
+            opts.edgeSecret ?? '',
+            nonces,
+          )
+          if (handoff) {
+            const headers = new Headers({
+              Location: handoff.location,
+              'Cache-Control': 'no-store',
+              'Referrer-Policy': 'no-referrer',
+            })
+            if (handoff.setCookie) headers.append('Set-Cookie', handoff.setCookie)
+            return new Response(null, { status: 302, headers })
+          }
+        }
         const ip = incoming ? clientIp(incoming, opts.edgeSecret) : ''
         const { info: device, setCookie } = incoming
           ? identifyDevice(incoming.headers, true)
