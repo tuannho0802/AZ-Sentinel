@@ -28,6 +28,14 @@ export const GATEWAY_VERSION = process.env.GW_BUILD_VERSION || '0.1.0'
 
 /** Trần số mẫu giữ cho mỗi terminal giữa hai lần gom (push tối đa 5 giây, 1 mẫu/giây). */
 const MAX_BUFFER = 60
+/** Số terminal tối đa một Gateway nhận (hub tính cỡ ~30 EA): chặn tiến trình cục bộ tạo terminal vô hạn làm đầy bộ nhớ. */
+export const MAX_TERMINALS = 64
+
+export class TooManyTerminalsError extends Error {
+  constructor() {
+    super('too_many_terminals')
+  }
+}
 
 /** Dung sai (ms) khi so nhịp đẩy: bộ hẹn giờ lệch vài ms không được làm lỡ một nhịp. */
 const PUSH_SLACK_MS = 20
@@ -213,12 +221,14 @@ export class Gateway {
   // EA -> Gateway
   // -------------------------------------------------------------------------
 
+  /** Ném `TooManyTerminalsError` khi đã đủ `MAX_TERMINALS` terminal và đây là terminal mới (local server trả 429). */
   handlePing(req: PingRequest): LocalPingResponse {
     const now = this.now()
     const tid = terminalId(req.login, req.server)
     let t = this.terminals.get(tid)
 
     if (!t) {
+      if (this.terminals.size >= MAX_TERMINALS) this.refuseNewTerminal(tid)
       t = this.createTerminal(tid, req, now)
       this.terminals.set(tid, t)
       this.log.info(`terminal mới ${tid} (${req.mode}, ea ${req.ea_ver || '?'})`)
@@ -229,6 +239,11 @@ export class Gateway {
     this.syncBind(t)
     this.syncState(t)
     return this.pingResponse(t)
+  }
+
+  private refuseNewTerminal(tid: string): never {
+    this.log.warn(`từ chối terminal mới ${tid}: đã đủ ${MAX_TERMINALS} terminal`)
+    throw new TooManyTerminalsError()
   }
 
   handleSamples(req: SamplesRequest): LocalPingResponse {
@@ -261,6 +276,7 @@ export class Gateway {
     const tid = terminalId(req.login, req.server)
     let t = this.terminals.get(tid)
     if (!t) {
+      if (this.terminals.size >= MAX_TERMINALS) this.refuseNewTerminal(tid)
       // Sự kiện đến trước ping (Gateway mới khởi động): tạo terminal tạm từ định danh trong tin.
       t = this.createTerminal(
         tid,

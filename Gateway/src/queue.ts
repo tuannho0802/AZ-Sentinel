@@ -78,9 +78,9 @@ export class EventQueue {
       this.dropped++
       data = JSON.stringify(this.items)
     }
-    mkdirSync(path.dirname(this.file), { recursive: true })
+    mkdirSync(path.dirname(this.file), { recursive: true, mode: 0o700 })
     const tmp = `${this.file}.tmp`
-    writeFileSync(tmp, data)
+    writeFileSync(tmp, data, { mode: 0o600 })
     renameSync(tmp, this.file)
   }
 

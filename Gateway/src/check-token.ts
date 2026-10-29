@@ -1,4 +1,5 @@
 import { looksLikeGwToken } from '@az-sentinel/shared'
+import { isAllowedCloudUrl } from './url-policy'
 
 /**
  * Kiểm token Gateway cá nhân (`azt_...`) với cloud, dùng cho bộ cài: `az-gateway.exe check-token <url> <token>`.
@@ -43,6 +44,13 @@ export async function checkGatewayToken(
   const url = cloudCheckUrl(cloudUrl)
   if (!url)
     return { code: CHECK_BAD_INPUT, message: 'Cloud URL phải bắt đầu bằng wss:// hoặc ws://' }
+  if (!isAllowedCloudUrl(cloudUrl)) {
+    return {
+      code: CHECK_BAD_INPUT,
+      message:
+        'Cloud URL phải dùng wss:// (ws:// chỉ cho localhost hoặc mạng nội bộ): token không được gửi không mã hóa',
+    }
+  }
   const t = token.trim()
   if (!looksLikeGwToken(t)) {
     return { code: CHECK_BAD_INPUT, message: 'Token phải là token cá nhân dạng azt_...' }

@@ -11,7 +11,7 @@ import {
 } from '@az-sentinel/shared'
 import type { ZodType } from 'zod'
 import { applyConnectCodeToBody, type EditableConfig, editableSchema } from './config'
-import type { Gateway } from './gateway'
+import { type Gateway, TooManyTerminalsError } from './gateway'
 import { type Logger, silentLogger } from './log'
 import { statusPage } from './status-page'
 import type { UpdateInfo } from './update-check'
@@ -126,7 +126,12 @@ export class LocalServer {
         const i = r.error.issues[0]
         return fail(400, `invalid_body:${i?.path.join('.') || '-'}`)
       }
-      return fn(r.data)
+      try {
+        return fn(r.data)
+      } catch (e) {
+        if (e instanceof TooManyTerminalsError) return fail(429, 'too_many_terminals')
+        throw e
+      }
     }
   }
 

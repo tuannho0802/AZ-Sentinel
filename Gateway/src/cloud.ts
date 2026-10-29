@@ -8,6 +8,7 @@ import {
 import { cloudCheckUrl } from './check-token'
 import type { Gateway } from './gateway'
 import { type Logger, silentLogger } from './log'
+import { isTrustedLearnedUrl, sanitizeForLog } from './url-policy'
 
 export type CloudOptions = {
   url: string
@@ -151,6 +152,11 @@ export class CloudClient {
     return (this.urlIndex === 1 ? this.fallbackTarget() : null) ?? this.primaryUrl()
   }
 
+  /** Các địa chỉ máy chủ đã cấu hình (chính, dự phòng): địa chỉ học từ danh bạ được phép trùng máy chủ với chúng. */
+  private knownUrls(): string[] {
+    return [this.opts.url, this.opts.fallbackUrl ?? ''].filter((u) => u !== '')
+  }
+
   private directories(): string[] {
     return [...new Set(this.opts.directoryUrls ?? [])]
   }
@@ -175,12 +181,19 @@ export class CloudClient {
           }
           const body = (await res.json()) as Partial<TunnelDirectoryReply>
           if (body.ok !== true) continue
-          // Chỉ nhận wss:// (ws:// chỉ cho loopback khi thử nghiệm): danh bạ không được hạ Gateway xuống đường không mã hóa.
+          // Chỉ nhận wss:// (ws:// chỉ cho loopback khi thử nghiệm) VÀ chỉ tới Quick Tunnel hoặc máy chủ đã cấu hình:
+          // Gateway gửi token tới địa chỉ này, nên danh bạ (Worker) bị chiếm cũng không dẫn được token tới máy chủ lạ.
           const next =
             typeof body.wsUrl === 'string' &&
-            /^(wss:\/\/|ws:\/\/(127\.0\.0\.1|localhost)[:/])[^\s"\\]+$/i.test(body.wsUrl)
+            /^wss?:\/\/[^\s"\\]+$/i.test(body.wsUrl) &&
+            isTrustedLearnedUrl(body.wsUrl, this.knownUrls())
               ? body.wsUrl
               : null
+          if (next === null && body.wsUrl) {
+            this.log.warn(
+              `bỏ qua địa chỉ tunnel không đáng tin từ danh bạ: ${sanitizeForLog(String(body.wsUrl), 80)}`,
+            )
+          }
           if (next === this.learned) return false
           this.deadCycles = 0
           this.learned = next
@@ -320,7 +333,7 @@ export class CloudClient {
       } else {
         try {
           const body: unknown = await res.json()
-          if (isApiErrorBody(body)) detail = body.error.message.slice(0, 240)
+          if (isApiErrorBody(body)) detail = sanitizeForLog(body.error.message)
         } catch {
           // thân phản hồi không phải JSON (trang lỗi của tunnel/proxy): chỉ báo mã
         }

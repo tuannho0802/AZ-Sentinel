@@ -13,6 +13,22 @@
 Lưu ý khi sửa `UI_CSP`: cập nhật cả `FE/public/_headers` (test `Shared/test/security-headers.test.ts` canh lệch).
 `connect-src` cho phép `https:`/`wss:` vì trang tự dò địa chỉ bản dự phòng ở origin khác (failover).
 
+## Gateway 0.3.7 (rà soát riêng Gateway)
+
+| # | Vấn đề | Cách xử lý | Nơi sửa |
+|---|---|---|---|
+| G1 | Token gửi qua `ws://` tới máy chủ công khai (cấu hình tay, giao diện, mã kết nối, `check-token`) | Chỉ `wss://`; `ws://` chỉ loopback/mạng nội bộ. `loadConfig` và giao diện từ chối, `check-token` không gọi mạng | `Gateway/src/url-policy.ts`, `config.ts`, `check-token.ts` |
+| G2 | Danh bạ tunnel (Worker) có thể dẫn Gateway và token tới `wss://` bất kỳ | Chỉ nhận `*.trycloudflare.com` hoặc đúng máy chủ đã cấu hình; địa chỉ khác bị bỏ và ghi cảnh báo | `Gateway/src/cloud.ts` |
+| G3 | Tiến trình cục bộ tạo terminal vô hạn (đầy bộ nhớ) | Tối đa 64 terminal, vượt thì HTTP 429 `too_many_terminals` | `Gateway/src/gateway.ts`, `local-server.ts` |
+| G4 | `config.json` (có token) và `queue.json` ghi quyền mặc định | Quyền 0600, thư mục 0700 (Windows vẫn do `icacls` của bộ cài) | `Gateway/src/config.ts`, `queue.ts` |
+| G5 | Thông báo lỗi do máy chủ gửi được ghi thẳng vào log (chèn dòng log giả) | Bỏ ký tự điều khiển trước khi ghi | `Gateway/src/url-policy.ts`, `cloud.ts` |
+
+Đã xem và thấy ổn: chống DNS rebinding, route UI có `x-az-ui` và kiểm tra Origin, trang trạng thái chỉ dùng `textContent`,
+URL bản cập nhật đi qua `safeReleaseUrl`, tin cloud được validate bằng schema, mã thiết bị 0600.
+
+**Lưu ý nâng cấp:** Gateway từ chối khởi động nếu `config.json` đang có `cloudUrl`/`cloudFallbackUrl` dạng `ws://` tới máy chủ
+công khai. Đổi sang `wss://` (hoặc xin mã kết nối mới).
+
 ## Chưa xử lý (cần quyết định thiết kế)
 - Giới hạn đăng nhập sai chưa atomic; chưa có rate limit theo IP trên VPS; PBKDF2 100k vòng.
 - Worker nhận mọi tunnel URL https từ `SYNC_TOKEN`; FE failover redirect tới mọi origin; `SYNC_TOKEN` dùng chung nhiều mục đích.

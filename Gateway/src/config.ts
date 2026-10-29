@@ -3,17 +3,21 @@ import os from 'node:os'
 import path from 'node:path'
 import { decodeConnectCode, GW, looksLikeGwToken } from '@az-sentinel/shared'
 import { z } from 'zod'
+import { isAllowedCloudUrl } from './url-policy'
+
+/** Token đi kèm mọi lần nối nên không được gửi qua `ws://` ra internet. */
+const CLEARTEXT_MSG = 'phải dùng wss:// (ws:// chỉ cho localhost hoặc mạng nội bộ)'
 
 const configSchema = z.object({
   /** Cổng loopback cho EA. */
   port: z.number().int().min(1024).max(65535).default(GW.defaultPort),
   /** URL WebSocket của hub, vd `wss://<tên>.workers.dev/api/gw/ws`. Rỗng = chỉ chạy cục bộ. */
-  cloudUrl: z.string().default(''),
+  cloudUrl: z.string().default('').refine(isAllowedCloudUrl, CLEARTEXT_MSG),
   /**
    * URL WebSocket dự phòng (Worker Cloudflare), dùng khi `cloudUrl` (VPS chính) không nối được. Gateway tự
    * quay về `cloudUrl` khi VPS sống lại. Rỗng = không có dự phòng.
    */
-  cloudFallbackUrl: z.string().default(''),
+  cloudFallbackUrl: z.string().default('').refine(isAllowedCloudUrl, CLEARTEXT_MSG),
   /** Token Gateway cá nhân `azt_...` do quản trị viên cấp riêng cho bạn; gửi trong header Authorization khi nối cloud. */
   cloudToken: z.string().default(''),
   /** Giữ `event` khi không ai xem trong chừng này giây (0 = gửi ngay). */
@@ -66,17 +70,30 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): GatewayConfig 
   return parsed.data
 }
 
+/**
+ * Ghi file cấu hình (có token) bằng file tạm rồi đổi tên, quyền 0600 (thư mục 0700) để người dùng khác trên máy
+ * không đọc được token (Windows: bộ cài đã khóa ACL thư mục dữ liệu, mode bị bỏ qua).
+ */
+function writePrivateJson(file: string, data: unknown): void {
+  mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 })
+  const tmp = `${file}.tmp`
+  writeFileSync(tmp, `${JSON.stringify(data, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 })
+  renameSync(tmp, file)
+}
+
 /** Các trường người dùng được sửa từ giao diện cục bộ (không gồm `port`, `dataDir`: đổi tay trong file). */
 export const editableSchema = z.object({
   cloudUrl: z
     .string()
     .trim()
-    .refine((v) => v === '' || /^wss?:\/\/[^\s]+$/i.test(v), 'phải bắt đầu bằng wss:// hoặc ws://'),
+    .refine((v) => v === '' || /^wss?:\/\/[^\s]+$/i.test(v), 'phải bắt đầu bằng wss:// hoặc ws://')
+    .refine(isAllowedCloudUrl, CLEARTEXT_MSG),
   /** Địa chỉ dự phòng; rỗng = không có (xem `cloudFallbackUrl` ở trên). */
   cloudFallbackUrl: z
     .string()
     .trim()
     .refine((v) => v === '' || /^wss?:\/\/[^\s]+$/i.test(v), 'phải bắt đầu bằng wss:// hoặc ws://')
+    .refine(isAllowedCloudUrl, CLEARTEXT_MSG)
     .optional(),
   /** Chuỗi rỗng = giữ token cũ (giao diện không bao giờ nhận lại token). */
   cloudToken: z
@@ -139,10 +156,7 @@ export function saveEditableConfig(
     idleFlushSec: patch.idleFlushSec,
   }
   if (patch.cloudToken !== '') (next as Record<string, unknown>).cloudToken = patch.cloudToken
-  mkdirSync(path.dirname(file), { recursive: true })
-  const tmp = `${file}.tmp`
-  writeFileSync(tmp, `${JSON.stringify(next, null, 2)}\n`, 'utf8')
-  renameSync(tmp, file)
+  writePrivateJson(file, next)
 }
 
 /**
@@ -170,10 +184,7 @@ export function writeConnection(
     cloudToken: c.token,
   }
   if (c.vps) next.vps = c.vps
-  mkdirSync(path.dirname(file), { recursive: true })
-  const tmp = `${file}.tmp`
-  writeFileSync(tmp, `${JSON.stringify(next, null, 2)}\n`, 'utf8')
-  renameSync(tmp, file)
+  writePrivateJson(file, next)
 }
 
 /**
