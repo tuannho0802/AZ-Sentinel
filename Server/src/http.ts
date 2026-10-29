@@ -208,6 +208,10 @@ export function startHttpServer(opts: HttpServerOptions): Server {
   const wss = new WebSocketServer({ noServer: true })
   server.on('upgrade', (incoming: IncomingMessage, socket: Duplex, head: Buffer) => {
     void (async () => {
+      // Cặp socket đã lấy khỏi hàng đợi nhưng chưa gắn socket thật: hẹn giờ 30 giây của shim không còn dọn nó
+      // nữa, nên mọi đường thoát giữa chừng phải tự `abandon()`, nếu không hub giữ mãi một gateway "ma"
+      // (tính vào số gateway đang mở và dồn hàng đợi tin gửi).
+      let pending: ReturnType<typeof takePair> = null
       try {
         const headers = new Headers()
         for (const [key, value] of Object.entries(incoming.headers)) {
@@ -237,19 +241,35 @@ export function startHttpServer(opts: HttpServerOptions): Server {
           await writeRaw(socket, res)
           return
         }
+        pending = pair
         // IP trong whitelist bị giới hạn số kết nối WebSocket đồng thời (mặc định 5).
         const release =
           decision.maxConns === null ? null : (opts.guard?.acquire(ip, decision.maxConns) ?? null)
         if (decision.maxConns !== null && release === null) {
+          pair.abandon()
+          pending = null
           await writeRaw(socket, tooManyConnections(decision.maxConns))
           return
         }
+        // `ws` KHÔNG gọi callback khi bắt tay hỏng (thiếu/sai Sec-WebSocket-Key, client đã ngắt trong lúc chờ...):
+        // lúc đó phải trả chỗ kết nối và bỏ cặp socket theo sự kiện đóng của socket thô.
+        let bound = false
+        const cleanup = () => {
+          if (bound) return
+          release?.()
+          pair.abandon()
+        }
+        socket.once('close', cleanup)
         wss.handleUpgrade(incoming, socket, head, (real) => {
+          bound = true
+          pending = null
           if (release) real.on('close', release)
           pair.bind(real)
           if (pair.tags.includes('gw')) opts.onGatewayConnected?.()
         })
+        if (!bound && socket.destroyed) cleanup()
       } catch {
+        pending?.abandon()
         socket.destroy()
       }
     })()
