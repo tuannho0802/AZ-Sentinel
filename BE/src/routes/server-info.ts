@@ -3,6 +3,7 @@ import { type Context, Hono } from 'hono'
 import { applyEdgeClientIp } from '../edge/edge-sign'
 import { realFetch, timedFetch } from '../edge/timed-fetch'
 import { sharedOriginStore } from '../edge/vps-origin'
+import { probeFor, type VpsProbe } from '../edge/vps-probe'
 import { AppError } from '../lib/app-error'
 import { requireServiceToken } from '../lib/service-auth'
 import { nowUnix } from '../lib/time'
@@ -26,9 +27,14 @@ export function createServerInfoRoutes(auth: ViewerAuth, deps: ServerInfoDeps = 
   const viewerViaVps = async (c: Context<AppEnv>): Promise<Viewer | null> => {
     const cookie = c.req.header('Cookie')
     if (c.env.HOST || !cookie) return null
+    let probe: VpsProbe | null = null
     try {
       const origin = await (deps.origins ?? sharedOriginStore).resolve(c.env)
       if (!origin) return null
+      // Hỏi bộ dò trước: `/api/server-info` không qua edge-router nên nếu không, mỗi request mang cookie (kể cả cookie
+      // rác) đều gọi sang VPS đã sập và chờ hết hạn, tốn hạn mức subrequest. Dùng chung trạng thái dò với edge-router.
+      probe = probeFor(origin, deps.registry, deps.fetchFn)
+      if (!(await probe.isUp())) return null
       const headers = new Headers({ Cookie: cookie })
       await applyEdgeClientIp(
         headers,
@@ -51,6 +57,7 @@ export function createServerInfoRoutes(auth: ViewerAuth, deps: ServerInfoDeps = 
       if (typeof me.id !== 'number' || !role) return null
       return { userId: me.id, role: role satisfies UserRole, expiresAt: null }
     } catch {
+      probe?.markDown() // lỗi mạng/hết giờ: request sau khỏi gọi lại cho tới nhịp dò kế
       return null
     }
   }

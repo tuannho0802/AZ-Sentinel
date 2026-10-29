@@ -18,6 +18,7 @@ export async function resetDb(): Promise<void> {
     env.DB.prepare('DELETE FROM link_state'),
     env.DB.prepare('DELETE FROM ea_links'),
     env.DB.prepare('DELETE FROM gw_tokens'),
+    env.DB.prepare('DELETE FROM login_throttle'),
     env.DB.prepare('DELETE FROM sessions'),
     env.DB.prepare('DELETE FROM users'),
   ])

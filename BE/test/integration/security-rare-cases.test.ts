@@ -114,7 +114,7 @@ describe('đăng nhập: ca hiếm', () => {
   // Lỗi 4: kiểm tra `locked_until` chạy TRƯỚC khi so mật khẩu và chỉ tài khoản có thật mới bị khóa, nên kẻ lạ
   // thử 5 mật khẩu sai là biết email nào tồn tại (lần 6 ra 429, email không có thì mãi 401). Cũng có thể khóa
   // admin 15 phút liên tục (kể cả khi admin gõ đúng mật khẩu).
-  it.fails('email có thật và email không tồn tại cho cùng chuỗi mã trạng thái (không lộ tài khoản)', async () => {
+  it('email có thật và email không tồn tại cho cùng chuỗi mã trạng thái (không lộ tài khoản)', async () => {
     await seedUser('victim@az.test')
     const attempt = async (email: string) => {
       const codes: number[] = []
@@ -126,6 +126,50 @@ describe('đăng nhập: ca hiếm', () => {
       return codes
     }
     expect(await attempt('victim@az.test')).toEqual(await attempt('khong-co-ai@az.test'))
+  })
+
+  it('email không tồn tại cũng khóa sau 5 lần: có 429 + Retry-After, không đặt cookie', async () => {
+    const bad = { email: 'ghost@az.test', password: 'sai-sai-sai-1' }
+    for (let i = 0; i < 5; i++)
+      expect((await call('POST', '/auth/login', null, bad)).status).toBe(401)
+    const res = await call('POST', '/auth/login', null, bad)
+    expect(res.status).toBe(429)
+    expect(Number(res.headers.get('Retry-After'))).toBeGreaterThan(0)
+    expect(res.headers.get('Set-Cookie')).toBeNull()
+  })
+
+  it('email không tồn tại: viết hoa/thừa khoảng trắng vẫn tính chung một bộ đếm', async () => {
+    const variants = [
+      'ghost2@az.test',
+      'GHOST2@az.test',
+      'Ghost2@Az.Test',
+      'ghost2@az.test',
+      'GHOST2@AZ.TEST',
+    ]
+    for (const email of variants) {
+      expect(
+        (await call('POST', '/auth/login', null, { email, password: 'sai-sai-sai-1' })).status,
+      ).toBe(401)
+    }
+    expect(
+      (
+        await call('POST', '/auth/login', null, {
+          email: 'ghost2@az.test',
+          password: 'sai-sai-sai-1',
+        })
+      ).status,
+    ).toBe(429)
+  })
+
+  it('email giả bị khóa không ảnh hưởng email thật khác', async () => {
+    await seedUser('real@az.test')
+    for (let i = 0; i < 6; i++)
+      await call('POST', '/auth/login', null, { email: 'ghost3@az.test', password: 'x-x-x-x-x-1' })
+    const ok = await call('POST', '/auth/login', null, {
+      email: 'real@az.test',
+      password: TEST_PASSWORD,
+    })
+    expect(ok.status).toBe(200)
   })
 
   it('sai 5 lần thì khóa tạm: 429 kèm Retry-After; mật khẩu đúng cũng bị từ chối trong lúc khóa', async () => {
@@ -345,12 +389,41 @@ describe('quyền thao tác trên liên kết', () => {
 
   // Lỗi 6 (cần xác nhận ý đồ): route /status dùng chung `authorize` cho chủ liên kết lẫn admin, nên người dùng
   // thường tự bật lại liên kết mà admin đã tắt (vd. để chặn lạm dụng hoặc dừng giao dịch từ xa).
-  it.fails('người dùng thường KHÔNG tự bật lại được liên kết do admin đã tắt', async () => {
+  it('người dùng thường KHÔNG tự bật lại được liên kết do admin đã tắt', async () => {
     expect(
       (await call('POST', `/links/${linkId}/status`, root, { status: 'disabled' })).status,
     ).toBe(200)
     const res = await call('POST', `/links/${linkId}/status`, user, { status: 'active' })
     expect(res.status).toBe(403)
+  })
+
+  it('chủ tự tắt rồi tự bật lại được; admin bật lại thì chủ lại tự bật/tắt được', async () => {
+    expect(
+      (await call('POST', `/links/${linkId}/status`, user, { status: 'disabled' })).status,
+    ).toBe(200)
+    expect((await call('POST', `/links/${linkId}/status`, user, { status: 'active' })).status).toBe(
+      200,
+    )
+    await call('POST', `/links/${linkId}/status`, root, { status: 'disabled' })
+    expect((await call('POST', `/links/${linkId}/status`, root, { status: 'active' })).status).toBe(
+      200,
+    )
+    expect(
+      (await call('POST', `/links/${linkId}/status`, user, { status: 'disabled' })).status,
+    ).toBe(200)
+    expect((await call('POST', `/links/${linkId}/status`, user, { status: 'active' })).status).toBe(
+      200,
+    )
+  })
+
+  it('admin tắt rồi chủ bấm "tắt" thêm lần nữa vẫn không mở khóa được việc tự bật lại', async () => {
+    await call('POST', `/links/${linkId}/status`, root, { status: 'disabled' })
+    expect(
+      (await call('POST', `/links/${linkId}/status`, user, { status: 'disabled' })).status,
+    ).toBe(200)
+    const res = await call('POST', `/links/${linkId}/status`, user, { status: 'active' })
+    expect(res.status).toBe(403)
+    expect(await res.json()).toMatchObject({ error: { code: 'LINK_LOCKED_BY_ADMIN' } })
   })
 
   it('người dùng khác (không phải chủ) nhận 404 y hệt liên kết không tồn tại', async () => {

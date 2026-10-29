@@ -199,7 +199,30 @@ export function createLinkRoutes(viewerAuth: ViewerAuth) {
       const id = parseId(c.req.param('id'))
       await authorize(c, id)
       const { status } = c.req.valid('json')
-      await c.env.DB.prepare('UPDATE ea_links SET status = ? WHERE id = ?').bind(status, id).run()
+      const admin = isAdmin(viewerOf(c))
+      if (admin) {
+        // Admin tắt thì đánh dấu để chủ không tự bật lại được; admin bật thì gỡ dấu.
+        await c.env.DB.prepare('UPDATE ea_links SET status = ?, disabled_by_admin = ? WHERE id = ?')
+          .bind(status, status === 'disabled' ? 1 : 0, id)
+          .run()
+      } else if (status === 'active') {
+        // Một câu lệnh nguyên tử: không bật được nếu admin đã tắt (kể cả khi admin vừa tắt xong giữa chừng).
+        const r = await c.env.DB.prepare(
+          'UPDATE ea_links SET status = ? WHERE id = ? AND disabled_by_admin = 0',
+        )
+          .bind(status, id)
+          .run()
+        if ((r.meta?.changes ?? 0) === 0) {
+          throw new AppError(
+            403,
+            'LINK_LOCKED_BY_ADMIN',
+            'Liên kết do quản trị viên tắt, chỉ quản trị viên bật lại được',
+          )
+        }
+      } else {
+        // Chủ tự tắt: giữ nguyên dấu của admin (đã bị admin tắt thì vẫn là admin tắt).
+        await c.env.DB.prepare('UPDATE ea_links SET status = ? WHERE id = ?').bind(status, id).run()
+      }
       if (status === 'disabled') await revokeAtHub(c.env, id)
       return c.json(await loadLink(c.env, id, true))
     },

@@ -19,7 +19,9 @@ import {
   findUserByEmail,
   getUserById,
   registerFailedLogin,
+  registerUnknownFailedLogin,
   type UserRow,
+  unknownLoginLockWait,
 } from '../services/user-service'
 import type { AppEnv } from '../types'
 
@@ -53,6 +55,16 @@ function requireJson(c: Context<AppEnv>): void {
   }
 }
 
+/** 429 khi bị khóa tạm; dùng chung cho tài khoản thật và email không tồn tại để hai bên trả y hệt nhau. */
+function lockedError(waitSec: number): AppError {
+  return new AppError(
+    429,
+    'RATE_LIMITED',
+    `Thử đăng nhập quá nhiều lần. Hãy thử lại sau ${Math.ceil(waitSec / 60)} phút.`,
+    waitSec,
+  )
+}
+
 /**
  * Đăng nhập thật (Plan 4B): `POST /auth/login`, `POST /auth/logout`, `GET /me`. Cookie phiên HttpOnly,
  * SameSite=Lax. Ghi bắt buộc JSON để trang web lạ không kích hoạt được qua form. Sai quá
@@ -79,17 +91,15 @@ export function createAuthRoutes(viewerAuth: ViewerAuth = resolveViewer) {
 
       const user = await findUserByEmail(db, email)
       if (!user) {
+        // Email không tồn tại phải bị đếm và khóa y hệt tài khoản thật (cùng thứ tự: kiểm khóa trước, so mật khẩu sau).
+        const wait = await unknownLoginLockWait(db, email, now)
+        if (wait > 0) throw lockedError(wait)
         await verifyPassword(password, await getDummyHash())
+        await registerUnknownFailedLogin(db, email, now)
         throw new AppError(401, 'UNAUTHENTICATED', BAD_CREDENTIALS)
       }
       if (user.locked_until !== null && user.locked_until > now) {
-        const wait = user.locked_until - now
-        throw new AppError(
-          429,
-          'RATE_LIMITED',
-          `Thử đăng nhập quá nhiều lần. Hãy thử lại sau ${Math.ceil(wait / 60)} phút.`,
-          wait,
-        )
+        throw lockedError(user.locked_until - now)
       }
       if (!(await verifyPassword(password, user.password_hash))) {
         await registerFailedLogin(db, user, now)

@@ -11,6 +11,7 @@ export const ERROR_CODES = [
   'SERVICE_UNAVAILABLE',
   'INVALID_API_KEY',
   'LINK_DISABLED',
+  'LINK_LOCKED_BY_ADMIN',
   'LINK_BOUND_TO_OTHER_ACCOUNT',
   /** Plan 3E: VPS chính vừa mất kết nối giữa chừng, thao tác ghi không tự thử lại. */
   'UPSTREAM_FAILED',

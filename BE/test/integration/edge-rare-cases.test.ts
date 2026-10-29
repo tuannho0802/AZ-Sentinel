@@ -265,7 +265,7 @@ describe('/api/server-info: xác thực dự phòng qua VPS', () => {
   // Lỗi 2: viewerViaVps luôn gọi `${origin}/api/me` mà không hỏi trạng thái dò (probe). /api/server-info nằm trong
   // LOCAL_ONLY nên không qua bộ dò: một vòng lặp request mang Cookie rác làm Worker gọi sang VPS đã chết mỗi lần
   // (mỗi lần chờ tới 2,5 giây, tốn hạn mức subrequest).
-  it.fails('VPS đã sập: nhiều request mang Cookie rác không được gọi /api/me mỗi lần', async () => {
+  it('VPS đã sập: nhiều request mang Cookie rác không được gọi /api/me mỗi lần', async () => {
     const vps = fakeVps(() => {
       throw new Error('down')
     })

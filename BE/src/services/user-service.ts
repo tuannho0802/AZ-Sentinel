@@ -207,3 +207,48 @@ export async function ensureDevUsers(db: D1Database): Promise<void> {
       .run()
   }
 }
+
+/**
+ * Bộ đếm sai/khóa cho email KHÔNG tồn tại, cùng ngưỡng (`MAX_FAILED_LOGINS`) và thời gian khóa (`LOCK_SEC`) với
+ * tài khoản thật để kẻ lạ không phân biệt được email nào có thật qua việc bị khóa.
+ */
+const THROTTLE_STALE_SEC = 7 * 86_400
+
+/** Số giây còn bị khóa, hoặc 0 nếu không bị khóa. */
+export async function unknownLoginLockWait(
+  db: D1Database,
+  email: string,
+  now: number,
+): Promise<number> {
+  const row = await db
+    .prepare('SELECT locked_until FROM login_throttle WHERE email = ?')
+    .bind(normalizeEmail(email))
+    .first<{ locked_until: number | null }>()
+  return row?.locked_until != null && row.locked_until > now ? row.locked_until - now : 0
+}
+
+/** Ghi một lần sai cho email không tồn tại; đủ ngưỡng thì khóa và đặt lại bộ đếm (giống `registerFailedLogin`). */
+export async function registerUnknownFailedLogin(
+  db: D1Database,
+  email: string,
+  now: number,
+): Promise<void> {
+  const key = normalizeEmail(email)
+  await db.batch([
+    db
+      .prepare(
+        'DELETE FROM login_throttle WHERE updated_at < ? AND (locked_until IS NULL OR locked_until < ?)',
+      )
+      .bind(now - THROTTLE_STALE_SEC, now),
+    // Một câu upsert nguyên tử để các lần thử song song không đếm thiếu.
+    db
+      .prepare(
+        `INSERT INTO login_throttle (email, failed, locked_until, updated_at) VALUES (?1, 1, NULL, ?2)
+         ON CONFLICT(email) DO UPDATE SET
+           failed = CASE WHEN failed + 1 >= ?3 THEN 0 ELSE failed + 1 END,
+           locked_until = CASE WHEN failed + 1 >= ?3 THEN ?4 ELSE locked_until END,
+           updated_at = ?2`,
+      )
+      .bind(key, now, MAX_FAILED_LOGINS, now + LOCK_SEC),
+  ])
+}
