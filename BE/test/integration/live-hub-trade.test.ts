@@ -73,6 +73,17 @@ const until = async (fn: () => boolean, ms = 1500) => {
   }
 }
 const tick = () => new Promise((r) => setTimeout(r, 40))
+/**
+ * Chờ một điều kiện BẤT ĐỒNG BỘ (ví dụ dòng nhật ký trong D1 đổi trạng thái). Không dùng `tick()` cố định để chờ ghi DB:
+ * khi CI chạy nhiều gói test song song 40 ms không đủ và test chập chờn.
+ */
+const untilAsync = async (fn: () => Promise<boolean>, ms = 3000) => {
+  const end = Date.now() + ms
+  while (!(await fn())) {
+    if (Date.now() > end) throw new Error('quá thời gian chờ')
+    await new Promise((r) => setTimeout(r, 10))
+  }
+}
 const snap = { bal: 10000, eq: 10010, fl: 10, ml: null }
 
 /** Gateway giả đã bind và báo terminal online. */
@@ -212,7 +223,7 @@ describe('trade_result: kết quả từ Gateway', () => {
       code: 10009,
       left: 0.03,
     })
-    await tick()
+    await untilAsync(async () => (await logRow())?.status === 'done')
     expect(await logRow()).toMatchObject({ status: 'done', reason: 'ok', code: 10009 })
   })
 
@@ -230,12 +241,14 @@ describe('trade_result: kết quả từ Gateway', () => {
     const g = await onlineGateway(hub, key)
     await insertLog()
     g.ws.send(result({ status: 'timeout', reason: 'no_reply', code: 0, detail: '' }))
-    await tick()
+    await untilAsync(async () => (await logRow())?.status === 'timeout')
     expect(await logRow()).toMatchObject({ status: 'timeout' })
     g.ws.send(result())
-    await tick()
+    await untilAsync(async () => (await logRow())?.status === 'done')
     expect(await logRow()).toMatchObject({ status: 'done' })
     g.ws.send(result({ status: 'failed', reason: 'retcode', code: 10006 }))
+    // Khẳng định phủ định (không bị ghi đè): không có gì để chờ theo điều kiện, nên chờ cố định đủ lâu.
+    await tick()
     await tick()
     expect(await logRow()).toMatchObject({ status: 'done', code: 10009 })
   })
