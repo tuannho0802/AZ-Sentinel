@@ -26,5 +26,11 @@ export default defineConfig({
   plugins: [react(), tailwindcss(), ...(useMockAuth ? [mockAuth()] : [])],
   // Mặc định đi qua Server (VPS giả lập, 8080); đặt AZ_API_TARGET=http://127.0.0.1:8787 để dùng thẳng BE Worker.
   server: { port: 5173, proxy: { '/api': { target: apiTarget, ws: true } } },
-  test: { environment: 'jsdom', include: ['src/**/*.test.{ts,tsx}'] },
+  test: {
+    environment: 'jsdom',
+    include: ['src/**/*.test.{ts,tsx}'],
+    setupFiles: ['./src/test-setup.ts'],
+    // Dư địa cho runner CI chậm: một số test dựng cả ứng dụng và đi qua nhiều lần chờ bất đồng bộ.
+    testTimeout: 15_000,
+  },
 })
