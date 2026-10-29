@@ -137,6 +137,11 @@ export class UpdateAgent {
       )
     }
     this.gatewayLatest = this.opts.gatewayPush ? latestGatewayRelease(list) : null
+    // Release Gateway bị xóa (hoặc không còn bản nào đủ file): thôi ép, đừng giữ địa chỉ tải đã chết.
+    if (this.gatewayLatest === null) {
+      this.offer = null
+      this.offerFailure = null
+    }
     const retry = await this.refreshGatewayOffer()
     return retry ? this.retrySec : this.checkSec
   }
@@ -166,8 +171,6 @@ export class UpdateAgent {
       this.offer = { version, url: gatewayAssetUrl(version), sha256 }
       this.offerFailure = null
       this.opts.log.info(`sẽ ép Gateway cũ hơn cập nhật lên v${version}`)
-      this.opts.onGatewayOffer?.(this.offer)
-      return false
     } catch (e) {
       const msg = (e instanceof Error ? e.message : String(e)).slice(0, 160)
       if (this.offerFailure !== msg) {
@@ -176,6 +179,13 @@ export class UpdateAgent {
       }
       return true
     }
+    // Ngoài khối try: hub lỗi không được bị báo nhầm thành "không lấy được băm" và không làm Server thử lại băm.
+    try {
+      if (this.offer) this.opts.onGatewayOffer?.(this.offer)
+    } catch (e) {
+      this.opts.log.warn(`báo hub về bản Gateway v${version} lỗi: ${String(e).slice(0, 160)}`)
+    }
+    return false
   }
 
   private nowSec(): number {

@@ -3,7 +3,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'no
 import os from 'node:os'
 import path from 'node:path'
 import { gatewayAssetUrl } from '@az-sentinel/shared'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from 'vitest'
 import { loadConfig } from '../src/config'
 import { Gateway } from '../src/gateway'
 import { silentLogger } from '../src/log'
@@ -38,7 +38,7 @@ function okFetch(body: Buffer = EXE, finalUrl?: string): typeof fetch {
 
 let appDir: string
 let dataDir: string
-let restart: ReturnType<typeof vi.fn>
+let restart: Mock<() => void>
 
 function make(over: Partial<SelfUpdaterOptions> = {}) {
   return new SelfUpdater({
@@ -59,7 +59,7 @@ const wait = (ms = 15) => new Promise((r) => setTimeout(r, ms))
 beforeEach(() => {
   appDir = mkdtempSync(path.join(os.tmpdir(), 'az-gw-app-'))
   dataDir = mkdtempSync(path.join(os.tmpdir(), 'az-gw-data-'))
-  restart = vi.fn()
+  restart = vi.fn<() => void>()
 })
 afterEach(() => {
   rmSync(appDir, { recursive: true, force: true })

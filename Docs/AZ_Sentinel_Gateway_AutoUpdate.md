@@ -52,6 +52,20 @@ Từ Gateway 0.4.0 và Server 0.3.0, người dùng không phải chạy lại `
 - Muốn đẩy bản Gateway mới tới mọi người: chỉ cần phát hành (`[release]`). Server của Admin tự thấy trong tối đa 5 phút và ép các Gateway đang nối.
 - Sửa `Server/` hay `BE/` thì vẫn cần `[release-server]` và Admin chạy bộ cài Server như trước (Server chưa tự cập nhật chính nó).
 
+### Xử lý lỗi (đã có test)
+
+| Sự cố | Cách xử lý |
+|---|---|
+| Mất mạng, timeout, HTTP lỗi, thân rỗng | Giữ bản đang chạy, không để lại file; chờ 10 phút mới thử lại cùng phiên bản |
+| Đứt giữa chừng, vượt trần 300 MB, file không phải exe, băm sai | Xóa `.part`; không tạo `.new`; bản chờ hợp lệ của lần trước (nếu có) giữ nguyên |
+| `.new` còn lại nhưng nội dung hỏng/cụt | Không dùng lại: kiểm lại SHA-256 rồi tải lại |
+| Đổi tên lỗi giữa chừng | Cặp `.new` + `.new.ver` cũ bị xóa trước khi ghi cặp mới, không có `.new` cũ mang nhãn của bản mới |
+| `run-gateway.cmd` không thay được file (antivirus khóa, thiếu quyền): Gateway cũ chạy lại, Server nhắc lại | Tối đa 3 lần khởi động lại cho cùng một phiên bản trong 6 giờ (`update-attempt.json` trong thư mục dữ liệu), sau đó log cảnh báo và dừng; bản mới hơn hoặc hết 6 giờ thì thử lại |
+| Bản mới khởi động lỗi 3 lần | `run-gateway.cmd` trả bản cũ về, ghi `update-failed.txt`, Gateway không nhận lại bản đó |
+| Server: không lấy được `SHA256SUMS.txt` | Không ép; cảnh báo một lần; thử lại sớm |
+| Server: release Gateway bị xóa | Offer bị rút lại (không giữ địa chỉ tải đã chết) |
+| Server: hub lỗi khi được báo bản mới | Ghi cảnh báo riêng; offer vẫn giữ |
+
 ## 5. Tệp liên quan
 
 | Tệp | Việc |

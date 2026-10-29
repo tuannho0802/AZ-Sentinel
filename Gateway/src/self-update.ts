@@ -37,6 +37,8 @@ export const STAGED_VER = 'az-gateway.exe.new.ver'
 export const TRIAL_FILE = 'az-gateway.exe.trial'
 export const OLD_EXE = 'az-gateway.exe.old'
 export const UPDATE_FAILED_FILE = 'update-failed.txt'
+/** Đếm số lần đã yêu cầu khởi động lại để áp dụng cùng một phiên bản (nằm ở dataDir, sống qua các lần khởi động lại). */
+export const UPDATE_ATTEMPT_FILE = 'update-attempt.json'
 
 /** Chạy đủ chừng này ms sau khi khởi động thì coi bản mới là khỏe. */
 export const HEALTHY_AFTER_MS = 30_000
@@ -46,6 +48,12 @@ const DOWNLOAD_TIMEOUT_MS = 10 * 60_000
 /** Tải hỏng thì chờ chừng này mới thử lại cùng phiên bản (Server nhắc lại mỗi lần Gateway nối lại). */
 const RETRY_AFTER_MS = 10 * 60_000
 const RESTART_DELAY_MS = 3000
+/**
+ * Khởi động lại để áp dụng cùng một phiên bản tối đa chừng này lần trong `ATTEMPT_WINDOW_MS`. Nếu `run-gateway.cmd` không thay
+ * được file (antivirus khóa exe, thiếu quyền...) Gateway cũ chạy lại, Server nhắc lại, và cứ thế khởi động lại vô hạn.
+ */
+export const MAX_RESTART_ATTEMPTS = 3
+export const ATTEMPT_WINDOW_MS = 6 * 3_600_000
 
 export type SelfUpdateOffer = { min_ver: string; url: string; sha256: string }
 
@@ -56,6 +64,7 @@ export type SelfUpdateResult =
   | 'blocked'
   | 'busy'
   | 'cooldown'
+  | 'looping'
   | 'failed'
   | 'staged'
 
@@ -80,6 +89,8 @@ export type SelfUpdaterOptions = {
   now?: () => number
   restartDelayMs?: number
   retryAfterMs?: number
+  /** Trần kích thước file tải về (mặc định 300 MB). Chủ yếu để kiểm thử. */
+  maxBytes?: number
 }
 
 const SHA256 = /^[0-9a-f]{64}$/
@@ -107,6 +118,14 @@ function startsWithMz(file: string): boolean {
     return false
   } finally {
     if (fd !== null) closeSync(fd)
+  }
+}
+
+function sha256File(file: string): string | null {
+  try {
+    return createHash('sha256').update(readFileSync(file)).digest('hex')
+  } catch {
+    return null
   }
 }
 
@@ -165,10 +184,22 @@ export class SelfUpdater {
       return 'cooldown'
     }
 
+    if (this.tooManyAttempts(msg.min_ver)) {
+      log.warn(
+        `bỏ qua cập nhật v${msg.min_ver}: đã khởi động lại ${MAX_RESTART_ATTEMPTS} lần mà bản này vẫn chưa được áp dụng (run-gateway.cmd không thay được file?). Kiểm tra quyền ghi và antivirus trong thư mục cài`,
+      )
+      return 'looping'
+    }
+
     this.busy = true
     try {
       const staged = path.join(appDir, STAGED_EXE)
-      if (readTrim(path.join(appDir, STAGED_VER)) === msg.min_ver && existsSync(staged)) {
+      // Bản chờ chỉ được dùng lại khi nhãn khớp VÀ nội dung vẫn đúng mã băm Server báo (file có thể bị cắt dở, bị antivirus sửa...).
+      if (
+        readTrim(path.join(appDir, STAGED_VER)) === msg.min_ver &&
+        existsSync(staged) &&
+        sha256File(staged) === msg.sha256
+      ) {
         log.info(`bản v${msg.min_ver} đã tải sẵn, khởi động lại để áp dụng`)
       } else {
         log.info(
@@ -177,6 +208,7 @@ export class SelfUpdater {
         await this.download(msg, appDir)
         log.info(`đã tải và kiểm băm v${msg.min_ver}, khởi động lại để áp dụng`)
       }
+      this.recordAttempt(msg.min_ver)
       this.scheduleRestart()
       return 'staged'
     } catch (e) {
@@ -208,6 +240,15 @@ export class SelfUpdater {
         // đang bị khóa: lần chạy sau dọn tiếp
       }
     }
+    // Đang chạy đúng (hoặc hơn) bản từng được yêu cầu áp dụng thì việc cập nhật đã xong: quên bộ đếm khởi động lại.
+    const attempt = this.readAttempt()
+    if (attempt && compareVersions(this.opts.current, attempt.version) >= 0) {
+      try {
+        rmSync(path.join(this.opts.dataDir, UPDATE_ATTEMPT_FILE), { force: true })
+      } catch {
+        // bỏ qua
+      }
+    }
     // Đã chạy bản mới hơn hẳn phiên bản từng lỗi thì không cần nhớ nữa.
     const file = path.join(this.opts.dataDir, UPDATE_FAILED_FILE)
     const failed = readTrim(file)
@@ -217,6 +258,46 @@ export class SelfUpdater {
       } catch {
         // bỏ qua
       }
+    }
+  }
+
+  private readAttempt(): { version: string; count: number; at: number } | null {
+    try {
+      const j = JSON.parse(readFileSync(path.join(this.opts.dataDir, UPDATE_ATTEMPT_FILE), 'utf8'))
+      if (
+        j &&
+        typeof j.version === 'string' &&
+        isReleaseVersion(j.version) &&
+        Number.isFinite(j.count) &&
+        Number.isFinite(j.at)
+      ) {
+        return { version: j.version, count: Number(j.count), at: Number(j.at) }
+      }
+    } catch {
+      // chưa có hoặc hỏng: coi như chưa thử lần nào
+    }
+    return null
+  }
+
+  private tooManyAttempts(version: string): boolean {
+    const a = this.readAttempt()
+    return (
+      a !== null &&
+      a.version === version &&
+      a.count >= MAX_RESTART_ATTEMPTS &&
+      this.now() - a.at < ATTEMPT_WINDOW_MS
+    )
+  }
+
+  private recordAttempt(version: string): void {
+    const a = this.readAttempt()
+    const count =
+      a !== null && a.version === version && this.now() - a.at < ATTEMPT_WINDOW_MS ? a.count + 1 : 1
+    const next = { version, count, at: this.now() }
+    try {
+      writeFileSync(path.join(this.opts.dataDir, UPDATE_ATTEMPT_FILE), JSON.stringify(next), 'utf8')
+    } catch {
+      // không ghi được thì mất khả năng chặn vòng lặp, nhưng vẫn cập nhật bình thường
     }
   }
 
@@ -232,6 +313,7 @@ export class SelfUpdater {
     const part = path.join(appDir, `${STAGED_EXE}.part`)
     const staged = path.join(appDir, STAGED_EXE)
     const verFile = path.join(appDir, STAGED_VER)
+    const maxBytes = this.opts.maxBytes ?? MAX_BYTES
     try {
       const res = await doFetch(msg.url, {
         headers: {
@@ -255,14 +337,14 @@ export class SelfUpdater {
         if (!isGithubHost(host)) throw new Error(`bị chuyển hướng tới host lạ: ${host || '?'}`)
       }
       const declared = Number(res.headers.get('content-length') ?? '0')
-      if (declared > MAX_BYTES) throw new Error(`file quá lớn (${declared} byte)`)
+      if (declared > maxBytes) throw new Error(`file quá lớn (${declared} byte)`)
 
       const hash = createHash('sha256')
       let size = 0
       const meter = new Transform({
         transform(chunk: Buffer, _enc, cb) {
           size += chunk.length
-          if (size > MAX_BYTES) {
+          if (size > maxBytes) {
             cb(new Error('file vượt trần kích thước'))
             return
           }
@@ -280,6 +362,10 @@ export class SelfUpdater {
       if (got !== msg.sha256) throw new Error('mã băm SHA-256 không khớp, bỏ file vừa tải')
       if (size < 1024 || !startsWithMz(part)) throw new Error('file tải về không phải exe Windows')
 
+      // Bản chờ cũ (nếu có) hết hiệu lực trước khi ghi cặp mới: nếu đổi tên lỗi giữa chừng thì không còn `.new` cũ mang nhãn
+      // của bản mới (sẽ bị coi là đã tải xong và áp dụng nhầm exe).
+      rmSync(staged, { force: true })
+      rmSync(verFile, { force: true })
       // Ghi nhãn phiên bản trước, exe sau cùng: `run-gateway.cmd` chỉ hành động khi thấy `.new`, lúc đó nhãn đã đủ.
       writeFileSync(verFile, `${msg.min_ver}\n`, 'utf8')
       renameSync(part, staged)
