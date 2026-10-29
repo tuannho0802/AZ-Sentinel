@@ -2,6 +2,7 @@ import type { ServerInfo, ServerNode } from '@az-sentinel/shared'
 import { Button } from '../../components/Button'
 import { Card } from '../../components/Card'
 import { formatDateTime, formatRelative } from '../../lib/format'
+import { formatSec, loadTiming } from '../../lib/perf'
 import { strings } from '../../lib/strings'
 import { useServerInfo } from './api'
 
@@ -77,6 +78,7 @@ function Details({ info }: { info: ServerInfo }) {
         ? strings.serverModeFallback
         : strings.serverModeStandalone
   const standby = info.standby
+  const timing = loadTiming()
   return (
     <div className="text-sm">
       <p className="font-medium">{modeText}</p>
@@ -85,6 +87,9 @@ function Details({ info }: { info: ServerInfo }) {
         <NodeRows node={info.active} />
         <Row label={strings.serverFieldGateways} value={String(info.gateways)} />
         <Row label={strings.serverFieldViewers} value={String(info.viewers)} />
+        {timing && (
+          <Row label={strings.loadTimingLabel} value={strings.loadTimingValue(timing, formatSec)} />
+        )}
         {info.primary.configured && info.mode === 'fallback' && (
           <>
             <Row label={strings.serverFieldPrimary} value={strings.primaryDown} />

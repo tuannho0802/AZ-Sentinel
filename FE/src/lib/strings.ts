@@ -7,6 +7,7 @@ export const strings = {
   retry: 'Thử lại',
 
   checkingSession: 'Đang kiểm tra phiên đăng nhập...',
+  pageLoading: 'Đang tải trang...',
   sessionError: 'Không kiểm tra được phiên đăng nhập',
 
   loginTitle: 'Đăng nhập',
@@ -308,6 +309,19 @@ export const strings = {
   serverBadgeLabel: 'Máy chủ đang phục vụ',
   serverCardTitle: 'Máy chủ',
   serverLoading: 'Đang kiểm tra máy chủ...',
+  loadTimingLabel: 'Mở trang (từ lúc chạm)',
+  loadTimingValue: (
+    t: { html: number | null; script: number | null; shown: number | null; checked: number | null },
+    f: (ms: number) => string,
+  ) =>
+    [
+      t.html !== null && `HTML ${f(t.html)}`,
+      t.script !== null && `JS ${f(t.script)}`,
+      t.shown !== null && `hiện ${f(t.shown)}`,
+      t.checked !== null && `phiên ${f(t.checked)}`,
+    ]
+      .filter(Boolean)
+      .join(' · '),
   serverError: 'Không đọc được thông tin máy chủ',
   serverModePrimary: 'VPS đang là máy chủ chính',
   serverModeFallback: 'Đang dùng Cloudflare dự phòng',

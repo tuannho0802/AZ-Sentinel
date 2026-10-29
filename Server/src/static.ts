@@ -2,6 +2,8 @@ import { createReadStream } from 'node:fs'
 import { readFile, stat } from 'node:fs/promises'
 import path from 'node:path'
 import { Readable } from 'node:stream'
+import { promisify } from 'node:util'
+import { brotliCompress, gzip, constants as zc } from 'node:zlib'
 import { SERVED_BY_HEADER } from '@az-sentinel/shared'
 
 const TYPES: Record<string, string> = {
@@ -20,6 +22,31 @@ const TYPES: Record<string, string> = {
   '.woff2': 'font/woff2',
   '.txt': 'text/plain; charset=utf-8',
   '.map': 'application/json',
+}
+
+/** Loại văn bản mới nén (ảnh, font woff/woff2 vốn đã nén). Nhỏ hơn ngưỡng thì nén không đáng. */
+const COMPRESSIBLE = new Set([
+  '.html',
+  '.js',
+  '.mjs',
+  '.css',
+  '.json',
+  '.webmanifest',
+  '.svg',
+  '.txt',
+])
+const MIN_COMPRESS = 1024
+
+type Encoding = 'br' | 'gzip'
+const brotliAsync = promisify(brotliCompress)
+const gzipAsync = promisify(gzip)
+
+/** Quick Tunnel không cam kết nén hộ; tự nén để điện thoại tải ~150 KB thay vì ~530 KB cho gói JS. */
+function pickEncoding(header: string | null): Encoding | null {
+  const h = (header ?? '').toLowerCase()
+  if (/\bbr\b(?!\s*;\s*q=0(\.0+)?\b)/.test(h)) return 'br'
+  if (/\bgzip\b(?!\s*;\s*q=0(\.0+)?\b)/.test(h)) return 'gzip'
+  return null
 }
 
 const baseHeaders = (type: string, size: number, cache: string): Record<string, string> => ({
@@ -46,6 +73,21 @@ export const stripPwaLink = (html: string): string =>
  */
 export function createStaticHandler(root: string) {
   const base = path.resolve(root)
+  // Nén một lần cho mỗi (tệp, mtime, kiểu nén); giao diện chỉ vài tệp nên RAM không đáng kể.
+  const encoded = new Map<string, Promise<Buffer>>()
+  const encode = (key: string, raw: Buffer, enc: Encoding): Promise<Buffer> => {
+    const k = `${enc}:${key}`
+    let hit = encoded.get(k)
+    if (!hit) {
+      hit =
+        enc === 'br'
+          ? brotliAsync(raw, { params: { [zc.BROTLI_PARAM_QUALITY]: 9 } })
+          : gzipAsync(raw, { level: 9 })
+      encoded.set(k, hit)
+      hit.catch(() => encoded.delete(k))
+    }
+    return hit
+  }
 
   const tryFile = async (abs: string) => {
     try {
@@ -85,14 +127,28 @@ export function createStaticHandler(root: string) {
     const isAsset = rel.startsWith('assets/') && abs !== path.join(base, 'index.html')
     const cache = isAsset ? 'public, max-age=31536000, immutable' : 'no-cache'
     const type = TYPES[path.extname(abs).toLowerCase()] ?? 'application/octet-stream'
-    if (path.basename(abs) === 'index.html' && abs === path.join(base, 'index.html')) {
-      const html = stripPwaLink(await readFile(abs, 'utf8'))
-      const bytes = Buffer.from(html, 'utf8')
-      const h = baseHeaders(type, bytes.length, cache)
+    const ext = path.extname(abs).toLowerCase()
+    const isIndex = path.basename(abs) === 'index.html' && abs === path.join(base, 'index.html')
+    const compressible = COMPRESSIBLE.has(ext)
+    const enc =
+      compressible && req.method === 'GET' ? pickEncoding(req.headers.get('accept-encoding')) : null
+    if (isIndex || (enc && info.size >= MIN_COMPRESS)) {
+      const raw = isIndex
+        ? Buffer.from(stripPwaLink(await readFile(abs, 'utf8')), 'utf8')
+        : await readFile(abs)
+      const h = baseHeaders(type, raw.length, cache)
+      if (compressible) h.Vary = 'Accept-Encoding'
       if (req.method === 'HEAD') return new Response(null, { status: 200, headers: h })
-      return new Response(bytes, { status: 200, headers: h })
+      let body = raw
+      if (enc && raw.length >= MIN_COMPRESS) {
+        body = await encode(`${abs}:${info.mtimeMs}:${info.size}`, raw, enc)
+        h['Content-Encoding'] = enc
+        h['Content-Length'] = String(body.length)
+      }
+      return new Response(body, { status: 200, headers: h })
     }
     const headers = baseHeaders(type, info.size, cache)
+    if (compressible) headers.Vary = 'Accept-Encoding'
     if (req.method === 'HEAD') return new Response(null, { status: 200, headers })
     const body = Readable.toWeb(createReadStream(abs)) as unknown as ReadableStream
     return new Response(body, { status: 200, headers })

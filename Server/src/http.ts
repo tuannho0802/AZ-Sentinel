@@ -1,6 +1,6 @@
 import type { IncomingMessage, Server } from 'node:http'
 import type { Duplex } from 'node:stream'
-import { DEVICE_HEADER, DEVICE_ID_HEADER } from '@az-sentinel/shared'
+import { DEVICE_COOKIE, DEVICE_HEADER, DEVICE_ID_HEADER } from '@az-sentinel/shared'
 import { serve } from '@hono/node-server'
 import { WebSocketServer } from 'ws'
 import { HandoffNonces, handleDeviceHandoff } from './device-handoff'
@@ -67,12 +67,22 @@ function withClientIp(req: Request, ip: string, device: DeviceInfo | null): Requ
 async function withSetCookie(
   res: Response | Promise<Response>,
   cookie: string | null,
+  extra?: Record<string, string>,
 ): Promise<Response> {
   const out = await res
-  if (!cookie) return out
+  if (!cookie && !extra) return out
   const headers = new Headers(out.headers)
-  headers.append('Set-Cookie', cookie)
+  if (cookie) headers.append('Set-Cookie', cookie)
+  for (const [k, v] of Object.entries(extra ?? {})) headers.set(k, v)
   return new Response(out.body, { status: out.status, statusText: out.statusText, headers })
+}
+
+/** Lượt tải trang của trình duyệt (cùng tiêu chí với `isPageNavigation` của Worker). */
+function isDocumentRequest(h: IncomingMessage['headers']): boolean {
+  const first = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v)
+  const dest = first(h['sec-fetch-dest'])
+  if (dest) return dest === 'document'
+  return (first(h.accept) ?? '').includes('text/html')
 }
 
 const forbidden = (message: string) =>
@@ -114,28 +124,49 @@ export function startHttpServer(opts: HttpServerOptions): Server {
       hostname: opts.host,
       fetch: async (req, env) => {
         const incoming = (env as { incoming?: IncomingMessage } | undefined)?.incoming
-        // Plan 3K: vé trao mã thiết bị từ Worker. Chỉ đặt cookie rồi chuyển hướng, không chạm dữ liệu nên xử lý trước whitelist.
+        // Plan 3K: vé trao mã thiết bị từ Worker. Chỉ đặt cookie, không chạm dữ liệu nên xử lý trước whitelist.
+        // Lượt tải trang của trình duyệt được phục vụ NGAY (một vòng mạng qua tunnel, không còn 302 sang URL sạch):
+        // cookie gắn vào chính phản hồi, mã thiết bị dùng luôn cho request này, và giao diện tự gỡ tham số vé khỏi
+        // thanh địa chỉ (`dropStayParam`). Request khác (không phải tải trang) vẫn chuyển hướng như cũ.
+        let handoffCookie: string | null = null
+        let forwarded = req
+        let seenHeaders = incoming?.headers
         if (incoming && req.method === 'GET') {
+          const clean = new URL(req.url) // handleDeviceHandoff gỡ tham số vé ngay trên đối tượng này
           const handoff = await handleDeviceHandoff(
-            new URL(req.url),
+            clean,
             incoming.headers,
             opts.edgeSecret ?? '',
             nonces,
           )
           if (handoff) {
-            const headers = new Headers({
-              Location: handoff.location,
-              'Cache-Control': 'no-store',
-              'Referrer-Policy': 'no-referrer',
-            })
-            if (handoff.setCookie) headers.append('Set-Cookie', handoff.setCookie)
-            return new Response(null, { status: 302, headers })
+            if (!isDocumentRequest(incoming.headers)) {
+              const headers = new Headers({
+                Location: handoff.location,
+                'Cache-Control': 'no-store',
+                'Referrer-Policy': 'no-referrer',
+              })
+              if (handoff.setCookie) headers.append('Set-Cookie', handoff.setCookie)
+              return new Response(null, { status: 302, headers })
+            }
+            forwarded = new Request(clean, { method: 'GET', headers: req.headers })
+            if (handoff.setCookie && handoff.raw) {
+              handoffCookie = handoff.setCookie
+              const old = incoming.headers.cookie
+              seenHeaders = {
+                ...incoming.headers,
+                cookie: `${DEVICE_COOKIE}=${handoff.raw}${old ? `; ${old}` : ''}`,
+              }
+            }
           }
         }
         const ip = incoming ? clientIp(incoming, opts.edgeSecret) : ''
-        const { info: device, setCookie } = incoming
-          ? identifyDevice(incoming.headers, true)
-          : { info: null, setCookie: null }
+        const { info: device, setCookie: minted } =
+          incoming && seenHeaders
+            ? identifyDevice(seenHeaders, true)
+            : { info: null, setCookie: null }
+        const setCookie = handoffCookie ?? minted
+        const extra = handoffCookie ? { 'Referrer-Policy': 'no-referrer' } : undefined
         if (opts.guard) {
           const decision = opts.guard.decide(ip, new URL(req.url).pathname, device)
           if (!decision.allow) {
@@ -143,12 +174,14 @@ export function startHttpServer(opts: HttpServerOptions): Server {
             return withSetCookie(
               forbidden(opts.guard.describeBlock(ip, decision.reason, device)),
               setCookie,
+              extra,
             )
           }
         }
         return withSetCookie(
-          opts.handler(incoming ? withClientIp(req, ip, device) : req),
+          opts.handler(incoming ? withClientIp(forwarded, ip, device) : forwarded),
           setCookie,
+          extra,
         )
       },
     },

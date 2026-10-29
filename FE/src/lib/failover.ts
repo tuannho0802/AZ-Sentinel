@@ -1,4 +1,4 @@
-import { PAGE_STAY_PARAM } from '@az-sentinel/shared'
+import { DEVICE_HANDOFF_PARAM, PAGE_STAY_PARAM } from '@az-sentinel/shared'
 import { useSyncExternalStore } from 'react'
 
 /**
@@ -103,8 +103,10 @@ export function dropStayParam(
 ): void {
   try {
     const url = new URL(loc.href)
-    if (!url.searchParams.has(PAGE_STAY_PARAM)) return
-    url.searchParams.delete(PAGE_STAY_PARAM)
+    // Vé trao mã thiết bị (`az_dh`) cũng gỡ ở đây: Server phục vụ trang ngay (không còn 302 sang URL sạch).
+    const found = [PAGE_STAY_PARAM, DEVICE_HANDOFF_PARAM].filter((p) => url.searchParams.has(p))
+    if (found.length === 0) return
+    for (const p of found) url.searchParams.delete(p)
     hist.replaceState(hist.state, '', `${url.pathname}${url.search}${url.hash}`)
   } catch {
     // môi trường không cho đổi lịch sử: bỏ qua

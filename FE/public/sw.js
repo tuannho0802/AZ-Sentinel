@@ -22,6 +22,9 @@ self.addEventListener('activate', (event) => {
     caches
       .keys()
       .then((keys) => Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k))))
+      // Navigation preload: trình duyệt gửi request mở trang song song với lúc khởi động service worker
+      // (trên điện thoại SW ngủ mất vài trăm ms mỗi lần mở app), thay vì chờ SW dậy mới gửi.
+      .then(() => self.registration.navigationPreload?.enable())
       .then(() => self.clients.claim()),
   )
 })
@@ -31,5 +34,13 @@ self.addEventListener('fetch', (event) => {
   // Chỉ lượt mở trang. Không chạm vào request khác (API, ảnh, script...) để chúng đi thẳng ra mạng.
   if (req.mode !== 'navigate') return
   // Phản hồi chuyển hướng (302 sang tunnel) của Worker vẫn đi qua bình thường: lỗi mạng mới rơi về trang offline.
-  event.respondWith(fetch(req).catch(async () => (await caches.match(OFFLINE)) ?? Response.error()))
+  event.respondWith(
+    (async () => {
+      try {
+        return (await event.preloadResponse) || (await fetch(req))
+      } catch {
+        return (await caches.match(OFFLINE)) ?? Response.error()
+      }
+    })(),
+  )
 })

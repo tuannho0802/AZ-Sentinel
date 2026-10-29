@@ -28,6 +28,8 @@ export type HandoffOutcome = {
   location: string
   /** `Set-Cookie` cần gắn (mã thiết bị của Worker); null khi vé hỏng, hết hạn, dùng lại hoặc cookie đã đúng. */
   setCookie: string | null
+  /** Mã thiết bị thô của Worker, chỉ có khi `setCookie` được cấp: để Server dùng ngay cho request này (không cần chuyển hướng). */
+  raw?: string
 }
 
 /**
@@ -55,5 +57,5 @@ export async function handleDeviceHandoff(
     DEVICE_COOKIE,
   )
   if (isRawDeviceId(current) && current === opened.raw) return { location, setCookie: null }
-  return { location, setCookie: deviceCookieHeader(opened.raw, isHttps(headers)) }
+  return { location, setCookie: deviceCookieHeader(opened.raw, isHttps(headers)), raw: opened.raw }
 }

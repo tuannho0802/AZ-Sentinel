@@ -1,6 +1,7 @@
-import type { ReactNode } from 'react'
+import { type ReactNode, useEffect } from 'react'
 import { Redirect } from 'wouter'
 import { Button } from '../../components/Button'
+import { markShown } from '../../lib/perf'
 import { strings } from '../../lib/strings'
 import { FailoverBanner } from '../server/FailoverBanner'
 import { useMe } from './api'
@@ -8,6 +9,10 @@ import { useMe } from './api'
 /** Chỉ ẩn/hiện cho tiện dùng; phân quyền thật nằm ở BE (Rules FE mục 1). */
 export function RequireAuth({ children }: { children: ReactNode }) {
   const me = useMe()
+  const ready = !me.isPending
+  useEffect(() => {
+    if (ready) markShown()
+  }, [ready])
   if (me.isPending) {
     return (
       <p role="status" className="p-8 text-muted">
