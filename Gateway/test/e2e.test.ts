@@ -8,6 +8,9 @@ import { Gateway } from '../src/gateway'
 import { isLoopbackHost, LocalServer } from '../src/local-server'
 import { alertReq, eventReq, ping, samplesReq } from './helpers'
 
+/** EA (WebRequest) luôn gửi JSON; Gateway từ chối request không phải của EA. */
+const JSON_HEADERS = { 'Content-Type': 'application/json' }
+
 /** Cloud giả: WebSocket server thật, ghi tin nhận được, trả "pong" cho "ping" như hub thật. */
 async function startCloud() {
   const wss = new WebSocketServer({ port: 0, host: '127.0.0.1' })
@@ -57,7 +60,11 @@ const until = async (cond: () => boolean, ms = 3000) => {
 }
 
 async function post(base: string, path: string, body: unknown) {
-  const res = await fetch(base + path, { method: 'POST', body: JSON.stringify(body) })
+  const res = await fetch(base + path, {
+    method: 'POST',
+    headers: JSON_HEADERS,
+    body: JSON.stringify(body),
+  })
   return { status: res.status, json: (await res.json()) as Record<string, unknown> }
 }
 
@@ -86,7 +93,11 @@ afterEach(async () => {
 
 describe('API loopback', () => {
   it('ping hợp lệ: 200, JSON gọn một dòng, không khoảng trắng', async () => {
-    const res = await fetch(`${base}/v1/ping`, { method: 'POST', body: JSON.stringify(ping()) })
+    const res = await fetch(`${base}/v1/ping`, {
+      method: 'POST',
+      headers: JSON_HEADERS,
+      body: JSON.stringify(ping()),
+    })
     const text = await res.text()
     expect(res.status).toBe(200)
     expect(text).toBe(
@@ -100,13 +111,54 @@ describe('API loopback', () => {
     ['đường dẫn lạ', 'POST', '/v1/nope', '{}', 404, 'not_found'],
     ['sai phương thức', 'GET', '/v1/ping', undefined, 405, 'method_not_allowed'],
   ])('%s', async (_n, method, path, body, status, error) => {
-    const res = await fetch(base + path, { method, body })
+    const res = await fetch(base + path, { method, headers: JSON_HEADERS, body })
     expect(res.status).toBe(status)
     expect(await res.json()).toEqual({ ok: false, error })
   })
 
+  it.each([
+    ['không có Content-Type (POST text/plain từ trang web)', {}],
+    ['Content-Type text/plain', { 'Content-Type': 'text/plain' }],
+    ['Content-Type form', { 'Content-Type': 'application/x-www-form-urlencoded' }],
+    [
+      'có Origin (trình duyệt)',
+      { 'Content-Type': 'application/json', Origin: 'https://evil.test' },
+    ],
+    [
+      'có Sec-Fetch-Site (trình duyệt)',
+      { 'Content-Type': 'application/json', 'Sec-Fetch-Site': 'cross-site' },
+    ],
+  ])('route EA chặn client không phải EA: %s', async (_n, headers) => {
+    // `fetch` của Node cấm đặt Origin/Sec-Fetch-*, nên dùng http thô.
+    const status = await new Promise<number>((resolve, reject) => {
+      const req = http.request(
+        { host: '127.0.0.1', port: new URL(base).port, path: '/v1/ping', method: 'POST', headers },
+        (res) => {
+          res.resume()
+          resolve(res.statusCode ?? 0)
+        },
+      )
+      req.on('error', reject)
+      req.end(JSON.stringify(ping()))
+    })
+    expect(status).toBe(403)
+  })
+
+  it('JSON hợp lệ kèm charset vẫn được nhận', async () => {
+    const res = await fetch(`${base}/v1/ping`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json; charset=utf-8' },
+      body: JSON.stringify(ping()),
+    })
+    expect(res.status).toBe(200)
+  })
+
   it('body quá 128 KB: 413', async () => {
-    const res = await fetch(`${base}/v1/ping`, { method: 'POST', body: 'x'.repeat(200 * 1024) })
+    const res = await fetch(`${base}/v1/ping`, {
+      method: 'POST',
+      headers: JSON_HEADERS,
+      body: 'x'.repeat(200 * 1024),
+    })
     expect(res.status).toBe(413)
     expect(await res.json()).toEqual({ ok: false, error: 'too_large' })
   })

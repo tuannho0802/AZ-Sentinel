@@ -5,8 +5,9 @@
   // Phải <= ngày mà workerd đã cài hỗ trợ. Cập nhật khi nâng wrangler.
   "compatibility_date": "2026-10-01",
   "observability": { "enabled": true },
-  // Part 1 (spike): bật meta rows_written/rows_read trong phản hồi ingest. Tắt ở staging/prod.
-  "vars": { "INGEST_DEBUG_META": "1" },
+  // Meta rows_written/rows_read trong phản hồi ingest chỉ để đo ở dev/test: mặc định TẮT (bản deploy không lộ số liệu nội bộ).
+  // Bật bằng `--var INGEST_DEBUG_META:1` (script `dev`) hoặc binding trong vitest.config.ts.
+  "vars": { "INGEST_DEBUG_META": "0" },
   "d1_databases": [
     {
       "binding": "DB",

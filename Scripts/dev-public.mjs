@@ -9,6 +9,7 @@
 // Địa chỉ quick tunnel đổi mỗi lần chạy lại: mỗi lần phải dán mã mới trên VPS. Cần địa chỉ cố định thì
 // dùng Cloudflare Tunnel có tên (xem Docs/AZ_Sentinel_Plan3E_VPS_Primary.md).
 import { spawn, spawnSync } from 'node:child_process'
+import { randomBytes } from 'node:crypto'
 import { chmodSync, createWriteStream, existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import http from 'node:http'
 import net from 'node:net'
@@ -20,7 +21,8 @@ import { fileURLToPath } from 'node:url'
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const SERVER_PORT = 8080
 const FILTER_PORT = 8081
-const DEV_TOKEN = process.env.AZ_DEV_GW_TOKEN ?? 'azt_dev0123456789abcdef0123456789ab'
+// Tunnel này ra internet nên KHÔNG dùng token dev cố định (public trong repo): mỗi lần chạy sinh token ngẫu nhiên.
+const DEV_TOKEN = process.env.AZ_DEV_GW_TOKEN ?? `azt_${randomBytes(24).toString('base64url')}`
 const ALLOWED = [/^\/api\/gw\/ws(\?|$)/, /^\/api\/gw\/check(\?|$)/]
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 const cleanups = []
@@ -193,6 +195,7 @@ try {
     stdio: 'inherit',
     env: {
       ...process.env,
+      AZ_DEV_GW_TOKEN: DEV_TOKEN,
       AZ_PUBLIC_URL: publicUrl,
       AZ_DEV_NO_GATEWAY: '1',
       AZ_DEV_NO_BE: '1',

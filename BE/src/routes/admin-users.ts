@@ -8,6 +8,7 @@ import { zValidator } from '@hono/zod-validator'
 import { type Context, Hono } from 'hono'
 import { AppError, errorBody } from '../lib/app-error'
 import { nowUnix } from '../lib/time'
+import { kickUserAtHub } from '../live/kick'
 import type { Viewer, ViewerAuth } from '../live/viewer-auth'
 import { revokeToken } from '../services/gw-token-service'
 import { deleteUserSessions } from '../services/session-service'
@@ -149,6 +150,12 @@ export function createAdminUserRoutes(viewerAuth: ViewerAuth) {
       if (body.password !== undefined) {
         await setPassword(db, id, body.password)
         await deleteUserSessions(db, id)
+      }
+      // Socket live đang mở mang phạm vi/hạn phiên cũ: đá khi mất quyền truy cập, đổi vai trò hoặc đặt lại mật khẩu.
+      const roleChanged = body.role !== undefined && body.role !== target.role
+      const lostAccess = body.status !== undefined && body.status !== 'active'
+      if (lostAccess || roleChanged || body.password !== undefined) {
+        await kickUserAtHub(c.env, id)
       }
       if (body.status !== undefined && body.status !== 'active') {
         await deleteUserSessions(db, id)

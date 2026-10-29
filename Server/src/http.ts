@@ -1,10 +1,15 @@
 import type { IncomingMessage, Server } from 'node:http'
 import type { Duplex } from 'node:stream'
-import { DEVICE_COOKIE, DEVICE_HEADER, DEVICE_ID_HEADER } from '@az-sentinel/shared'
+import {
+  applySecurityHeaders,
+  DEVICE_COOKIE,
+  DEVICE_HEADER,
+  DEVICE_ID_HEADER,
+} from '@az-sentinel/shared'
 import { serve } from '@hono/node-server'
 import { WebSocketServer } from 'ws'
 import { HandoffNonces, handleDeviceHandoff } from './device-handoff'
-import { type DeviceInfo, identifyDevice } from './device-id'
+import { type DeviceInfo, identifyDevice, isHttps } from './device-id'
 import { EDGE_HEADERS, verifyEdgeClientIp } from './edge-ip'
 import type { IpGuard } from './ip-guard'
 import { PAIR_HEADER, takePair } from './shim/cloudflare-workers'
@@ -63,17 +68,22 @@ function withClientIp(req: Request, ip: string, device: DeviceInfo | null): Requ
   return new Request(req, { headers: cleanHeaders(req.headers, ip, device) })
 }
 
-/** Gắn `Set-Cookie` (cookie thiết bị mới cấp) vào một phản hồi, giữ nguyên thân và các header khác. */
+/**
+ * Gắn `Set-Cookie` (cookie thiết bị mới cấp) và header bảo mật vào một phản hồi, giữ nguyên thân và các header
+ * khác. Header bảo mật (CSP, chống nhúng iframe, HSTS khi HTTPS...) áp cho MỌI phản hồi của request thường,
+ * kể cả 403 của whitelist và 302 trao mã thiết bị.
+ */
 async function withSetCookie(
   res: Response | Promise<Response>,
   cookie: string | null,
-  extra?: Record<string, string>,
+  extra: Record<string, string> | undefined,
+  sec: { api: boolean; https: boolean },
 ): Promise<Response> {
   const out = await res
-  if (!cookie && !extra) return out
   const headers = new Headers(out.headers)
   if (cookie) headers.append('Set-Cookie', cookie)
   for (const [k, v] of Object.entries(extra ?? {})) headers.set(k, v)
+  applySecurityHeaders(headers, sec.api ? 'api' : 'ui', sec.https)
   return new Response(out.body, { status: out.status, statusText: out.statusText, headers })
 }
 
@@ -128,6 +138,10 @@ export function startHttpServer(opts: HttpServerOptions): Server {
         // Lượt tải trang của trình duyệt được phục vụ NGAY (một vòng mạng qua tunnel, không còn 302 sang URL sạch):
         // cookie gắn vào chính phản hồi, mã thiết bị dùng luôn cho request này, và giao diện tự gỡ tham số vé khỏi
         // thanh địa chỉ (`dropStayParam`). Request khác (không phải tải trang) vẫn chuyển hướng như cũ.
+        const sec = {
+          api: new URL(req.url).pathname.startsWith('/api/'),
+          https: incoming ? isHttps(incoming.headers) : false,
+        }
         let handoffCookie: string | null = null
         let forwarded = req
         let seenHeaders = incoming?.headers
@@ -147,6 +161,7 @@ export function startHttpServer(opts: HttpServerOptions): Server {
                 'Referrer-Policy': 'no-referrer',
               })
               if (handoff.setCookie) headers.append('Set-Cookie', handoff.setCookie)
+              applySecurityHeaders(headers, 'ui', sec.https)
               return new Response(null, { status: 302, headers })
             }
             forwarded = new Request(clean, { method: 'GET', headers: req.headers })
@@ -175,6 +190,7 @@ export function startHttpServer(opts: HttpServerOptions): Server {
               forbidden(opts.guard.describeBlock(ip, decision.reason, device)),
               setCookie,
               extra,
+              sec,
             )
           }
         }
@@ -182,6 +198,7 @@ export function startHttpServer(opts: HttpServerOptions): Server {
           opts.handler(incoming ? withClientIp(forwarded, ip, device) : forwarded),
           setCookie,
           extra,
+          sec,
         )
       },
     },

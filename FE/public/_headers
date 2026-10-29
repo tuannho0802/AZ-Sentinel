@@ -1,4 +1,13 @@
 # Cloudflare Workers static assets (Worker dự phòng). Server VPS có quy tắc cache riêng ở Server/src/static.ts.
+# Header bảo mật: nguồn sự thật là Shared/src/security-headers.ts (có test canh cho khớp CSP dưới đây).
+/*
+  Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self' https: wss:; manifest-src 'self'; worker-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'
+  X-Frame-Options: DENY
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: no-referrer
+  Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=(), usb=()
+  Cross-Origin-Opener-Policy: same-origin
+  Strict-Transport-Security: max-age=31536000
 /sw.js
   Cache-Control: no-cache
 /manifest.webmanifest

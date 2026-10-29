@@ -172,6 +172,14 @@ export class LocalServer {
       send(res, fail(405, 'method_not_allowed'))
       return
     }
+    // Các route EA không có xác thực riêng, nên phải chặn trang web chạy trên chính VPS bắn request vào cổng này
+    // (POST `text/plain` là request \"đơn giản\", trình duyệt gửi đi không cần preflight). EA (WebRequest) không bao giờ
+    // gửi `Origin`/`Sec-Fetch-*` và luôn gửi JSON; trình duyệt thì không thể gửi `application/json` chéo nguồn mà
+    // không qua preflight (Gateway không trả CORS nên preflight thất bại).
+    if (!isEaRequest(req)) {
+      send(res, fail(403, 'not_ea_client'))
+      return
+    }
 
     this.readJson(req, res, (body) => send(res, handler(body)), url)
   }
@@ -284,6 +292,17 @@ export class LocalServer {
       url,
     )
   }
+}
+
+/**
+ * Request này có đúng là của EA (không phải trình duyệt) không: không có `Origin`, không có `Sec-Fetch-Site`
+ * (trình duyệt luôn gửi, trang web không bỏ được) và `Content-Type` là JSON.
+ */
+export function isEaRequest(req: Pick<http.IncomingMessage, 'headers'>): boolean {
+  const h = req.headers
+  if (h.origin !== undefined || h['sec-fetch-site'] !== undefined) return false
+  const type = h['content-type']
+  return typeof type === 'string' && /^application\/json\s*(;|$)/i.test(type.trim())
 }
 
 /**

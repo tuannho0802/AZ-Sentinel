@@ -5,7 +5,25 @@ import { createApp } from '../../src/app'
 import { resetDb, seedUser, TEST_PASSWORD } from '../helpers'
 
 const app = createApp()
-const bindings = { DB: env.DB, LIVE_HUB: env.LIVE_HUB }
+/** Bọc hub thật, ghi lại các lần `kickUser` để kiểm tra socket live bị đá. */
+const kicks: number[] = []
+const recordingHub = {
+  getByName: (name: string) => {
+    const stub = env.LIVE_HUB.getByName(name)
+    return new Proxy(stub, {
+      get(target, prop, receiver) {
+        if (prop === 'kickUser') {
+          return (userId: number, reason: 'session_expired' | 'too_many_tabs') => {
+            kicks.push(userId)
+            return target.kickUser(userId, reason)
+          }
+        }
+        return Reflect.get(target, prop, receiver)
+      },
+    })
+  },
+}
+const bindings = { DB: env.DB, LIVE_HUB: recordingHub as unknown as typeof env.LIVE_HUB }
 
 function call(method: string, path: string, cookie: string | null, body?: unknown) {
   return app.fetch(
@@ -29,7 +47,10 @@ async function loginAs(email: string, password = TEST_PASSWORD): Promise<string>
 
 const NEW_USER = { email: 'Moi@az.test', display_name: 'Người Mới', password: 'mat-khau-moi-123' }
 
-beforeEach(resetDb)
+beforeEach(async () => {
+  kicks.length = 0
+  await resetDb()
+})
 
 describe('/api/admin/users (Plan 4B)', () => {
   it('chưa đăng nhập 401, người dùng thường 403', async () => {
@@ -124,6 +145,29 @@ describe('/api/admin/users (Plan 4B)', () => {
       200,
     )
     expect((await loginAs('u@az.test')).length).toBeGreaterThan(0)
+  })
+
+  it('đá socket live khi khóa, đổi vai trò hoặc đặt lại mật khẩu; đổi tên thì không', async () => {
+    await seedUser('root@az.test', { role: 'root_admin' })
+    const u = await seedUser('u@az.test')
+    const root = await loginAs('root@az.test')
+    const patch = (body: unknown) => call('PATCH', `/admin/users/${u.id}`, root, body)
+
+    expect((await patch({ display_name: 'Tên Mới' })).status).toBe(200)
+    expect(kicks).toEqual([])
+
+    expect((await patch({ role: 'admin' })).status).toBe(200)
+    expect(kicks).toEqual([u.id])
+
+    expect((await patch({ password: 'mat-khau-moi-123' })).status).toBe(200)
+    expect(kicks).toEqual([u.id, u.id])
+
+    expect((await patch({ status: 'suspended' })).status).toBe(200)
+    expect(kicks).toEqual([u.id, u.id, u.id])
+
+    // Mở lại tài khoản không cần đá (không có socket nào để đá, và quyền không giảm).
+    expect((await patch({ status: 'active' })).status).toBe(200)
+    expect(kicks).toHaveLength(3)
   })
 
   it('duyệt tài khoản chờ duyệt', async () => {

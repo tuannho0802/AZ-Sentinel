@@ -8,6 +8,7 @@ import { resolveViewer, type ViewerAuth } from './live/viewer-auth'
 import { csrfGuard } from './middleware/csrf-guard'
 import { notFound, onError } from './middleware/error-handler'
 import { requestLogger } from './middleware/request-logger'
+import { securityHeaders } from './middleware/security-headers'
 import { createAdminDeviceRoutes } from './routes/admin-device'
 import { createAdminIpRoutes } from './routes/admin-ip'
 import { createAdminTokenRoutes } from './routes/admin-tokens'
@@ -43,6 +44,7 @@ const markServed: MiddlewareHandler<AppEnv> = async (c, next) => {
 export function createApp(opts: AppOptions = {}) {
   const app = new Hono<AppEnv>()
   app.use('*', requestLogger)
+  app.use('*', securityHeaders)
   app.use('/api/*', markServed)
   app.use('/api/*', csrfGuard)
   app.use('/api/*', createEdgeRouter(opts.edge))

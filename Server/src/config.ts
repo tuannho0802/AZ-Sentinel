@@ -46,6 +46,43 @@ const schema = z.object({
 })
 export type ServerConfig = z.infer<typeof schema>
 
+const LOOPBACK_HOSTS = new Set(['127.0.0.1', '::1', 'localhost'])
+export const MIN_SYNC_TOKEN_LENGTH = 32
+
+function isLoopbackUrl(raw: string): boolean {
+  try {
+    return LOOPBACK_HOSTS.has(new URL(raw).hostname.replace(/^\[|\]$/g, ''))
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Chốt chặn cấu hình nguy hiểm. `AZ_DEV_LINKS_API=1` mở cookie giả `admin@az.local` (root_admin), `/api/dev/*`
+ * không cần đăng nhập và bỏ qua kiểm tra SYNC_TOKEN, nên CHỈ được chạy khi Server không với tới được từ ngoài:
+ * nghe loopback, không bật Quick Tunnel, không nối Worker thật. Vi phạm thì từ chối khởi động.
+ * Ngoài chế độ dev, `AZ_SYNC_TOKEN` (nếu có) phải đủ dài.
+ */
+export function assertSafeConfig(cfg: ServerConfig): void {
+  if (cfg.devLinksApi === '1') {
+    const problems: string[] = []
+    if (!LOOPBACK_HOSTS.has(cfg.host)) problems.push(`AZ_HOST=${cfg.host} (phải là loopback)`)
+    if (cfg.quickTunnel === '1') problems.push('AZ_QUICK_TUNNEL=1')
+    if (cfg.cloudUrl !== '' && !isLoopbackUrl(cfg.cloudUrl)) {
+      problems.push('AZ_CLOUD_URL trỏ tới Worker thật')
+    }
+    if (problems.length > 0) {
+      throw new Error(
+        `AZ_DEV_LINKS_API=1 tắt toàn bộ xác thực nên không được dùng khi Server có thể bị truy cập từ ngoài: ${problems.join('; ')}. Xóa AZ_DEV_LINKS_API khỏi server.env.`,
+      )
+    }
+    return
+  }
+  if (cfg.syncToken !== '' && cfg.syncToken.length < MIN_SYNC_TOKEN_LENGTH) {
+    throw new Error(`AZ_SYNC_TOKEN quá ngắn (cần >= ${MIN_SYNC_TOKEN_LENGTH} ký tự ngẫu nhiên)`)
+  }
+}
+
 export function defaultDataDir(): string {
   if (process.platform === 'win32') {
     return path.join(process.env.ProgramData ?? 'C:\\ProgramData', 'AZSentinelServer')
@@ -105,6 +142,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
     throw new Error(`Cấu hình không hợp lệ: ${i?.path.join('.')} ${i?.message}`)
   }
   const cfg = parsed.data
+  assertSafeConfig(cfg)
   // Plan 3H: Quick Tunnel đổi địa chỉ mỗi lần nên mã kết nối Gateway phải mang địa chỉ Worker (cố định); không phải
   // đặt AZ_PUBLIC_URL tay. Gateway tự hỏi Worker để tìm tunnel hiện tại và nối thẳng.
   if (cfg.quickTunnel === '1' && cfg.publicUrl === '' && cfg.cloudUrl !== '') {
