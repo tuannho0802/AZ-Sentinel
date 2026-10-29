@@ -80,7 +80,7 @@ afterEach(async () => {
 describe('đường dẫn dev/spike còn sót không được lộ ra production', () => {
   // Lỗi 3: app.ts vẫn mount /api/_spike (ghi chú "xóa ở P1-31"). Không cần đăng nhập, mỗi request chạy PBKDF2
   // tới 100.000 vòng: bất kỳ ai cũng đốt CPU của Worker/VPS được, và không có rate limit nào chặn lại.
-  it.fails('/api/_spike/hash không tồn tại khi không bật cờ dev (DEV_LINKS_API != 1)', async () => {
+  it('/api/_spike/hash không tồn tại khi không bật cờ dev (DEV_LINKS_API != 1)', async () => {
     const res = await app.fetch(new Request('http://az.test/api/_spike/hash?iter=100000'), bindings)
     expect(res.status).toBe(404)
   })
@@ -119,7 +119,9 @@ describe('đăng nhập: ca hiếm', () => {
     const attempt = async (email: string) => {
       const codes: number[] = []
       for (let i = 0; i < 7; i++) {
-        codes.push((await call('POST', '/auth/login', null, { email, password: 'sai-sai-sai-1' })).status)
+        codes.push(
+          (await call('POST', '/auth/login', null, { email, password: 'sai-sai-sai-1' })).status,
+        )
       }
       return codes
     }
@@ -129,9 +131,19 @@ describe('đăng nhập: ca hiếm', () => {
   it('sai 5 lần thì khóa tạm: 429 kèm Retry-After; mật khẩu đúng cũng bị từ chối trong lúc khóa', async () => {
     await seedUser('lock@az.test')
     for (let i = 0; i < 5; i++) {
-      expect((await call('POST', '/auth/login', null, { email: 'lock@az.test', password: 'sai-sai-sai-1' })).status).toBe(401)
+      expect(
+        (
+          await call('POST', '/auth/login', null, {
+            email: 'lock@az.test',
+            password: 'sai-sai-sai-1',
+          })
+        ).status,
+      ).toBe(401)
     }
-    const res = await call('POST', '/auth/login', null, { email: 'lock@az.test', password: TEST_PASSWORD })
+    const res = await call('POST', '/auth/login', null, {
+      email: 'lock@az.test',
+      password: TEST_PASSWORD,
+    })
     expect(res.status).toBe(429)
     expect(Number(res.headers.get('Retry-After'))).toBeGreaterThan(0)
     expect(res.headers.get('Set-Cookie')).toBeNull()
@@ -143,17 +155,38 @@ describe('đăng nhập: ca hiếm', () => {
     const { createUser } = await import('../../src/services/user-service')
     await createUser(
       env.DB,
-      { email: 'long@az.test', displayName: 'Long', password: long, role: 'user', status: 'active' },
+      {
+        email: 'long@az.test',
+        displayName: 'Long',
+        password: long,
+        role: 'user',
+        status: 'active',
+      },
       1_700_000_000,
     )
-    expect((await call('POST', '/auth/login', null, { email: 'long@az.test', password: long })).status).toBe(200)
-    expect((await call('POST', '/auth/login', null, { email: 'long@az.test', password: `${long}x` })).status).toBe(400)
-    expect((await call('POST', '/auth/login', null, { email: 'long@az.test', password: 'x'.repeat(200_000) })).status).toBe(400)
+    expect(
+      (await call('POST', '/auth/login', null, { email: 'long@az.test', password: long })).status,
+    ).toBe(200)
+    expect(
+      (await call('POST', '/auth/login', null, { email: 'long@az.test', password: `${long}x` }))
+        .status,
+    ).toBe(400)
+    expect(
+      (
+        await call('POST', '/auth/login', null, {
+          email: 'long@az.test',
+          password: 'x'.repeat(200_000),
+        })
+      ).status,
+    ).toBe(400)
   })
 
   it('email viết HOA vẫn đăng nhập được (chuẩn hóa chữ thường)', async () => {
     await seedUser('mixed@az.test')
-    expect((await call('POST', '/auth/login', null, { email: 'MiXeD@AZ.test', password: TEST_PASSWORD })).status).toBe(200)
+    expect(
+      (await call('POST', '/auth/login', null, { email: 'MiXeD@AZ.test', password: TEST_PASSWORD }))
+        .status,
+    ).toBe(200)
   })
 
   it.each([
@@ -226,7 +259,7 @@ describe('cookie phiên và token: giá trị bất thường', () => {
 
   // Lỗi 5 (nhỏ): RFC 7235 coi tên scheme không phân biệt hoa thường, nhưng code dùng startsWith('Bearer ').
   // Proxy/thư viện HTTP hạ thấp chữ sẽ bị 401 oan (cũng áp dụng cho SYNC_TOKEN trong lib/service-auth.ts).
-  it.fails('Authorization: "bearer <token>" (chữ thường) vẫn được chấp nhận ở /api/gw/check', async () => {
+  it('Authorization: "bearer <token>" (chữ thường) vẫn được chấp nhận ở /api/gw/check', async () => {
     const { token } = await seedToken(7)
     const res = await app.fetch(
       new Request('http://az.test/api/gw/check', { headers: { Authorization: `bearer ${token}` } }),
@@ -236,7 +269,14 @@ describe('cookie phiên và token: giá trị bất thường', () => {
   })
 
   it('token Gateway dạng lạ bị 401, không tới DB: rỗng, khoảng trắng, quá dài, có ký tự lạ', async () => {
-    for (const given of ['', ' ', 'azt_', `azt_${'a'.repeat(5_000)}`, 'azt_<script>', 'Basic abc']) {
+    for (const given of [
+      '',
+      ' ',
+      'azt_',
+      `azt_${'a'.repeat(5_000)}`,
+      'azt_<script>',
+      'Basic abc',
+    ]) {
       const res = await app.fetch(
         new Request('http://az.test/api/gw/check', {
           headers: { Authorization: given.startsWith('Basic') ? given : `Bearer ${given}` },
@@ -274,7 +314,9 @@ describe('Origin của WebSocket (isOriginAllowed)', () => {
     const allowedCsv = ' https://Ui.Example.com/ , ,https://other.example '
     expect(isOriginAllowed({ ...base, allowedCsv, origin: 'https://ui.example.com' })).toBe(true)
     expect(isOriginAllowed({ ...base, allowedCsv, origin: 'https://OTHER.example' })).toBe(true)
-    expect(isOriginAllowed({ ...base, allowedCsv, origin: 'https://ui.example.com.evil.io' })).toBe(false)
+    expect(isOriginAllowed({ ...base, allowedCsv, origin: 'https://ui.example.com.evil.io' })).toBe(
+      false,
+    )
   })
 
   it('origin của Vite chỉ được thêm khi bật cờ dev', () => {
@@ -304,7 +346,9 @@ describe('quyền thao tác trên liên kết', () => {
   // Lỗi 6 (cần xác nhận ý đồ): route /status dùng chung `authorize` cho chủ liên kết lẫn admin, nên người dùng
   // thường tự bật lại liên kết mà admin đã tắt (vd. để chặn lạm dụng hoặc dừng giao dịch từ xa).
   it.fails('người dùng thường KHÔNG tự bật lại được liên kết do admin đã tắt', async () => {
-    expect((await call('POST', `/links/${linkId}/status`, root, { status: 'disabled' })).status).toBe(200)
+    expect(
+      (await call('POST', `/links/${linkId}/status`, root, { status: 'disabled' })).status,
+    ).toBe(200)
     const res = await call('POST', `/links/${linkId}/status`, user, { status: 'active' })
     expect(res.status).toBe(403)
   })
@@ -321,8 +365,18 @@ describe('quyền thao tác trên liên kết', () => {
   it.each(['abc', '-1', '0', '1.5', '1e3', '99999999999999999999', '%00', ' 1'])(
     'id liên kết bất thường %j -> 4xx, không 500',
     async (id) => {
-      for (const [method, suffix] of [['GET', ''], ['POST', '/status'], ['POST', '/rotate-key'], ['DELETE', '']] as const) {
-        const res = await call(method, `/links/${encodeURIComponent(id)}${suffix}`, root, method === 'POST' ? {} : undefined)
+      for (const [method, suffix] of [
+        ['GET', ''],
+        ['POST', '/status'],
+        ['POST', '/rotate-key'],
+        ['DELETE', ''],
+      ] as const) {
+        const res = await call(
+          method,
+          `/links/${encodeURIComponent(id)}${suffix}`,
+          root,
+          method === 'POST' ? {} : undefined,
+        )
         expect(res.status).toBeGreaterThanOrEqual(400)
         expect(res.status).toBeLessThan(500)
       }
@@ -341,13 +395,25 @@ describe('quyền thao tác trên liên kết', () => {
 
   // Hardening (7): SameSite=Lax là lớp duy nhất chống CSRF cho các route ghi (kể cả giao dịch từ xa). Nên có
   // lớp thứ hai: từ chối request ghi có Origin khác host (hoặc Sec-Fetch-Site=cross-site).
-  it.fails('request GHI mang Origin của trang lạ bị từ chối dù cookie hợp lệ', async () => {
-    const res = await call('POST', `/links/${linkId}/trade-enabled`, root, { enabled: true }, { Origin: 'https://evil.example' })
+  it('request GHI mang Origin của trang lạ bị từ chối dù cookie hợp lệ', async () => {
+    const res = await call(
+      'POST',
+      `/links/${linkId}/trade-enabled`,
+      root,
+      { enabled: true },
+      { Origin: 'https://evil.example' },
+    )
     expect(res.status).toBe(403)
   })
 
   it('request ghi cùng Origin với host vẫn chạy bình thường', async () => {
-    const res = await call('POST', `/links/${linkId}/trade-enabled`, root, { enabled: true }, { Origin: 'http://az.test' })
+    const res = await call(
+      'POST',
+      `/links/${linkId}/trade-enabled`,
+      root,
+      { enabled: true },
+      { Origin: 'http://az.test' },
+    )
     expect(res.status).toBe(200)
   })
 })
@@ -363,7 +429,11 @@ describe('giao dịch từ xa: thao tác bấm đúp / hai admin cùng lúc', ()
     const hub = env.LIVE_HUB.getByName(HUB_NAME)
     const res = await hub.fetch(
       new Request('http://hub/', {
-        headers: { Upgrade: 'websocket', [GW_HEADER]: '1', [GW_TOKEN_HEADER]: encodeGwToken(1, ownerId) },
+        headers: {
+          Upgrade: 'websocket',
+          [GW_HEADER]: '1',
+          [GW_TOKEN_HEADER]: encodeGwToken(1, ownerId),
+        },
       }),
     )
     const ws = res.webSocket
@@ -376,9 +446,18 @@ describe('giao dịch từ xa: thao tác bấm đúp / hai admin cùng lúc', ()
     })
     open.push(ws)
     ws.send(JSON.stringify({ t: 'hello', v: 1, gw_ver: '0.3.4' }))
-    ws.send(JSON.stringify({ t: 'bind', tid: TID, key, login: LOGIN, server: SERVER, mode: 'demo' }))
+    ws.send(
+      JSON.stringify({ t: 'bind', tid: TID, key, login: LOGIN, server: SERVER, mode: 'demo' }),
+    )
     await until(() => msgs.some((m) => m.t === 'bound'))
-    ws.send(JSON.stringify({ t: 'state', tid: TID, online: true, snap: { bal: 1, eq: 1, fl: 0, ml: null } }))
+    ws.send(
+      JSON.stringify({
+        t: 'state',
+        tid: TID,
+        online: true,
+        snap: { bal: 1, eq: 1, fl: 0, ml: null },
+      }),
+    )
     await tick()
     return { ws, msgs }
   }
@@ -411,7 +490,7 @@ describe('giao dịch từ xa: thao tác bấm đúp / hai admin cùng lúc', ()
   // Lỗi 7 (NGHIÊM TRỌNG): route đọc "có lệnh đang chờ không" rồi mới INSERT (check-then-act, hai lệnh await D1 riêng).
   // Hai request đồng thời (bấm đúp, hai admin, client tự thử lại) cùng qua bước kiểm tra -> hai dòng trade_log và
   // HAI lệnh `trade` xuống Gateway: mở trùng lệnh Market thật.
-  it.fails('hai lệnh MARKET gửi ĐỒNG THỜI: đúng một lệnh được gửi, lệnh kia 409 TRADE_BUSY', async () => {
+  it('hai lệnh MARKET gửi ĐỒNG THỜI: đúng một lệnh được gửi, lệnh kia 409 TRADE_BUSY', async () => {
     const gw = await onlineGateway()
     const [a, b] = await Promise.all([trade(), trade()])
     await tick(100)
@@ -421,9 +500,11 @@ describe('giao dịch từ xa: thao tác bấm đúp / hai admin cùng lúc', ()
     expect(gw.msgs.filter((m) => m.t === 'trade')).toHaveLength(1)
   })
 
-  it.fails('năm lệnh CLOSE_ALL đồng thời: vẫn chỉ một lệnh được gửi', async () => {
+  it('năm lệnh CLOSE_ALL đồng thời: vẫn chỉ một lệnh được gửi', async () => {
     const gw = await onlineGateway()
-    const res = await Promise.all(Array.from({ length: 5 }, () => trade({ op: 'close_all', filter: 'all' })))
+    const res = await Promise.all(
+      Array.from({ length: 5 }, () => trade({ op: 'close_all', filter: 'all' })),
+    )
     await tick(100)
     expect(res.filter((r) => r.status === 202)).toHaveLength(1)
     expect(gw.msgs.filter((m) => m.t === 'trade')).toHaveLength(1)
@@ -432,7 +513,10 @@ describe('giao dịch từ xa: thao tác bấm đúp / hai admin cùng lúc', ()
   it('terminal offline: 409, nhật ký ghi "failed/terminal_offline", lệnh sau không bị kẹt "bận"', async () => {
     const first = await trade()
     expect(first.status).toBe(409)
-    const row = await env.DB.prepare('SELECT status, reason FROM trade_log').first<{ status: string; reason: string }>()
+    const row = await env.DB.prepare('SELECT status, reason FROM trade_log').first<{
+      status: string
+      reason: string
+    }>()
     expect(row).toMatchObject({ status: 'failed', reason: 'terminal_offline' })
     const gw = await onlineGateway()
     expect((await trade()).status).toBe(202)

@@ -3,14 +3,7 @@
  * vào của người dùng đều tới VPS; VPS chỉ cần đếm các request của giao diện (trang, API người xem, WebSocket live).
  * Gateway, EA, kiểm tra sức khỏe và đường đồng bộ KHÔNG tính: chúng chạy 24/7 nên nếu tính thì không bao giờ "rảnh".
  */
-const NOT_VISITORS = [
-  '/api/health',
-  '/api/ea/',
-  '/api/gw/',
-  '/api/sync',
-  '/api/_spike',
-  '/api/dev/',
-]
+const NOT_VISITORS = ['/api/health', '/api/ea/', '/api/gw/', '/api/sync', '/api/dev/']
 
 export function isVisitorRequest(pathname: string): boolean {
   if (pathname !== '/api' && !pathname.startsWith('/api/')) return true

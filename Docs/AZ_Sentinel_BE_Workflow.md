@@ -58,7 +58,7 @@
 | P1-28 | Ghi mã `GetLastError()` thực tế khi chưa cho phép URL | [ ] | | |
 | P1-29 | (Tùy chọn) MT5 gọi `127.0.0.1:8787` | [ ] | | |
 | P1-30 | Điền `docs/spike-results.md` | [~] | 2026-10-20 | Đã tạo mẫu `Docs/spike-results.md` (số local P1-18 đã điền, mọi ô remote là `____`). **Chưa có số đo remote.** Lưu ý: thư mục thực tế là `Docs/` (chữ D hoa). |
-| P1-31 | Xóa mã spike (`/api/_spike/*`, D1 spike, dữ liệu giả) | [ ] | | Gồm `BE/src/routes/spike.ts`, dòng mount trong `BE/src/app.ts`, `BE/test/integration/spike-hash.test.ts`. |
+| P1-31 | Xóa mã spike (`/api/_spike/*`, D1 spike, dữ liệu giả) | [x] | 2026-10-29 | Gồm `BE/src/routes/spike.ts`, dòng mount trong `BE/src/app.ts`, `BE/test/integration/spike-hash.test.ts`. |
 | P1-32 | Chốt quyết định cuối Part 1 | [ ] | | |
 | P1-33 | Merge `part-1-spike` vào `main`, tag `part-1-done` | [ ] | | |
 

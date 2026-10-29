@@ -3,6 +3,7 @@ import { type Context, Hono } from 'hono'
 import { sharedOriginStore, type VpsOriginStore } from '../../edge/vps-origin'
 import { AppError } from '../../lib/app-error'
 import { sha256Hex } from '../../lib/crypto'
+import { bearerToken } from '../../lib/service-auth'
 import { nowUnix } from '../../lib/time'
 import {
   findActiveTokenByHash,
@@ -20,8 +21,7 @@ import { HUB_NAME } from './live-ws'
  * (1 dòng đọc). Token sai, đã thu hồi hoặc đã đặt lại đều 401 và không bao giờ tới hub.
  */
 async function authenticateGatewayToken(c: Context<AppEnv>): Promise<GwTokenRow> {
-  const header = c.req.header('Authorization') ?? ''
-  const given = header.startsWith('Bearer ') ? header.slice(7).trim() : ''
+  const given = bearerToken(c.req.header('Authorization'))
   if (!looksLikeGwToken(given)) {
     throw new AppError(401, 'UNAUTHENTICATED', 'Token Gateway không hợp lệ')
   }

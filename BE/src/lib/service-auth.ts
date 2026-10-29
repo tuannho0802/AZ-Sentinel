@@ -17,8 +17,16 @@ export async function requireServiceToken(
     if (c.env.DEV_LINKS_API === '1') return
     throw new AppError(503, 'SERVICE_UNAVAILABLE', messages.missing)
   }
-  const header = c.req.header('Authorization') ?? ''
-  const given = header.startsWith('Bearer ') ? header.slice(7) : ''
+  const given = bearerToken(c.req.header('Authorization'))
   const [a, b] = await Promise.all([sha256Hex(given), sha256Hex(expected)])
   if (a !== b) throw new AppError(401, 'UNAUTHENTICATED', messages.invalid)
+}
+
+/**
+ * Lấy token từ `Authorization: Bearer <token>`. Tên scheme không phân biệt hoa thường (RFC 7235 mục 2.1),
+ * nên `bearer`/`BEARER` cũng hợp lệ; thiếu hoặc sai scheme trả chuỗi rỗng.
+ */
+export function bearerToken(header: string | null | undefined): string {
+  const m = /^Bearer[ \t]+(\S.*)$/i.exec((header ?? '').trim())
+  return m?.[1]?.trim() ?? ''
 }

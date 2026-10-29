@@ -5,6 +5,7 @@ import { createPageHandler } from './edge/page-router'
 import { createGwWsRoutes } from './live/routes/gw-ws'
 import { createLiveWsRoutes } from './live/routes/live-ws'
 import { resolveViewer, type ViewerAuth } from './live/viewer-auth'
+import { csrfGuard } from './middleware/csrf-guard'
 import { notFound, onError } from './middleware/error-handler'
 import { requestLogger } from './middleware/request-logger'
 import { createAdminDeviceRoutes } from './routes/admin-device'
@@ -18,7 +19,6 @@ import { health } from './routes/health'
 import { createLinkRoutes } from './routes/links'
 import { createAlertSettingsRoutes, createNotificationRoutes } from './routes/notifications'
 import { createServerInfoRoutes } from './routes/server-info'
-import { spike } from './routes/spike'
 import { createSyncRoutes } from './routes/sync'
 import type { AppEnv } from './types'
 
@@ -44,6 +44,7 @@ export function createApp(opts: AppOptions = {}) {
   const app = new Hono<AppEnv>()
   app.use('*', requestLogger)
   app.use('/api/*', markServed)
+  app.use('/api/*', csrfGuard)
   app.use('/api/*', createEdgeRouter(opts.edge))
   app.route('/api', health)
   app.route('/api/server-info', createServerInfoRoutes(opts.viewerAuth ?? resolveViewer, opts.edge))
@@ -64,8 +65,6 @@ export function createApp(opts: AppOptions = {}) {
   app.route('/api/settings/alerts', createAlertSettingsRoutes(opts.viewerAuth ?? resolveViewer))
   // DEV Part 1: quản lý liên kết không cần đăng nhập, chỉ bật bằng DEV_LINKS_API. Xóa khi có Part 2/3.
   app.route('/api/dev', devLinks)
-  // SPIKE (P1-19): xóa ở P1-31.
-  app.route('/api/_spike', spike)
   // Plan 3J: mọi đường ngoài /api (lượt tải trang): chuyển hướng sang Quick Tunnel đang sống hoặc phục vụ giao diện dự phòng.
   app.all('*', createPageHandler(opts.edge))
   app.onError(onError)

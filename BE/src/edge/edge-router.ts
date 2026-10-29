@@ -1,4 +1,4 @@
-import { FAILOVER, GW_TUNNEL_PATH } from '@az-sentinel/shared'
+import { FAILOVER, GW_TUNNEL_PATH, SERVED_BY_HEADER } from '@az-sentinel/shared'
 import type { MiddlewareHandler } from 'hono'
 import { AppError } from '../lib/app-error'
 import { nowUnix } from '../lib/time'
@@ -118,7 +118,10 @@ async function forward(
       },
       FAILOVER.proxyTimeoutMs,
     )
-    if (UPSTREAM_DOWN.has(res.status)) {
+    // 5xx do CHÍNH ứng dụng VPS trả (vd. SQLite lỗi -> 503) luôn mang header vai trò; trang lỗi của tunnel/proxy
+    // thì không. Chỉ loại sau mới là "VPS sập": nếu không, một lỗi tạm của ứng dụng làm cả hệ thống đổi sang dự
+    // phòng và EA mất tín hiệu để giữ hàng đợi.
+    if (UPSTREAM_DOWN.has(res.status) && !res.headers.has(SERVED_BY_HEADER)) {
       await res.body?.cancel()
       probe.markDown()
       return null

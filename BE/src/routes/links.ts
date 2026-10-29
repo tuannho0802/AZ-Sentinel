@@ -289,22 +289,21 @@ export function createLinkRoutes(viewerAuth: ViewerAuth) {
     }
 
     const now = nowUnix()
-    const pending = await c.env.DB.prepare(
-      "SELECT 1 AS x FROM trade_log WHERE link_id = ? AND status = 'sent' AND created_at > ? LIMIT 1",
+    const cmdId = newCmdId()
+    // Kiểm tra "đang bận" và ghi lệnh phải là MỘT câu lệnh nguyên tử: tách SELECT rồi INSERT thì hai request
+    // đồng thời (bấm đúp, hai admin) cùng thấy "rảnh" và cùng gửi lệnh xuống Gateway.
+    const inserted = await c.env.DB.prepare(
+      `INSERT INTO trade_log (link_id, user_id, cmd_id, op, ticket, symbol, kind, volume, price, sl, tp, status, created_at)
+       SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'sent', ?
+       WHERE NOT EXISTS (
+         SELECT 1 FROM trade_log WHERE link_id = ? AND status = 'sent' AND created_at > ?
+       )`,
     )
-      .bind(id, now - TRADE.busySec)
-      .first()
-    if (pending) {
+      .bind(id, viewer.userId, cmdId, req.op, ...logColumns(req), now, id, now - TRADE.busySec)
+      .run()
+    if ((inserted.meta?.changes ?? 0) === 0) {
       throw new AppError(409, 'TRADE_BUSY', 'Lệnh trước chưa xong, chờ vài giây rồi thử lại')
     }
-
-    const cmdId = newCmdId()
-    await c.env.DB.prepare(
-      `INSERT INTO trade_log (link_id, user_id, cmd_id, op, ticket, symbol, kind, volume, price, sl, tp, status, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'sent', ?)`,
-    )
-      .bind(id, viewer.userId, cmdId, req.op, ...logColumns(req), now)
-      .run()
 
     const cmd: TradeCommand = { cmd_id: cmdId, ...req }
     const r = await sendTradeAtHub(c.env, id, cmd)

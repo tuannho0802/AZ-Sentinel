@@ -58,7 +58,7 @@ describe('VPS tự trả 5xx của ứng dụng không được bị nhầm là 
   // Lỗi 1: edge-router.ts coi MỌI 502/503/504 là tunnel hỏng, kể cả khi chính ứng dụng VPS trả
   // (ví dụ ingest-service ném 503 khi SQLite lỗi, live-ws/gw-ws trả 503 khi hub lỗi). Phản hồi của ứng dụng
   // luôn mang `X-AZ-Served-By: vps`, nên có thể phân biệt với trang lỗi của tunnel/proxy.
-  it.fails('GET: VPS trả 503 kèm header vai trò -> chuyển nguyên 503, không chuyển sang dự phòng', async () => {
+  it('GET: VPS trả 503 kèm header vai trò -> chuyển nguyên 503, không chuyển sang dự phòng', async () => {
     const vps = fakeVps((url) =>
       url.pathname === '/api/health'
         ? healthy(url)
@@ -76,7 +76,7 @@ describe('VPS tự trả 5xx của ứng dụng không được bị nhầm là 
     expect(mode(await get(app, '/api/health'))).toBe('primary')
   })
 
-  it.fails('POST ingest: VPS trả 503 (D1/SQLite lỗi) -> EA phải nhận đúng 503 để giữ hàng đợi', async () => {
+  it('POST ingest: VPS trả 503 (D1/SQLite lỗi) -> EA phải nhận đúng 503 để giữ hàng đợi', async () => {
     const vps = fakeVps((url) =>
       url.pathname === '/api/health'
         ? healthy(url)
@@ -226,7 +226,9 @@ describe('Worker chuyển hướng trang: ca hiếm', () => {
     const tickets = location.searchParams.getAll('az_dh')
     expect(tickets).toHaveLength(1)
     expect(tickets[0]).not.toBe('ke-tan-cong')
-    expect(await openDeviceHandoff(SYNC, tickets[0] ?? '', Math.floor(Date.now() / 1000))).not.toBeNull()
+    expect(
+      await openDeviceHandoff(SYNC, tickets[0] ?? '', Math.floor(Date.now() / 1000)),
+    ).not.toBeNull()
     expect(location.searchParams.get('keep')).toBe('1')
   })
 
@@ -269,7 +271,12 @@ describe('/api/server-info: xác thực dự phòng qua VPS', () => {
     })
     const app = makeApp(vps.fetchFn)
     for (let i = 0; i < 5; i++) {
-      const res = await get(app, '/api/server-info', {}, { headers: { Cookie: `az_session=rac-${i}` } })
+      const res = await get(
+        app,
+        '/api/server-info',
+        {},
+        { headers: { Cookie: `az_session=rac-${i}` } },
+      )
       expect(res.status).toBe(401)
     }
     const meCalls = vps.calls.filter((c) => c.url.endsWith('/api/me')).length
@@ -291,7 +298,12 @@ describe('/api/server-info: xác thực dự phòng qua VPS', () => {
     ['null', null],
   ])('VPS trả %s: không được coi là đã đăng nhập', async (_name, body) => {
     const vps = me(body)
-    const res = await get(makeApp(vps.fetchFn), '/api/server-info', {}, { headers: { Cookie: 'az_session=abc' } })
+    const res = await get(
+      makeApp(vps.fetchFn),
+      '/api/server-info',
+      {},
+      { headers: { Cookie: 'az_session=abc' } },
+    )
     expect(res.status).toBe(401)
   })
 
@@ -301,7 +313,12 @@ describe('/api/server-info: xác thực dự phòng qua VPS', () => {
       () => me({ error: 'x' }, 500),
       () => fakeVps(() => new Response('<html>', { status: 200, headers: VPS })),
     ]) {
-      const res = await get(makeApp(make().fetchFn), '/api/server-info', {}, { headers: { Cookie: 'az_session=abc' } })
+      const res = await get(
+        makeApp(make().fetchFn),
+        '/api/server-info',
+        {},
+        { headers: { Cookie: 'az_session=abc' } },
+      )
       expect(res.status).toBe(401)
     }
   })
