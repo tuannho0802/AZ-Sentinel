@@ -1,6 +1,7 @@
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import { brotliDecompressSync, gunzipSync } from 'node:zlib'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { createStaticHandler, stripPwaLink } from '../src/static'
 
@@ -66,6 +67,62 @@ describe('Server phục vụ giao diện cho PWA', () => {
     const head = await get('/', 'HEAD')
     expect(Number(head.headers.get('Content-Length'))).toBe(bytes.length)
     expect(head.headers.get('Cache-Control')).toBe('no-cache')
+  })
+
+  describe('nén brotli/gzip', () => {
+    const BIG = `console.log(${JSON.stringify('az-sentinel '.repeat(400))})`
+    const getEnc = (p: string, enc?: string, method = 'GET') =>
+      serve()(
+        new Request(`http://vps.local${p}`, {
+          method,
+          headers: enc ? { 'Accept-Encoding': enc } : {},
+        }),
+      )
+
+    beforeAll(async () => {
+      await mkdir(path.join(root, 'assets'))
+      await writeFile(path.join(root, 'assets', 'app-abc123.js'), BIG)
+      await writeFile(path.join(root, 'assets', 'font-abc123.woff2'), Buffer.alloc(4000, 7))
+    })
+
+    it('không gửi Accept-Encoding: trả nguyên bản, kèm Vary', async () => {
+      const res = await getEnc('/assets/app-abc123.js')
+      expect(res.headers.get('Content-Encoding')).toBeNull()
+      expect(res.headers.get('Vary')).toBe('Accept-Encoding')
+      expect(await res.text()).toBe(BIG)
+    })
+
+    it('br thắng gzip; giải nén ra đúng nội dung và Content-Length khớp số byte nén', async () => {
+      const res = await getEnc('/assets/app-abc123.js', 'gzip, deflate, br')
+      expect(res.headers.get('Content-Encoding')).toBe('br')
+      const bytes = Buffer.from(await res.arrayBuffer())
+      expect(Number(res.headers.get('Content-Length'))).toBe(bytes.length)
+      expect(bytes.length).toBeLessThan(BIG.length / 5)
+      expect(brotliDecompressSync(bytes).toString()).toBe(BIG)
+      expect(res.headers.get('Cache-Control')).toBe('public, max-age=31536000, immutable')
+    })
+
+    it('chỉ gzip: dùng gzip; br;q=0 thì không dùng br', async () => {
+      const g = await getEnc('/assets/app-abc123.js', 'gzip')
+      expect(g.headers.get('Content-Encoding')).toBe('gzip')
+      expect(gunzipSync(Buffer.from(await g.arrayBuffer())).toString()).toBe(BIG)
+      const q0 = await getEnc('/assets/app-abc123.js', 'br;q=0, gzip')
+      expect(q0.headers.get('Content-Encoding')).toBe('gzip')
+    })
+
+    it('index.html (đã gỡ manifest) cũng nén được, HEAD không nén và Content-Length là bản gốc', async () => {
+      const res = await getEnc('/', 'br')
+      expect(res.headers.get('Content-Encoding')).toBeNull() // dưới ngưỡng 1 KB thì không đáng nén
+      const head = await getEnc('/assets/app-abc123.js', 'br', 'HEAD')
+      expect(head.headers.get('Content-Encoding')).toBeNull()
+      expect(Number(head.headers.get('Content-Length'))).toBe(Buffer.byteLength(BIG))
+    })
+
+    it('font woff2 (đã nén sẵn) không bị nén lại', async () => {
+      const res = await getEnc('/assets/font-abc123.woff2', 'br, gzip')
+      expect(res.headers.get('Content-Encoding')).toBeNull()
+      expect(Number(res.headers.get('Content-Length'))).toBe(4000)
+    })
   })
 
   it('manifest có đúng MIME; sw.js không bị cache lâu', async () => {

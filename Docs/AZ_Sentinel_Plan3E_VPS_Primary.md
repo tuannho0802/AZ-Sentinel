@@ -12,7 +12,7 @@ Trình duyệt / Gateway / EA
         └── (đường dự phòng, khi VPS sập) ──► Cloudflare Worker + D1 + Durable Object + assets
 ```
 
-- `Server/` chạy NGUYÊN mã BE và `LiveHub` trên Node (shim `cloudflare:workers`, SQLite thay D1) và phục vụ luôn FE (`FE/dist`), nên truy cập bình thường không tốn request Cloudflare.
+- `Server/` chạy NGUYÊN mã BE và `LiveHub` trên Node (shim `cloudflare:workers`, SQLite thay D1) và phục vụ luôn FE (`FE/dist`, có nén brotli/gzip từ Server 0.2.10), nên truy cập bình thường không tốn request Cloudflare.
 - Cloudflare vẫn có dữ liệu gần nhất nhờ đồng bộ liên tục; VPS sập thì người dùng mở bản dự phòng, VPS sống lại thì dữ liệu Cloudflare đã ghi hộ được kéo về VPS.
 - Gateway nối vào VPS (`cloudUrl`); nếu hai lần liền không nối được thì chuyển sang `cloudFallbackUrl` (Worker) và cứ 60 giây thử quay về VPS.
 

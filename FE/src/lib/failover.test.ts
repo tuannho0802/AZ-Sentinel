@@ -42,6 +42,19 @@ describe('stayOnFallback / dropStayParam', () => {
     expect(calls).toEqual(['/links?tab=live#x'])
   })
 
+  it('gỡ cả vé trao mã thiết bị az_dh (Server phục vụ trang ngay, không còn 302 sang URL sạch)', () => {
+    const calls: string[] = []
+    const hist = {
+      state: null,
+      replaceState: (_s: unknown, _t: string, u: string) => calls.push(u),
+    }
+    dropStayParam(
+      { href: 'https://abc.trycloudflare.com/links?tab=live&az_dh=TICKET&az_stay=1#x' } as Location,
+      hist as unknown as History,
+    )
+    expect(calls).toEqual(['/links?tab=live#x'])
+  })
+
   it('không có tham số thì không đụng lịch sử', () => {
     const calls: string[] = []
     const hist = {

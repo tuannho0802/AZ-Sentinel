@@ -160,6 +160,7 @@ describe('mở/đóng kết nối (F-01..F-08, F-16, F-19)', () => {
     renderApp('/', handlers())
     await screen.findAllByText(strings.overviewTitle)
     cleanup()
+    localStorage.clear() // phiên đã nhớ của lần vào trước không được rò sang lượt "chưa đăng nhập"
     renderApp('/links', {
       ...handlers(),
       'GET /api/me': () => json(401, { error: { code: 'UNAUTHENTICATED', message: 'x' } }),

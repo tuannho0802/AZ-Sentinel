@@ -148,9 +148,12 @@ describe('trao mã thiết bị qua máy chủ HTTP thật: tunnel đổi địa
         redirect: 'manual',
         headers: await fromIp({ 'sec-fetch-mode': 'navigate', 'sec-fetch-dest': 'document' }),
       })
-      expect(hop.status).toBe(302)
-      expect(hop.headers.get('location')).toBe('/links') // vé không còn trên URL
-      expect(hop.headers.get('cache-control')).toBe('no-store')
+      // Lượt tải trang được phục vụ ngay (không còn 302 sang URL sạch): cookie nằm trên chính phản hồi,
+      // mã thiết bị dùng luôn cho request này nên thiết bị đã duyệt vào được; FE tự gỡ `az_dh` khỏi thanh địa chỉ.
+      expect(hop.status).toBe(200)
+      expect(hop.headers.get('location')).toBeNull()
+      expect(hop.headers.get('referrer-policy')).toBe('no-referrer')
+      expect(t.seen.deviceId).toBe(hashed)
       const cookie = (hop.headers.get('set-cookie') ?? '').split(';')[0] ?? ''
       expect(cookie).toBe(`${DEVICE_COOKIE}=${RAW}`)
 
@@ -181,8 +184,22 @@ describe('trao mã thiết bị qua máy chủ HTTP thật: tunnel đổi địa
       redirect: 'manual',
       headers: await fromIp({ 'sec-fetch-mode': 'navigate', 'sec-fetch-dest': 'document' }),
     })
+    // Vé giả bị bỏ qua êm: thiết bị này là thiết bị mới (403), nhận cookie tự cấp chứ KHÔNG phải mã của thiết bị đã duyệt.
+    expect(hop.status).toBe(403)
+    expect(hop.headers.get('set-cookie') ?? '').not.toContain(RAW)
+  })
+
+  it('request không phải tải trang (fetch/XHR) mang vé vẫn chuyển hướng 302 như cũ', async () => {
+    const t = await boot()
+    const ticket = await sealDeviceHandoff(SECRET, RAW, nowSec())
+    const hop = await fetch(`${t.url}/links?${DEVICE_HANDOFF_PARAM}=${ticket}`, {
+      redirect: 'manual',
+      headers: await fromIp({ 'sec-fetch-mode': 'cors', 'sec-fetch-dest': 'empty' }),
+    })
     expect(hop.status).toBe(302)
-    expect(hop.headers.get('set-cookie')).toBeNull()
+    expect(hop.headers.get('location')).toBe('/links')
+    expect(hop.headers.get('cache-control')).toBe('no-store')
+    expect(hop.headers.get('set-cookie') ?? '').toContain(`${DEVICE_COOKIE}=${RAW}`)
   })
 
   it('vé chỉ dùng được một lần ngay trên máy chủ thật', async () => {

@@ -96,8 +96,9 @@ cd az-sentinel
 code .
 ```
 
-3. Thư mục này sẽ chứa toàn bộ monorepo (`apps/api`, `apps/web`, `packages/shared`, `ea`, `docs`, `scripts`) theo Plan 3 mục 1.
-4. Chép 5 file kế hoạch/quy tắc (`.md`) vào thư mục `docs/` để tiện đối chiếu.
+3. Thư mục này chứa toàn bộ monorepo: `BE`, `FE`, `Shared`, `Server`, `Gateway` (năm gói pnpm), cùng `ea`, `Installer`, `Scripts`, `Docs`. Sơ đồ và vai trò từng thư mục: `README.md` ở gốc (Plan 3 mục 1 là bản thiết kế ban đầu với tên cũ `apps/*`, `packages/*`).
+4. Các tệp kế hoạch/quy tắc nằm sẵn trong `Docs/` (mục lục: `Docs/README.md`).
+5. Sau khi `pnpm install`, chạy `pnpm dev` để bật cả bốn dịch vụ (BE 8787, Server 8080, FE 5173, Gateway 47800), hoặc `pnpm dev:public` khi Gateway chạy ở VPS khác.
 
 ## 6. Tài khoản Cloudflare
 
