@@ -95,7 +95,9 @@ describe('isTrustedLearnedUrl (địa chỉ từ danh bạ)', () => {
 describe('sanitizeForLog', () => {
   it('bỏ xuống dòng và ký tự điều khiển (chống chèn dòng log giả)', () => {
     const out = sanitizeForLog('lỗi\n2026-01-01T00:00:00Z INFO token ok\r\n\u001b[31mđỏ')
-    expect(out).not.toMatch(/[\n\r\u001b]/)
+    expect(out.includes('\n') || out.includes('\r') || out.includes(String.fromCharCode(27))).toBe(
+      false,
+    )
     expect(out).toContain('lỗi')
   })
 
