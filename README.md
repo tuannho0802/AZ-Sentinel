@@ -123,6 +123,7 @@ Server đọc `server.env` (mẫu: [`Server/scripts/server.env.example`](Server/
 | `AZ_QUICK_TUNNEL` | `1` = Server tự chạy Quick Tunnel và báo địa chỉ mới cho Worker |
 | `AZ_SYNC_ON_DEMAND` | Mặc định chỉ đồng bộ khi có người mở giao diện; `0` = chạy liên tục |
 | `AZ_UPDATE_CHECK` | `0` = tắt kiểm tra bản mới trên GitHub Releases |
+| `AZ_GATEWAY_AUTO_UPDATE` | `0` = Server không ép Gateway tự cập nhật bản mới (mặc định bật, [chi tiết](Docs/AZ_Sentinel_Gateway_AutoUpdate.md)) |
 
 Token Gateway là của từng người, không đặt trong `server.env`: cấp bằng giao diện web (mục **Token Gateway**) hoặc `node server.mjs token issue|list|reset|revoke` ([chi tiết](Docs/AZ_Sentinel_Gateway_Token.md)).
 

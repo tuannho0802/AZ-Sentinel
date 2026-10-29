@@ -98,6 +98,8 @@ export type GwAttachment = {
   lastBeatAt: number
   hello: boolean
   vps: string | null
+  /** Phiên bản Gateway báo trong `hello` (để Server quyết định có ép cập nhật không). Cắt ngắn. */
+  gwVer?: string
   /** Token cá nhân đã xác thực lúc nối (Plan 4). Hub đá kết nối khi token này bị thu hồi/đặt lại. */
   tokenId: number
   /** Chủ token: mọi liên kết bind qua kết nối này phải thuộc người này. */

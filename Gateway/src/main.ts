@@ -10,6 +10,7 @@ import { GATEWAY_VERSION, Gateway } from './gateway'
 import { LocalServer, type UiHooks } from './local-server'
 import { createFileSink, createLogger } from './log'
 import { EventQueue } from './queue'
+import { HEALTHY_AFTER_MS, SelfUpdater } from './self-update'
 import { fetchUpdate, type UpdateInfo } from './update-check'
 
 async function main() {
@@ -24,6 +25,26 @@ async function main() {
   )
   log.info(`AZ Gateway v${GATEWAY_VERSION} khởi động (vps=${cfg.vps})`)
 
+  // run-gateway.cmd đặt AZ_GW_SUPERVISED=1. Chạy tay hay `pnpm dev` thì không có người giám sát,
+  // nên không có "Tắt hoàn toàn" (Ctrl+C là đủ) và cũng không tự cập nhật được (thoát rồi không ai bật lại).
+  const supervised = process.env.AZ_GW_SUPERVISED === '1'
+
+  // Server ép đồng bộ bản mới: chỉ khi chạy bản đóng gói trên Windows (az-gateway.exe, có số phiên bản thật).
+  const packagedExe =
+    Boolean(process.env.GW_BUILD_VERSION) &&
+    process.platform === 'win32' &&
+    /az-gateway\.exe$/i.test(process.execPath)
+  const updater = new SelfUpdater({
+    current: GATEWAY_VERSION,
+    appDir: packagedExe ? path.dirname(process.execPath) : null,
+    dataDir: cfg.dataDir,
+    supervised,
+    enabled: cfg.autoUpdate,
+    log,
+    // Thoát bình thường: run-gateway.cmd đặt exe mới vào chỗ cũ rồi bật lại.
+    restart: () => void shutdown(0),
+  })
+
   const queue = new EventQueue(path.join(cfg.dataDir, 'queue.json'))
   const gw = new Gateway({
     vps: cfg.vps,
@@ -31,6 +52,7 @@ async function main() {
     log,
     cloudConfigured: cfg.cloudUrl !== '',
     idleFlushSec: cfg.idleFlushSec,
+    onUpdate: (msg) => void updater.offer(msg),
   })
 
   // Báo bản mới: hỏi GitHub ngay khi khởi động rồi mỗi 5 phút (ETag: không đổi thì chỉ là 304). Lỗi mạng thì thử
@@ -74,10 +96,6 @@ async function main() {
     await local.stop()
     process.exit(code)
   }
-
-  // run-gateway.cmd đặt AZ_GW_SUPERVISED=1. Chạy tay hay `pnpm dev` thì không có người giám sát,
-  // nên không có "Tắt hoàn toàn" (Ctrl+C là đủ).
-  const supervised = process.env.AZ_GW_SUPERVISED === '1'
 
   const ui: UiHooks = {
     getConfig: () => ({
@@ -132,6 +150,9 @@ async function main() {
   }
 
   if (canCheckUpdate) void runUpdateCheck()
+  // Chạy ổn định đủ lâu thì bản mới được coi là khỏe: xóa bản cũ, run-gateway.cmd không còn canh lỗi khởi động nữa.
+  if (updater.active || packagedExe)
+    setTimeout(() => updater.markHealthy(), HEALTHY_AFTER_MS).unref()
 
   process.on('SIGINT', () => void shutdown())
   process.on('SIGTERM', () => void shutdown())

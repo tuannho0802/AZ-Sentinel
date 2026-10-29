@@ -27,6 +27,8 @@ const configSchema = z.object({
   /** Thư mục lưu hàng đợi sự kiện. */
   dataDir: z.string().default(defaultDataDir()),
   logLevel: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
+  /** Cho phép Server ép Gateway tự cập nhật lên bản mới (tải từ GitHub Releases của dự án). `false` = chỉ báo, người dùng tự cài. */
+  autoUpdate: z.boolean().default(true),
 })
 export type GatewayConfig = z.infer<typeof configSchema>
 
@@ -39,7 +41,7 @@ export function defaultDataDir(): string {
 
 /**
  * Nạp cấu hình: file JSON (đường dẫn trong `AZ_GW_CONFIG`, mặc định `<dataDir>/config.json`),
- * rồi biến môi trường ghi đè: AZ_GW_PORT, AZ_GW_CLOUD_URL, AZ_GW_CLOUD_FALLBACK_URL, AZ_GW_TOKEN, AZ_GW_IDLE_FLUSH_SEC, AZ_GW_VPS, AZ_GW_DATA, AZ_GW_LOG.
+ * rồi biến môi trường ghi đè: AZ_GW_PORT, AZ_GW_CLOUD_URL, AZ_GW_CLOUD_FALLBACK_URL, AZ_GW_TOKEN, AZ_GW_IDLE_FLUSH_SEC, AZ_GW_VPS, AZ_GW_DATA, AZ_GW_LOG, AZ_GW_AUTO_UPDATE (0 = tắt tự cập nhật).
  */
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): GatewayConfig {
   const dataDir = env.AZ_GW_DATA ?? defaultDataDir()
@@ -61,6 +63,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): GatewayConfig 
   if (env.AZ_GW_VPS) overrides.vps = env.AZ_GW_VPS
   if (env.AZ_GW_DATA) overrides.dataDir = env.AZ_GW_DATA
   if (env.AZ_GW_LOG) overrides.logLevel = env.AZ_GW_LOG
+  if (env.AZ_GW_AUTO_UPDATE)
+    overrides.autoUpdate = !/^(0|false|off|no)$/i.test(env.AZ_GW_AUTO_UPDATE)
   const base = typeof fromFile === 'object' && fromFile !== null ? fromFile : {}
   const parsed = configSchema.safeParse({ ...base, ...overrides })
   if (!parsed.success) {

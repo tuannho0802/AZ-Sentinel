@@ -14,6 +14,7 @@ Tổng quan dự án và cách chạy nhanh: [`../README.md`](../README.md). Tà
 | Giao dịch từ xa | [Remote_Trading](AZ_Sentinel_Remote_Trading.md) |
 | Thông báo lỗ float | [Plan5_Notifications](AZ_Sentinel_Plan5_Notifications.md) |
 | Phát hành, CI | [CI_Tags_And_Gateway_Power](AZ_Sentinel_CI_Tags_And_Gateway_Power.md) |
+| Server ép Gateway tự cập nhật bản mới | [Gateway_AutoUpdate](AZ_Sentinel_Gateway_AutoUpdate.md) |
 | Kiểm thử thủ công | [Manual_Test_EA](AZ_Sentinel_Manual_Test_EA.md), [Manual_Test_Gateway](AZ_Sentinel_Manual_Test_Gateway.md) |
 
 ## Quy tắc và nhật ký (đọc trước khi sửa mã)

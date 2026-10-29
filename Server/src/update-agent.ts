@@ -1,6 +1,12 @@
 import {
+  GATEWAY_EXE_ASSET,
+  type GatewayOffer,
+  gatewayAssetUrl,
+  latestGatewayRelease,
   latestRelease,
+  parseSha256Sums,
   RELEASES_API_URL,
+  sha256SumsUrl,
   UPDATE_CHECK_SEC,
   UPDATE_RETRY_SEC,
   type UpdateStatus,
@@ -16,6 +22,13 @@ export type UpdateAgentOptions = {
   checkSec?: number
   retrySec?: number
   nowMs?: () => number
+  /**
+   * Bật việc ép Gateway cập nhật: ngoài banner, Server còn tìm bản Gateway mới (kèm băm SHA-256 từ `SHA256SUMS.txt`)
+   * để hub gửi tin `update` cho các Gateway cũ hơn. Tắt bằng `AZ_GATEWAY_AUTO_UPDATE=0`.
+   */
+  gatewayPush?: boolean
+  /** Gọi khi tìm được bản Gateway mới (lần đầu hoặc đổi phiên bản): để hub ép các Gateway đang nối cập nhật ngay. */
+  onGatewayOffer?: (offer: GatewayOffer) => void
 }
 
 const REQUEST_TIMEOUT_MS = 10_000
@@ -33,6 +46,10 @@ export class UpdateAgent {
   private stopped = false
   private lastFailure: string | null = null
   private lastAnnounced: string | null = null
+  /** Bản Gateway mới nhất (đủ exe và file băm) trong danh sách release gần nhất; null = chưa có release nào dùng được. */
+  private gatewayLatest: string | null = null
+  private offer: GatewayOffer | null = null
+  private offerFailure: string | null = null
   private readonly checkSec: number
   private readonly retrySec: number
   private readonly fetchFn: typeof fetch
@@ -59,6 +76,11 @@ export class UpdateAgent {
   /** Kết quả gần nhất (đưa vào `server-info`). */
   status(): UpdateStatus {
     return this.state
+  }
+
+  /** Bản Gateway mà hub nên ép các Gateway cũ hơn cập nhật tới; null khi chưa có hoặc đã tắt. */
+  gatewayOffer(): GatewayOffer | null {
+    return this.opts.gatewayPush ? this.offer : null
   }
 
   /** Một vòng kiểm tra rồi hẹn vòng sau. Công khai để kiểm thử. */
@@ -92,7 +114,9 @@ export class UpdateAgent {
       await res.body?.cancel()
       this.state = { ...this.state, checkedAt: this.nowSec() }
       this.noteRecovered()
-      return this.checkSec
+      // Danh sách không đổi, nhưng lần lấy băm trước có thể đã lỗi: thử lại.
+      const retry = await this.refreshGatewayOffer()
+      return retry ? this.retrySec : this.checkSec
     }
     if (!res.ok) {
       await res.body?.cancel()
@@ -112,7 +136,46 @@ export class UpdateAgent {
         `có bản Server mới v${server.latest} (đang chạy v${this.opts.current}): ${server.url}`,
       )
     }
-    return this.checkSec
+    this.gatewayLatest = this.opts.gatewayPush ? latestGatewayRelease(list) : null
+    const retry = await this.refreshGatewayOffer()
+    return retry ? this.retrySec : this.checkSec
+  }
+
+  /**
+   * Lấy băm SHA-256 của exe Gateway từ `SHA256SUMS.txt` của release mới nhất rồi lưu thành `offer`. Chỉ tải khi phiên bản
+   * mới hơn bản đang giữ (mỗi phiên bản một lần). Trả true nếu lỗi và nên thử lại sớm. Mọi lỗi chỉ ghi log.
+   */
+  private async refreshGatewayOffer(): Promise<boolean> {
+    const version = this.gatewayLatest
+    if (!this.opts.gatewayPush || version === null || this.offer?.version === version) return false
+    try {
+      const res = await this.fetchFn(sha256SumsUrl(version), {
+        headers: { 'user-agent': `az-server/${this.opts.current}` },
+        redirect: 'follow',
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      })
+      if (!res.ok) {
+        await res.body?.cancel()
+        throw new Error(`GitHub trả HTTP ${res.status} khi lấy SHA256SUMS.txt`)
+      }
+      // File băm chỉ vài dòng; cắt để dữ liệu lạ không ăn bộ nhớ.
+      const text = (await res.text()).slice(0, 8192)
+      const sha256 = parseSha256Sums(text, GATEWAY_EXE_ASSET)
+      if (!sha256)
+        throw new Error(`SHA256SUMS.txt của gateway-v${version} không có dòng ${GATEWAY_EXE_ASSET}`)
+      this.offer = { version, url: gatewayAssetUrl(version), sha256 }
+      this.offerFailure = null
+      this.opts.log.info(`sẽ ép Gateway cũ hơn cập nhật lên v${version}`)
+      this.opts.onGatewayOffer?.(this.offer)
+      return false
+    } catch (e) {
+      const msg = (e instanceof Error ? e.message : String(e)).slice(0, 160)
+      if (this.offerFailure !== msg) {
+        this.offerFailure = msg
+        this.opts.log.warn(`không lấy được băm bản Gateway v${version}: ${msg}`)
+      }
+      return true
+    }
   }
 
   private nowSec(): number {

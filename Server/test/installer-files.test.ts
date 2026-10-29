@@ -350,3 +350,49 @@ describe('bộ cài Server: cú pháp [Code] (Pascal Script)', () => {
     expect(scanPascal("[Code]\nvar S: String;\nbegin\n  S := 'it''s {app}';\nend;\n")).toEqual([])
   })
 })
+
+describe('tự cập nhật Gateway (Server ép đồng bộ bản mới): các tệp phải khớp tên', () => {
+  const selfUpdate = read('Gateway/src/self-update.ts')
+  const runCmd = read('Installer/run-gateway.cmd')
+  const names = [
+    'az-gateway.exe.new',
+    'az-gateway.exe.new.ver',
+    'az-gateway.exe.old',
+    'az-gateway.exe.trial',
+  ]
+
+  it('run-gateway.cmd dùng đúng tên file mà self-update.ts ghi và xóa', () => {
+    for (const n of names) {
+      expect(runCmd, `run-gateway.cmd thiếu ${n}`).toContain(n)
+      expect(selfUpdate, `self-update.ts thiếu ${n}`).toContain(`'${n}'`)
+    }
+    expect(selfUpdate).toContain("'update-failed.txt'")
+    expect(runCmd).toContain('update-failed.txt')
+  })
+
+  it('run-gateway.cmd thay file TRƯỚC khi chạy exe và đếm lỗi khởi động sau khi thoát', () => {
+    const loop = runCmd.slice(runCmd.indexOf(':loop'))
+    expect(loop.indexOf('call :swap')).toBeGreaterThan(-1)
+    expect(loop.indexOf('call :swap')).toBeLessThan(loop.indexOf('"%~dp0az-gateway.exe"'))
+    expect(loop.indexOf('call :trialcheck')).toBeGreaterThan(loop.indexOf('"%~dp0az-gateway.exe"'))
+    // Không dùng `echo X>file` (chữ số sát dấu > bị hiểu là mã luồng).
+    expect(runCmd).not.toMatch(/echo \S*\d>/)
+  })
+
+  it('bộ cài Gateway dọn file cập nhật dở khi cài đè', () => {
+    expect(gatewayIss).toContain('[InstallDelete]')
+    for (const n of names) expect(gatewayIss, `.iss thiếu ${n}`).toContain(`{app}\\${n}`)
+  })
+
+  it('workflow release Gateway đính kèm az-gateway.exe trần và băm của nó (Server đọc hai file này)', () => {
+    const wf = read('.github/workflows/release-gateway.yml')
+    expect(wf.match(/Gateway\/dist\/az-gateway\.exe/g)?.length).toBeGreaterThanOrEqual(2)
+    expect(wf).toMatch(/az-gateway\.exe"\)/)
+    expect(wf).toContain('SHA256SUMS.txt')
+  })
+
+  it('Server đọc biến AZ_GATEWAY_AUTO_UPDATE và có trong server.env.example', () => {
+    expect(configSrc).toContain('AZ_GATEWAY_AUTO_UPDATE')
+    expect(read('Server/scripts/server.env.example')).toContain('AZ_GATEWAY_AUTO_UPDATE')
+  })
+})

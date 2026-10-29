@@ -181,7 +181,7 @@ stateDiagram-v2
 4. Thêm `http://127.0.0.1:47800` vào danh sách Allow WebRequest của từng terminal. **Chưa chắc ghi được tự động** (nghi là khóa trong `config\common.ini`, phải kiểm ở G0 và phải ghi khi terminal đã đóng). Nếu không được: giao diện cục bộ hiện danh sách việc cần làm một lần cho mỗi terminal.
 5. Mã ghép nối: Gateway hiện mã 8 ký tự; nhập mã trên web để gắn VPS (MVP chưa có, xem Q3).
 
-**Tự cập nhật:** hub gửi `update {min_ver, url, sha256}`; Gateway tải về, kiểm băm, thay file và khởi động lại dịch vụ. Ký số bộ cài là việc của Part 4 (tránh cảnh báo SmartScreen).
+**Tự cập nhật:** hub gửi `update {min_ver, url, sha256}`; Gateway tải về, kiểm băm, thay file và khởi động lại dịch vụ. Ký số bộ cài là việc của Part 4 (tránh cảnh báo SmartScreen). Đã hiện thực ở Gateway 0.4.0 / Server 0.3.0: xem [Gateway_AutoUpdate](AZ_Sentinel_Gateway_AutoUpdate.md).
 
 Gắn EA vào chart vẫn là **một lần thủ công mỗi terminal** (Algo Trading bật). Vì terminal chạy 24/7 và profile giữ EA qua khởi động lại nên không phải làm lại.
 

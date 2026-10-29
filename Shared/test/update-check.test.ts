@@ -1,10 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import {
   compareVersions,
+  gatewayAssetUrl,
   isReleaseVersion,
+  latestGatewayRelease,
   latestRelease,
+  parseSha256Sums,
   RELEASES_PAGE_URL,
   serverInfoSchema,
+  sha256SumsUrl,
   updateStatusSchema,
 } from '../src'
 
@@ -140,5 +144,42 @@ describe('schema', () => {
     expect(
       serverInfoSchema.safeParse({ ...base, update: { server: null, checkedAt: null } }).success,
     ).toBe(true)
+  })
+})
+
+describe('tự cập nhật Gateway: địa chỉ và băm', () => {
+  const H = 'a'.repeat(64)
+
+  it('gatewayAssetUrl dựng từ repo và tag, không lấy từ nguồn ngoài', () => {
+    expect(gatewayAssetUrl('0.4.0')).toBe(
+      'https://github.com/tuannho0802/AZ-Sentinel/releases/download/gateway-v0.4.0/az-gateway.exe',
+    )
+    expect(sha256SumsUrl('0.4.0')).toBe(
+      'https://github.com/tuannho0802/AZ-Sentinel/releases/download/gateway-v0.4.0/SHA256SUMS.txt',
+    )
+  })
+
+  it('parseSha256Sums đọc đúng dòng theo tên file (có hoặc không dấu *)', () => {
+    const text = `${H}  AZSentinel-Gateway-Setup.exe\r\n${'B'.repeat(64)} *az-gateway.exe\r\n`
+    expect(parseSha256Sums(text, 'az-gateway.exe')).toBe('b'.repeat(64))
+    expect(parseSha256Sums(text, 'AZSentinel-Gateway-Setup.exe')).toBe(H)
+    expect(parseSha256Sums(text, 'khac.exe')).toBeNull()
+    expect(parseSha256Sums('rác\nabc  az-gateway.exe', 'az-gateway.exe')).toBeNull()
+  })
+
+  it('latestGatewayRelease chỉ chọn release đủ exe và file băm', () => {
+    const full = [{ name: 'az-gateway.exe' }, { name: 'SHA256SUMS.txt' }]
+    const list = [
+      { tag_name: 'gateway-v0.3.7', assets: [{ name: 'AZSentinel-Gateway-Setup.exe' }] },
+      { tag_name: 'gateway-v0.4.0', assets: full },
+      { tag_name: 'gateway-v0.5.0', assets: full, prerelease: true },
+      { tag_name: 'gateway-v0.6.0', assets: full, draft: true },
+      { tag_name: 'gateway-v0.7.0', assets: [{ name: 'az-gateway.exe' }] },
+      { tag_name: 'server-v9.9.9', assets: full },
+      { tag_name: 'gateway-v0.4.1', assets: full },
+    ]
+    expect(latestGatewayRelease(list)).toBe('0.4.1')
+    expect(latestGatewayRelease([{ tag_name: 'gateway-v0.3.7', assets: [] }])).toBeNull()
+    expect(latestGatewayRelease('x')).toBeNull()
   })
 })

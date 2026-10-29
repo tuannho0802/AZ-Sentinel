@@ -48,6 +48,17 @@ Source: "az-gateway.ico"; DestDir: "{app}"; Flags: ignoreversion
 Source: "scripts\*.ps1"; DestDir: "{app}\scripts"; Flags: ignoreversion
 Source: "ea\*.ex5"; DestDir: "{app}\ea"; Flags: ignoreversion skipifsourcedoesntexist
 
+[InstallDelete]
+; Cai de len ban dang chay: bo file cap nhat do dang (az-gateway.exe.new...) de run-gateway.cmd khong thay nham ban cu
+; vao exe vua cai. Ten file khop Gateway\src\self-update.ts va Installer\run-gateway.cmd.
+Type: files; Name: "{app}\az-gateway.exe.new"
+Type: files; Name: "{app}\az-gateway.exe.new.part"
+Type: files; Name: "{app}\az-gateway.exe.new.ver"
+Type: files; Name: "{app}\az-gateway.exe.old"
+Type: files; Name: "{app}\az-gateway.exe.bad"
+Type: files; Name: "{app}\az-gateway.exe.trial"
+Type: files; Name: "{#DataDir}\update-failed.txt"
+
 [Tasks]
 Name: "restartmt5"; Description: "Tu dong khoi dong lai MT5 de ap dung (nho luu cong viec; khong chon thi ban tu tat va mo lai MT5 mot lan)"; Flags: unchecked
 

@@ -38,6 +38,8 @@ const schema = z.object({
   liveAllowedOrigins: z.string().default(''),
   /** "0" = không hỏi GitHub Releases xem có bản Server mới (VPS không ra được internet, hoặc không muốn banner cập nhật). */
   updateCheck: z.string().default(''),
+  /** "0" = Server không ép Gateway tự cập nhật (chỉ báo banner); mặc định bật. Cần `AZ_UPDATE_CHECK` khác "0" vì dùng chung bước hỏi GitHub. */
+  gatewayAutoUpdate: z.string().default(''),
   /** "1" = bật /api/dev/* (quản lý liên kết không đăng nhập; chỉ dùng khi thử). */
   devLinksApi: z.string().default(''),
   liveIntervalSec: z.string().default(''),
@@ -132,6 +134,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
     syncOnDemand: merged.AZ_SYNC_ON_DEMAND || undefined,
     liveAllowedOrigins: merged.AZ_LIVE_ALLOWED_ORIGINS || undefined,
     updateCheck: merged.AZ_UPDATE_CHECK || undefined,
+    gatewayAutoUpdate: merged.AZ_GATEWAY_AUTO_UPDATE || undefined,
     devLinksApi: merged.AZ_DEV_LINKS_API || undefined,
     liveIntervalSec: merged.AZ_LIVE_INTERVAL_SEC || undefined,
     gatePollSec: merged.AZ_GATE_POLL_SEC || undefined,

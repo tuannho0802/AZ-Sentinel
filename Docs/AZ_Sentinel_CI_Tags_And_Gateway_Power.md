@@ -55,7 +55,7 @@ Dùng chung cho hai bộ cài; khác nhau ở thư mục `package.json`, tag tro
 | Tăng `version` trong | `Gateway/package.json` | `Server/package.json` |
 | Tag trong commit | `[release]` | `[release-server]` |
 | Release và tag Git | `gateway-v<version>` | `server-v<version>` |
-| Tệp đính kèm | `AZSentinel-Gateway-Setup.exe`, `SHA256SUMS.txt` | `AZSentinel-Server-Setup.exe`, `SHA256SUMS.txt` |
+| Tệp đính kèm | `AZSentinel-Gateway-Setup.exe`, `az-gateway.exe` (Server dùng để ép Gateway tự cập nhật, [chi tiết](AZ_Sentinel_Gateway_AutoUpdate.md)), `SHA256SUMS.txt` | `AZSentinel-Server-Setup.exe`, `SHA256SUMS.txt` |
 | Kiểm trong CI | typecheck, test Gateway, chạy thử exe (`/v1/status`, `check-token`) | typecheck, test Server, chạy thử gói (`/api/health`, trang giao diện) |
 
 Chi tiết: `AZ_Sentinel_Gateway_Installer.md` và `AZ_Sentinel_Server_Installer.md`.

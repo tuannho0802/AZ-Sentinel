@@ -155,6 +155,8 @@ export type GatewayOptions = {
   cloudConfigured?: boolean
   /** Ghi đè `GW.idleFlushSec` (0 = gửi `event` ngay cả khi không ai xem). */
   idleFlushSec?: number
+  /** Server báo bản Gateway mới (`update`): giao cho bộ tự cập nhật (`SelfUpdater`). Không có = chỉ ghi log. */
+  onUpdate?: (msg: Extract<GwServerMessage, { t: 'update' }>) => void
 }
 
 /**
@@ -492,8 +494,9 @@ export class Gateway {
         this.acceptTrade(msg)
         return
       case 'update':
-        // Tự cập nhật thuộc patch 12 (bộ cài). Ghi nhận để không âm thầm bỏ qua.
-        this.log.warn(`cloud yêu cầu cập nhật >= ${msg.min_ver} (chưa hỗ trợ ở bản này)`)
+        // Server ép đồng bộ bản mới: việc tải, kiểm băm và thay file nằm ở `SelfUpdater` (self-update.ts).
+        if (this.opts.onUpdate) this.opts.onUpdate(msg)
+        else this.log.warn(`cloud yêu cầu cập nhật >= ${msg.min_ver} (không có bộ tự cập nhật)`)
         return
     }
   }

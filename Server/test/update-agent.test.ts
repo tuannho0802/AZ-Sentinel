@@ -1,4 +1,10 @@
-import { RELEASES_PAGE_URL } from '@az-sentinel/shared'
+import {
+  type GatewayOffer,
+  gatewayAssetUrl,
+  RELEASES_API_URL,
+  RELEASES_PAGE_URL,
+  sha256SumsUrl,
+} from '@az-sentinel/shared'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { UpdateAgent } from '../src/update-agent'
 
@@ -173,5 +179,133 @@ describe('UpdateAgent', () => {
     agent.stop()
     await vi.advanceTimersByTimeAsync(3_600_000)
     expect(calls).toHaveLength(1)
+  })
+})
+
+describe('ép Gateway đồng bộ bản mới (gatewayPush)', () => {
+  const H = 'd'.repeat(64)
+  const withAssets = (tag: string) => ({
+    ...rel(tag),
+    assets: [
+      { name: 'AZSentinel-Gateway-Setup.exe' },
+      { name: 'az-gateway.exe' },
+      { name: 'SHA256SUMS.txt' },
+    ],
+  })
+  const sums = (h = H) =>
+    `${'e'.repeat(64)}  AZSentinel-Gateway-Setup.exe\r\n${h}  az-gateway.exe\r\n`
+
+  /** GitHub giả định tuyến theo địa chỉ: danh sách release và file băm. */
+  function github(opts: { list?: unknown; sums?: () => Response; etagOnly?: boolean } = {}) {
+    const calls: string[] = []
+    let listCalls = 0
+    const fetchFn = (async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input)
+      calls.push(url)
+      if (url === RELEASES_API_URL) {
+        listCalls++
+        const inm = new Headers(init?.headers).get('if-none-match')
+        if (inm && opts.etagOnly) return new Response(null, { status: 304 })
+        return Response.json(opts.list ?? [withAssets('gateway-v0.4.0'), rel('server-v0.3.0')], {
+          headers: { etag: '"v1"' },
+        })
+      }
+      if (url === sha256SumsUrl('0.4.0')) return (opts.sums ?? (() => new Response(sums())))()
+      throw new Error(`địa chỉ ngoài kịch bản: ${url}`)
+    }) as typeof fetch
+    return { fetchFn, calls, listCalls: () => listCalls }
+  }
+
+  function make(gh: ReturnType<typeof github>, over: { gatewayPush?: boolean } = {}) {
+    const l = makeLog()
+    const offers: GatewayOffer[] = []
+    const agent = new UpdateAgent({
+      current: '0.2.3',
+      log: l.log,
+      fetchFn: gh.fetchFn,
+      nowMs: () => 1_700_000_000_000,
+      gatewayPush: over.gatewayPush ?? true,
+      onGatewayOffer: (o) => offers.push(o),
+    })
+    return { agent, offers, ...l }
+  }
+
+  afterEach(() => vi.useRealTimers())
+
+  it('lấy băm từ SHA256SUMS.txt, dựng địa chỉ từ repo+tag và báo hub đúng một lần', async () => {
+    const gh = github()
+    const { agent, offers } = make(gh)
+    await agent.tick()
+    expect(agent.gatewayOffer()).toEqual({
+      version: '0.4.0',
+      url: gatewayAssetUrl('0.4.0'),
+      sha256: H,
+    })
+    expect(offers).toHaveLength(1)
+    await agent.tick() // lần sau: cùng phiên bản thì không tải băm lại, không báo lại
+    expect(gh.calls.filter((u) => u === sha256SumsUrl('0.4.0'))).toHaveLength(1)
+    expect(offers).toHaveLength(1)
+    agent.stop()
+  })
+
+  it('tắt gatewayPush: không hỏi file băm, không có offer (chỉ banner như cũ)', async () => {
+    const gh = github()
+    const { agent, offers } = make(gh, { gatewayPush: false })
+    await agent.tick()
+    expect(agent.gatewayOffer()).toBeNull()
+    expect(offers).toHaveLength(0)
+    expect(gh.calls).toEqual([RELEASES_API_URL])
+    expect(agent.status().server?.latest).toBe('0.3.0')
+    agent.stop()
+  })
+
+  it('release Gateway chưa kèm az-gateway.exe và file băm (bản cũ): không có offer', async () => {
+    const gh = github({ list: [rel('gateway-v0.4.0'), rel('server-v0.3.0')] })
+    const { agent, offers } = make(gh)
+    await agent.tick()
+    expect(agent.gatewayOffer()).toBeNull()
+    expect(offers).toHaveLength(0)
+    expect(gh.calls).toEqual([RELEASES_API_URL])
+    agent.stop()
+  })
+
+  it('SHA256SUMS.txt lỗi hoặc thiếu dòng exe: không có offer, ghi cảnh báo một lần, thử lại sớm', async () => {
+    let fail = true
+    const gh = github({
+      sums: () => (fail ? new Response('x', { status: 404 }) : new Response(sums())),
+    })
+    const { agent, offers, lines } = make(gh)
+    await agent.tick()
+    await agent.tick()
+    expect(agent.gatewayOffer()).toBeNull()
+    expect(lines.filter((l) => l.startsWith('warn:') && l.includes('băm'))).toHaveLength(1)
+    fail = false
+    await agent.tick()
+    expect(agent.gatewayOffer()?.sha256).toBe(H)
+    expect(offers).toHaveLength(1)
+    agent.stop()
+  })
+
+  it('danh sách 304 (không đổi) nhưng lần lấy băm trước lỗi: vẫn thử lại băm', async () => {
+    let fail = true
+    const gh = github({
+      etagOnly: true,
+      sums: () => (fail ? new Response('x', { status: 500 }) : new Response(sums())),
+    })
+    const { agent } = make(gh)
+    await agent.tick() // 200 + băm lỗi
+    fail = false
+    await agent.tick() // 304 nhưng băm được thử lại
+    expect(gh.listCalls()).toBe(2)
+    expect(agent.gatewayOffer()?.version).toBe('0.4.0')
+    agent.stop()
+  })
+
+  it('dòng băm của exe sai dạng thì bị bỏ (không đưa băm rác cho Gateway)', async () => {
+    const gh = github({ sums: () => new Response('abc123  az-gateway.exe\n') })
+    const { agent } = make(gh)
+    await agent.tick()
+    expect(agent.gatewayOffer()).toBeNull()
+    agent.stop()
   })
 })

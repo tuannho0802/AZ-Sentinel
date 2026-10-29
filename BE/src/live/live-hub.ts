@@ -3,10 +3,12 @@ import {
   AUTO_KEY,
   type ClientMessage,
   clientMessageSchema,
+  compareVersions,
   GW,
   type GwClientMessage,
   type GwServerMessage,
   gwClientMessageSchema,
+  isReleaseVersion,
   type KickReason,
   LIVE,
   type LiveState,
@@ -695,11 +697,13 @@ export class LiveHub extends DurableObject<Bindings> {
     if (msg.data.t === 'hello') {
       att.hello = true
       att.vps = normalizeVpsLabel(msg.data.vps ?? null)
+      att.gwVer = msg.data.gw_ver.slice(0, 16)
     }
     ws.serializeAttachment(att)
     switch (msg.data.t) {
       case 'hello':
         await this.sendAlertCfg(ws, att.tokenOwnerId)
+        this.offerGatewayUpdate(ws, att)
         return
       case 'bind':
         await this.gwBind(ws, msg.data, now)
@@ -898,6 +902,35 @@ export class LiveHub extends DurableObject<Bindings> {
       if (done === null) return // không ack: Gateway giữ hàng đợi và gửi lại khi nối lại
     }
     this.sendGw(ws, { t: 'ack', tid: msg.tid, seq: msg.seq })
+  }
+
+  /**
+   * Server ép Gateway đồng bộ bản mới: nếu VPS (Node) đã thấy bản Gateway mới hơn bản `att.gwVer` thì gửi `update`.
+   * Chỉ Server có `HOST.gatewayOffer`; Worker dự phòng không có nên không bao giờ ép cập nhật. Gateway bản cũ
+   * (chưa biết xử lý `update`) chỉ ghi log và bỏ qua, còn bản dev/không đóng gói tự từ chối ở phía Gateway.
+   * Trả true nếu đã gửi.
+   */
+  private offerGatewayUpdate(ws: WebSocket, att: GwAttachment): boolean {
+    const offer = this.env.HOST?.gatewayOffer?.() ?? null
+    if (!offer || ws.readyState !== WS_OPEN) return false
+    if (!isReleaseVersion(att.gwVer) || compareVersions(offer.version, att.gwVer) <= 0) return false
+    this.sendGw(ws, { t: 'update', min_ver: offer.version, url: offer.url, sha256: offer.sha256 })
+    return true
+  }
+
+  /**
+   * Server vừa thấy bản Gateway mới trên GitHub: ép mọi Gateway đang nối (đã `hello`) cũ hơn bản đó cập nhật ngay,
+   * không chờ chúng nối lại. Trả số Gateway đã gửi lệnh.
+   */
+  async pushGatewayUpdate(): Promise<number> {
+    this.rpcCalls += 1
+    let n = 0
+    for (const ws of this.ctx.getWebSockets(GW_TAG)) {
+      const att = this.readGw(ws)
+      if (!att?.hello) continue
+      if (this.offerGatewayUpdate(ws, att)) n += 1
+    }
+    return n
   }
 
   /** Gửi ngưỡng cảnh báo hiện tại của chủ token cho Gateway vừa `hello`. Lỗi DB thì thôi: Gateway giữ ngưỡng cũ. */

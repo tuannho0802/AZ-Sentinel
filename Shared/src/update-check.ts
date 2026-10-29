@@ -104,3 +104,66 @@ export function latestRelease(
     available: isReleaseVersion(current) && compareVersions(best.version, current) > 0,
   }
 }
+
+// ---------------------------------------------------------------------------
+// Server ép Gateway đồng bộ bản mới (tự cập nhật Gateway)
+// ---------------------------------------------------------------------------
+
+/** Tên file exe Gateway đính kèm release `gateway-v<x.y.z>` (cùng bộ cài), và file băm đi kèm. */
+export const GATEWAY_EXE_ASSET = 'az-gateway.exe'
+export const SHA256SUMS_ASSET = 'SHA256SUMS.txt'
+
+/**
+ * Địa chỉ tải exe Gateway của một phiên bản: LUÔN dựng từ repo + tag, không lấy từ dữ liệu ngoài. Gateway chỉ
+ * chấp nhận đúng địa chỉ này khi Server báo `update`, nên Server (hoặc hub) bị chiếm cũng không dẫn Gateway tới host lạ.
+ */
+export function gatewayAssetUrl(version: string): string {
+  return `${RELEASES_PAGE_URL}/download/${RELEASE_TAG_PREFIX.gateway}${version}/${GATEWAY_EXE_ASSET}`
+}
+
+export function sha256SumsUrl(version: string): string {
+  return `${RELEASES_PAGE_URL}/download/${RELEASE_TAG_PREFIX.gateway}${version}/${SHA256SUMS_ASSET}`
+}
+
+/** Bản Gateway mà Server đề nghị mọi Gateway đang nối cập nhật tới (kèm băm SHA-256 của exe). */
+export type GatewayOffer = { version: string; url: string; sha256: string }
+
+const SHA256_HEX = /^[0-9a-f]{64}$/
+
+/** Đọc `SHA256SUMS.txt` (mỗi dòng `<băm>  <tên file>` hoặc `<băm> *<tên file>`), trả băm của `file` hoặc null. */
+export function parseSha256Sums(text: string, file: string): string | null {
+  for (const raw of text.split(/\r?\n/)) {
+    const m = /^([0-9a-fA-F]{64})\s+\*?(.+?)\s*$/.exec(raw.trim())
+    if (!m) continue
+    if (m[2] === file) {
+      const hash = (m[1] ?? '').toLowerCase()
+      return SHA256_HEX.test(hash) ? hash : null
+    }
+  }
+  return null
+}
+
+/**
+ * Phiên bản Gateway mới nhất CÓ ĐỦ file để tự cập nhật (exe và file băm đều đã đính kèm release). Release cũ chỉ có bộ cài
+ * (trước khi có tính năng này) bị bỏ qua. Bỏ bản nháp, bản thử và tag sai dạng, giống `latestRelease`.
+ */
+export function latestGatewayRelease(list: unknown): string | null {
+  if (!Array.isArray(list)) return null
+  const prefix = RELEASE_TAG_PREFIX.gateway
+  let best: string | null = null
+  for (const r of list as Array<Record<string, unknown>>) {
+    if (!r || typeof r !== 'object' || r.draft === true || r.prerelease === true) continue
+    const tag = r.tag_name
+    if (typeof tag !== 'string' || !tag.startsWith(prefix)) continue
+    const version = tag.slice(prefix.length)
+    if (!isReleaseVersion(version)) continue
+    const names = new Set(
+      Array.isArray(r.assets)
+        ? (r.assets as Array<Record<string, unknown>>).map((a) => (a ? a.name : undefined))
+        : [],
+    )
+    if (!names.has(GATEWAY_EXE_ASSET) || !names.has(SHA256SUMS_ASSET)) continue
+    if (best === null || compareVersions(version, best) > 0) best = version
+  }
+  return best
+}

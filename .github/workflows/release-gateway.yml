@@ -8,6 +8,10 @@ name: Release Gateway
 # Release có tên gateway-v<version> (giao diện Gateway dựa vào tiền tố này để báo có bản mới). Nếu
 # release đó đã tồn tại thì workflow dừng ngay, không ghi đè bộ cài đã phát hành.
 #
+# Release kèm CẢ az-gateway.exe (exe trần, không bọc bộ cài) và SHA256SUMS.txt có băm của cả hai file. Server đọc hai
+# file này để ép các Gateway đang nối tự cập nhật (tin `update`): Gateway tải đúng địa chỉ
+# .../releases/download/gateway-v<version>/az-gateway.exe rồi kiểm SHA-256. Đừng đổi tên hai file này.
+#
 # Chạy tay (workflow_dispatch) chỉ build và đưa file vào Artifacts, không tạo Release.
 on:
   push:
@@ -113,15 +117,16 @@ jobs:
           $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
           & $iscc "/DMyAppVersion=${{ steps.ver.outputs.version }}" Installer\az-gateway.iss
           if ($LASTEXITCODE -ne 0) { throw 'ISCC loi' }
-          $f = 'Gateway\dist\AZSentinel-Gateway-Setup.exe'
-          $h = (Get-FileHash $f -Algorithm SHA256).Hash.ToLower()
-          "$h  AZSentinel-Gateway-Setup.exe" | Out-File Gateway\dist\SHA256SUMS.txt -Encoding ascii
+          $hSetup = (Get-FileHash 'Gateway\dist\AZSentinel-Gateway-Setup.exe' -Algorithm SHA256).Hash.ToLower()
+          $hExe = (Get-FileHash 'Gateway\dist\az-gateway.exe' -Algorithm SHA256).Hash.ToLower()
+          @("$hSetup  AZSentinel-Gateway-Setup.exe", "$hExe  az-gateway.exe") | Out-File Gateway\dist\SHA256SUMS.txt -Encoding ascii
 
       - uses: actions/upload-artifact@v4
         with:
           name: AZSentinel-Gateway-${{ steps.ver.outputs.version }}
           path: |
             Gateway/dist/AZSentinel-Gateway-Setup.exe
+            Gateway/dist/az-gateway.exe
             Gateway/dist/SHA256SUMS.txt
 
       - name: Tạo GitHub Release
@@ -134,4 +139,5 @@ jobs:
           generate_release_notes: true
           files: |
             Gateway/dist/AZSentinel-Gateway-Setup.exe
+            Gateway/dist/az-gateway.exe
             Gateway/dist/SHA256SUMS.txt

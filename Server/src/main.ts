@@ -95,9 +95,24 @@ async function main() {
 
   // Báo bản Server mới: chỉ khi chạy bản đóng gói (có số phiên bản thật) và chưa tắt bằng AZ_UPDATE_CHECK=0.
   const builtVersion = process.env.AZ_SERVER_VERSION
+  // Cùng bước hỏi GitHub, Server còn tìm bản Gateway mới để ép các Gateway cũ hơn tự cập nhật (AZ_GATEWAY_AUTO_UPDATE=0 để tắt).
+  // `hub` được tạo sau (cần `env` có HOST có `updates`), nên gọi qua tham chiếu trễ.
+  const gatewayPush = cfg.gatewayAutoUpdate !== '0'
   const updates =
     cfg.updateCheck !== '0' && isReleaseVersion(builtVersion)
-      ? new UpdateAgent({ current: builtVersion, log })
+      ? new UpdateAgent({
+          current: builtVersion,
+          log,
+          gatewayPush,
+          onGatewayOffer: () => {
+            void hub
+              .pushGatewayUpdate()
+              .then((n) => {
+                if (n > 0) log.info(`đã ép ${n} Gateway đang nối cập nhật lên bản mới`)
+              })
+              .catch((e) => log.warn(`ép Gateway cập nhật lỗi: ${String(e).slice(0, 160)}`))
+          },
+        })
       : null
 
   // Hub live: cùng lớp `LiveHub` của Worker, chạy trên shim Durable Object.
@@ -117,6 +132,7 @@ async function main() {
       cpu,
       () => sync?.status() ?? null,
       updates ? () => updates.status() : undefined,
+      updates && gatewayPush ? () => updates.gatewayOffer() : undefined,
     ),
   }
   const hub = new LiveHub(state as unknown as DurableObjectState, env)

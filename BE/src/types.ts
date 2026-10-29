@@ -1,4 +1,5 @@
 import type {
+  GatewayOffer,
   ServerMode,
   ServerNode,
   ServerRole,
@@ -50,6 +51,11 @@ export type HostHooks = {
   fallbackUrl?: string | null
   /** Bản cập nhật bộ cài mà VPS đã thấy trên GitHub Releases; không có = VPS không kiểm tra. */
   updates?: () => UpdateStatus | null
+  /**
+   * Bản Gateway mới nhất đủ file để tự cập nhật (exe và băm đã kiểm). Có thì hub ép mọi Gateway cũ hơn đang nối tự cập nhật
+   * (tin `update`); không có (hoặc Worker, không có HOST) = không ép.
+   */
+  gatewayOffer?: () => GatewayOffer | null
 }
 
 export type AppEnv = {

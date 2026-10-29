@@ -1,5 +1,5 @@
 import os from 'node:os'
-import type { ServerNode, StandbyStatus, UpdateStatus } from '@az-sentinel/shared'
+import type { GatewayOffer, ServerNode, StandbyStatus, UpdateStatus } from '@az-sentinel/shared'
 import { APP_VERSION } from '../../BE/src/lib/version'
 import type { HostHooks } from '../../BE/src/types'
 import type { ServerConfig } from './config'
@@ -73,6 +73,7 @@ export function createHostHooks(
   cpu: CpuMeter,
   standby: () => StandbyStatus | null,
   updates?: () => UpdateStatus | null,
+  gatewayOffer?: () => GatewayOffer | null,
 ): HostHooks {
   return {
     role: 'vps',
@@ -80,5 +81,6 @@ export function createHostHooks(
     standby,
     fallbackUrl: cfg.fallbackUrl === '' ? null : cfg.fallbackUrl,
     ...(updates ? { updates } : {}),
+    ...(gatewayOffer ? { gatewayOffer } : {}),
   }
 }
