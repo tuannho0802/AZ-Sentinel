@@ -17,6 +17,7 @@ import {
   type Sample,
   type ServerMessage,
   type SnapshotLink,
+  type Stats,
   type TradeCommand,
   terminalId,
 } from '@az-sentinel/shared'
@@ -85,6 +86,11 @@ type LinkMemory = {
   lastSample: Sample | null
   positions: Position[] | null
   posHash: string | null
+  /**
+   * Thống kê lãi/lỗ theo kỳ do EA tính (EA 0.7.0), giữ NGUYÊN như nhận từ Gateway để người xem chi tiết vào sau
+   * có ngay. Hub không cộng, không lọc, không ghi D1.
+   */
+  stats: Stats | null
 }
 
 type Conn = { ws: WebSocket; att: ConnAttachment }
@@ -564,6 +570,7 @@ export class LiveHub extends DurableObject<Bindings> {
         lastSample: null,
         positions: null,
         posHash: null,
+        stats: null,
       }
       this.links.set(ref.linkId, mem)
     }
@@ -720,10 +727,40 @@ export class LiveHub extends DurableObject<Bindings> {
       case 'alert':
         await this.gwAlert(ws, msg.data, now)
         return
+      case 'stats':
+        this.gwStats(ws, msg.data, now)
+        return
       case 'trade_result':
         await this.gwTradeResult(ws, msg.data, now)
         return
     }
+  }
+
+  /**
+   * Thống kê lãi/lỗ theo kỳ do EA tính (qua Gateway): chuyển nguyên cho người xem RIÊNG liên kết đó (trang chi tiết)
+   * và giữ bản mới nhất trong bộ nhớ cho người vào sau. Không có người xem chi tiết thì bỏ (Gateway chỉ đẩy khi có người xem).
+   * Chỉ nhận terminal thuộc chính kết nối Gateway này.
+   */
+  private gwStats(
+    ws: WebSocket,
+    msg: Extract<GwClientMessage, { t: 'stats' }>,
+    nowMs: number,
+  ): void {
+    const att = this.readGw(ws)
+    const term = att ? this.loadTerms(att.connId).find((t) => t.tid === msg.tid) : undefined
+    if (!att || !term) return
+    const viewers = this.aliveConns(nowMs).filter(
+      (v) => v.att.scope.kind === 'link' && scopeMatches(v.att.scope, term),
+    )
+    if (viewers.length === 0) return
+    const { t: _t, tid: _tid, ...stats } = msg
+    this.memoryFor({ linkId: term.linkId, ownerId: term.ownerId }).stats = stats
+    this.broadcast(viewers, {
+      t: 'stats',
+      id: term.linkId,
+      server_time: Math.floor(nowMs / 1000),
+      ...stats,
+    })
   }
 
   /**
@@ -983,12 +1020,14 @@ export class LiveHub extends DurableObject<Bindings> {
     for (const [linkId, mem] of this.links) {
       if (!scopeMatches(att.scope, { linkId, ownerId: mem.ownerId })) continue
       if (mem.lastSample === null && mem.positions === null) continue
+      const stats = att.scope.kind === 'link' ? mem.stats : null
       links.push({
         id: linkId,
         live_state: this.stateOf(mem, nowMs),
         sample: mem.lastSample,
         ...(mem.positions !== null ? { positions: mem.positions } : {}),
         ...(mem.posHash !== null ? { pos_hash: mem.posHash } : {}),
+        ...(stats !== null ? { stats } : {}),
       })
     }
     const message: ServerMessage = {

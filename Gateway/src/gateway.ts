@@ -10,12 +10,15 @@ import {
   type LocalAlertResponse,
   type LocalEventResponse,
   type LocalPingResponse,
+  type LocalStatsResponse,
   type PingRequest,
   type Position,
   type PositionPl,
   type Sample,
   type SamplesRequest,
   type Snap,
+  type Stats,
+  type StatsRequest,
   TRADE,
   type TradeResultRequest,
   terminalId,
@@ -45,6 +48,12 @@ const MAX_PENDING_ALERTS = 5
 
 /** Báo cáo cảnh báo chưa có `alert_ack` được gửi lại sau chừng này ms (ngoài các mốc nối lại/bind). */
 const ALERT_RESEND_MS = 30_000
+
+/**
+ * Thống kê lãi/lỗ do EA tính chỉ được đẩy lên cloud khi có người xem riêng terminal. Gateway đẩy lại bản đang giữ
+ * mỗi chừng này ms: cloud chỉ giữ bản trong bộ nhớ (mất khi hub ngủ đông), người mới vào sau vẫn có số liệu.
+ */
+const STATS_KEEPALIVE_MS = 60_000
 
 type PendingAlert = { req: AlertRequest; sentMs: number }
 
@@ -102,6 +111,12 @@ type Terminal = {
   trade?: PendingTrade
   /** Kết quả EA báo chưa chắc đã tới cloud: giữ để gửi lại khi nối lại. */
   tradeResults: Map<string, TradeResultRequest>
+  /** Thống kê lãi/lỗ theo kỳ do EA tính (EA 0.7.0). Gateway chỉ giữ và chuyển tiếp, không tính lại. */
+  stats?: Stats
+  /** Nội dung (bỏ `sts`) của `stats` và của bản đã đẩy lên cloud, để không đẩy lặp; `statsSentAtMs` cho nhịp giữ sống. */
+  statsJson?: string
+  statsSentJson?: string
+  statsSentAtMs: number
 }
 
 /** Hai mẫu cùng giá trị (bỏ qua `t`): không có gì mới để cho người xem. */
@@ -351,6 +366,28 @@ export class Gateway {
   }
 
   /**
+   * EA gửi thống kê lãi/lỗ theo kỳ (chỉ khi phản hồi ping báo `stats_on`). Gateway giữ bản mới nhất và đẩy lên cloud
+   * nếu có người đang xem riêng terminal này. Terminal lạ trả null (Gateway vừa khởi động lại: EA ping rồi gửi lại).
+   */
+  handleStats(req: StatsRequest): LocalStatsResponse | null {
+    const tid = terminalId(req.login, req.server)
+    const t = this.terminals.get(tid)
+    if (!t || t.key !== req.key) return null
+    t.lastSeenMs = this.now()
+    // Không ai xem chi tiết (hoặc bind chưa ok): bỏ, không giữ số có thể đã cũ cho lần xem sau.
+    if (t.bind === 'rejected' || !this.isFast(t)) return { ok: true }
+    const stats: Stats = {
+      sts: req.sts,
+      periods: req.periods,
+      ...(req.ccy ? { ccy: req.ccy } : {}),
+    }
+    t.stats = stats
+    t.statsJson = JSON.stringify({ ccy: stats.ccy, periods: stats.periods })
+    this.pushStats(t)
+    return { ok: true }
+  }
+
+  /**
    * EA báo kết quả lệnh giao dịch thủ công. Gateway chuyển lên cloud rồi xóa lệnh đang chờ. Kết quả của
    * lệnh khác với lệnh đang chờ (đến muộn sau `timeout`, hoặc lệnh đã bị bỏ) vẫn được chuyển tiếp: đó là sự
    * thật về những gì sàn đã làm. Terminal lạ trả null (Gateway vừa khởi động lại: EA gửi lại ở nhịp sau).
@@ -392,6 +429,7 @@ export class Gateway {
       t.pushedOnline = null
       t.inflight.clear()
       for (const p of t.alerts.values()) p.sentMs = 0
+      t.statsSentJson = undefined
       if (t.bind !== 'rejected') t.bind = 'pending'
       this.syncBind(t)
     }
@@ -406,6 +444,9 @@ export class Gateway {
     for (const t of this.terminals.values()) {
       t.buffer = []
       t.pl = undefined
+      t.stats = undefined
+      t.statsJson = undefined
+      t.statsSentJson = undefined
       // Lệnh giao dịch chưa tới EA thì hủy: người dùng không còn thấy kết quả, không được tự chạy ngầm.
       // Lệnh EA đã nhận thì kết quả vẫn được giữ (`tradeResults`) và gửi lại khi nối lại.
       t.trade = undefined
@@ -442,6 +483,9 @@ export class Gateway {
         t.buffer = []
         this.watch.delete(msg.tid)
         this.fast.delete(msg.tid)
+        t.stats = undefined
+        t.statsJson = undefined
+        t.statsSentJson = undefined
         t.alerts.clear()
         t.trade = undefined
         t.tradeResults.clear()
@@ -471,11 +515,24 @@ export class Gateway {
           // Rời chế độ theo tick: bỏ lãi/lỗ đang giữ (danh sách chỉ cần tổng).
           if (!nextFast.has(tid)) {
             const t = this.terminals.get(tid)
-            if (t) t.pl = undefined
+            if (t) {
+              t.pl = undefined
+              // Hết người xem chi tiết: bỏ thống kê cũ (lần xem sau EA tính lại, không đẩy số cũ).
+              t.stats = undefined
+              t.statsJson = undefined
+              t.statsSentJson = undefined
+            }
           }
         }
+        const prevFast = this.fast
         this.watch = next
         this.fast = nextFast
+        // Người mới bắt đầu xem chi tiết: đẩy ngay thống kê đang giữ (nếu có) để hiện không phải chờ EA.
+        for (const tid of nextFast) {
+          if (prevFast.has(tid)) continue
+          const t = this.terminals.get(tid)
+          if (t) this.pushStats(t, true)
+        }
         this.pushSec = clampPushSec(msg.push_sec)
         // Có người bắt đầu xem: đẩy ngay `event` đã giữ để lịch sử lệnh hiện đúng.
         if (next.size > 0) this.flushDeferred()
@@ -556,6 +613,7 @@ export class Gateway {
     if (this.send && this.watch.size === 0 && !this.holdDeferred()) this.flushDeferred()
     for (const t of this.terminals.values()) {
       if (t.alerts.size > 0) this.sendAlerts(t)
+      if (t.stats && now - t.statsSentAtMs >= STATS_KEEPALIVE_MS) this.pushStats(t, true)
       this.sweepTrade(t, now)
       if (t.online && now - t.lastSeenMs > GW.offlineAfterSec * 1000) {
         t.online = false
@@ -631,6 +689,7 @@ export class Gateway {
       lastSentAtMs: 0,
       alerts: new Map(),
       tradeResults: new Map(),
+      statsSentAtMs: 0,
     }
   }
 
@@ -703,6 +762,20 @@ export class Gateway {
       })
     ) {
       t.pushedOnline = effective
+    }
+  }
+
+  /**
+   * Đẩy thống kê lãi/lỗ đang giữ lên cloud khi terminal được xem riêng. Bản giống hệt bản đã đẩy thì bỏ (trừ `force`:
+   * có người mới xem, nối lại cloud, hoặc tới nhịp giữ sống).
+   */
+  private pushStats(t: Terminal, force = false): void {
+    if (!t.stats || !this.send || !this.isFast(t)) return
+    if (!force && t.statsJson === t.statsSentJson) return
+    const ok = this.send({ t: 'stats', tid: t.tid, ...t.stats })
+    if (ok) {
+      t.statsSentJson = t.statsJson
+      t.statsSentAtMs = this.now()
     }
   }
 
@@ -785,6 +858,7 @@ export class Gateway {
       interval_ms: this.isFast(t) ? GW.fastIntervalMs : clampIntervalMs(this.pushSec * 1000),
       lease_ms: GW.leaseMs,
       alert_bp: this.alertBp,
+      ...(this.isFast(t) ? { stats_on: true as const } : {}),
       ...this.tradeFields(t),
     }
   }

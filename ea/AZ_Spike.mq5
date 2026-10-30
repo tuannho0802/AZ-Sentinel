@@ -18,15 +18,20 @@
 //|             lenh moi (market, lenh cho limit/stop kem SL/TP). MO   |
 //|             lenh can THEM InpAllowRemoteOpen = true (mac dinh tat) |
 //|             va bi chan boi InpMaxRemoteVolume.                    |
+//|   Thong ke lai/lo (v0.7.0): EA TU TINH tu lich su MT5 lai/lo theo ky |
+//|             (hom nay, hom qua, 3 ngay, tuan truoc, thang truoc), moi |
+//|             ky tinh theo Open Time va theo Close Time cua lenh, gui  |
+//|             Gateway qua /v1/stats. Chi tinh khi co nguoi xem trang   |
+//|             chi tiet (phan hoi ping co stats_on). Server chi hien thi.|
 //| Ten file giu nguyen de giu lich su git (Q2); doi ten khi phat hanh|
 //+------------------------------------------------------------------+
 #property copyright "AZ Team"
-#property version "0.60"
+#property version "0.70"
 #property description "AZ Sentinel tracking EA: ping, samples, event toi Gateway cuc bo; tuy chon dieu khien lenh tu xa (dong, sua, mo lenh)"
 
 #include <Trade\Trade.mqh>
 
-#define EA_VER "0.6.0"
+#define EA_VER "0.7.0"
 #define MAX_SAMPLES 20
 #define MAX_POSITIONS 200
 #define MAX_PENDING_EVENTS 100
@@ -36,6 +41,10 @@
 #define TR_MIN_START_MS 3000     // chi BAT DAU thuc thi lenh tu xa khi han dung (tr_ttl) con it nhat chung nay ms
 #define TR_MAX_RUN_MS 8000       // close_all: ngung dong them khi da chay chung nay ms (de ket qua kip ve truoc khi Gateway bao timeout)
 #define TR_RESULT_TRIES 20       // gui ket qua lenh toi Gateway that bai thi thu lai toi da chung nay lan (moi 2 giay)
+#define STAT_NPERIOD 5           // today, yesterday, d3, lastweek, lastmonth
+#define STAT_REFRESH_SEC 30      // tinh lai thong ke moi chung nay giay khi co nguoi xem (nhanh hon khi co deal moi)
+#define STAT_DIRTY_GAP_SEC 5     // co deal moi: tinh lai sau chung nay giay
+#define STAT_MAX_POS 3000        // so lenh toi da duyet moi lan tinh (chan lich su qua lon)
 #define ALERT_ZERO_TICKS 3       // can chung nay lan do lien tiep thay 0 lenh moi bao "clear" (tranh sai luc moi khoi dong)
 
 input string InpGateway = "http://127.0.0.1:47800"; // Gateway cuc bo (phai nam trong Allow WebRequest)
@@ -97,6 +106,11 @@ CTrade g_trade;
 string g_trResult = "";    // JSON ket qua lenh chua gui duoc toi Gateway (mot lenh tai mot thoi diem)
 ulong g_trNextTryMs = 0;
 int g_trTries = 0;
+
+//--- thong ke lai/lo theo ky (v0.7.0): chi tinh khi Gateway bao stats_on (co nguoi xem trang chi tiet)
+bool g_statsOn = false;
+bool g_statsDirty = false;
+ulong g_nextStatsMs = 0;
 
 //--- hang doi su kien giao dich (JSON da dung san)
 string g_evJson[];
@@ -956,6 +970,11 @@ bool HandleReply(const int code, const string resp)
    g_leaseMs = (int)MathMin(60000, MathMax(5000, JsonInt(resp, "lease_ms", 15000)));
    g_alertBp = (int)MathMin(10000, MathMax(0, JsonInt(resp, "alert_bp", 0)));
 
+   bool statsOn = JsonBool(resp, "stats_on", false);
+   if (statsOn && !g_statsOn)
+      g_nextStatsMs = 0; // vua co nguoi xem: tinh va gui ngay
+   g_statsOn = statsOn;
+
    string bind = JsonStr(resp, "bind");
    if (bind != g_lastBind)
    {
@@ -1606,6 +1625,199 @@ void CheckLossAlert()
 }
 
 //+------------------------------------------------------------------+
+//| Thong ke lai/lo theo ky (v0.7.0)                                  |
+//+------------------------------------------------------------------+
+//--- Ranh gioi 5 ky theo GIO SERVER cua san (giong MT5). Chi so: 0 today, 1 yesterday, 2 d3 (3 ngay gan nhat
+//--- gom hom nay), 3 lastweek (thu Hai den Chu nhat tuan truoc), 4 lastmonth (thang duong lich truoc).
+//--- pFrom gom, pTo khong gom.
+void StatPeriods(datetime &pFrom[], datetime &pTo[])
+{
+   MqlDateTime dt;
+   TimeToStruct(TimeTradeServer(), dt);
+   int dow = dt.day_of_week; // 0 = Chu nhat
+   dt.hour = 0;
+   dt.min = 0;
+   dt.sec = 0;
+   datetime dayStart = StructToTime(dt);
+   int back = (dow + 6) % 7; // so ngay tu thu Hai
+   datetime weekStart = dayStart - (datetime)(back * 86400);
+
+   MqlDateTime m = dt;
+   m.day = 1;
+   datetime monthStart = StructToTime(m);
+   m.mon -= 1;
+   if (m.mon < 1)
+   {
+      m.mon = 12;
+      m.year -= 1;
+   }
+   datetime prevMonthStart = StructToTime(m);
+
+   pFrom[0] = dayStart;
+   pTo[0] = dayStart + 86400;
+   pFrom[1] = dayStart - 86400;
+   pTo[1] = dayStart;
+   pFrom[2] = dayStart - 2 * 86400;
+   pTo[2] = dayStart + 86400;
+   pFrom[3] = weekStart - 7 * 86400;
+   pTo[3] = weekStart;
+   pFrom[4] = prevMonthStart;
+   pTo[4] = monthStart;
+}
+
+//--- Tinh lai/lo rong (profit + swap + commission + fee) cua cac lenh DA DONG, gom theo ky va theo 2 cach:
+//--- Open Time (thoi diem vao lenh nam trong ky) va Close Time (thoi diem dong lenh cuoi nam trong ky).
+//--- Mot lenh = mot position id (gom moi deal vao/ra). Tra ve false neu khong doc duoc lich su; khi do KHONG gui so 0 gia.
+bool ComputeStats(string &periodsJson)
+{
+   datetime pFrom[STAT_NPERIOD];
+   datetime pTo[STAT_NPERIOD];
+   StatPeriods(pFrom, pTo);
+   datetime minFrom = pFrom[0];
+   for (int k = 1; k < STAT_NPERIOD; k++)
+      if (pFrom[k] < minFrom)
+         minFrom = pFrom[k];
+
+   if (!HistorySelect(minFrom, TimeTradeServer() + 86400))
+      return false;
+
+   //--- pha 1: gom position id co deal dong lenh trong khoang can xet
+   ulong ids[];
+   int nIds = 0;
+   int total = HistoryDealsTotal();
+   for (int i = 0; i < total && nIds < STAT_MAX_POS; i++)
+   {
+      ulong deal = HistoryDealGetTicket(i);
+      if (deal == 0)
+         continue;
+      long dtype = HistoryDealGetInteger(deal, DEAL_TYPE);
+      if (dtype != DEAL_TYPE_BUY && dtype != DEAL_TYPE_SELL)
+         continue;
+      long entry = HistoryDealGetInteger(deal, DEAL_ENTRY);
+      if (entry != DEAL_ENTRY_OUT && entry != DEAL_ENTRY_INOUT && entry != DEAL_ENTRY_OUT_BY)
+         continue;
+      ulong pid = (ulong)HistoryDealGetInteger(deal, DEAL_POSITION_ID);
+      if (pid == 0)
+         continue;
+      ArrayResize(ids, nIds + 1, 256);
+      ids[nIds] = pid;
+      nIds++;
+   }
+   if (nIds > 1)
+   {
+      ArraySort(ids);
+      int u = 1;
+      for (int i = 1; i < nIds; i++)
+         if (ids[i] != ids[u - 1])
+         {
+            ids[u] = ids[i];
+            u++;
+         }
+      nIds = u;
+   }
+
+   //--- pha 2: moi position, cong moi deal cua no (HistorySelectByPosition doi cua so lich su nen lam sau pha 1)
+   double pl[STAT_NPERIOD * 2]; // chi so = ky * 2 + cach (0 Open Time, 1 Close Time)
+   int cnt[STAT_NPERIOD * 2];
+   int win[STAT_NPERIOD * 2];
+   ArrayInitialize(pl, 0.0);
+   ArrayInitialize(cnt, 0);
+   ArrayInitialize(win, 0);
+   for (int a = 0; a < nIds; a++)
+   {
+      if (!HistorySelectByPosition(ids[a]))
+         continue;
+      int nd = HistoryDealsTotal();
+      datetime tOpen = 0;
+      datetime tClose = 0;
+      double net = 0.0;
+      for (int j = 0; j < nd; j++)
+      {
+         ulong d = HistoryDealGetTicket(j);
+         if (d == 0)
+            continue;
+         long dtype = HistoryDealGetInteger(d, DEAL_TYPE);
+         if (dtype != DEAL_TYPE_BUY && dtype != DEAL_TYPE_SELL)
+            continue;
+         datetime tm = (datetime)HistoryDealGetInteger(d, DEAL_TIME);
+         long ent = HistoryDealGetInteger(d, DEAL_ENTRY);
+         net += HistoryDealGetDouble(d, DEAL_PROFIT) + HistoryDealGetDouble(d, DEAL_SWAP) +
+                HistoryDealGetDouble(d, DEAL_COMMISSION) + HistoryDealGetDouble(d, DEAL_FEE);
+         if (ent == DEAL_ENTRY_IN)
+         {
+            if (tOpen == 0 || tm < tOpen)
+               tOpen = tm;
+         }
+         else if (ent == DEAL_ENTRY_OUT || ent == DEAL_ENTRY_INOUT || ent == DEAL_ENTRY_OUT_BY)
+         {
+            if (tm > tClose)
+               tClose = tm;
+         }
+      }
+      if (tClose == 0)
+         continue;
+      for (int k = 0; k < STAT_NPERIOD; k++)
+      {
+         if (tOpen != 0 && tOpen >= pFrom[k] && tOpen < pTo[k])
+         {
+            pl[k * 2] += net;
+            cnt[k * 2]++;
+            if (net > 0.0)
+               win[k * 2]++;
+         }
+         if (tClose >= pFrom[k] && tClose < pTo[k])
+         {
+            pl[k * 2 + 1] += net;
+            cnt[k * 2 + 1]++;
+            if (net > 0.0)
+               win[k * 2 + 1]++;
+         }
+      }
+   }
+
+   string names[STAT_NPERIOD] = {"today", "yesterday", "d3", "lastweek", "lastmonth"};
+   string out = "\"periods\":{";
+   for (int k = 0; k < STAT_NPERIOD; k++)
+   {
+      if (k > 0)
+         out += ",";
+      out += "\"" + names[k] + "\":{\"from\":" + IntegerToString(ServerToUtc((long)pFrom[k])) +
+             ",\"to\":" + IntegerToString(ServerToUtc((long)pTo[k])) +
+             ",\"open\":{\"pl\":" + Num(pl[k * 2]) + ",\"n\":" + IntegerToString(cnt[k * 2]) +
+             ",\"w\":" + IntegerToString(win[k * 2]) + "}" +
+             ",\"close\":{\"pl\":" + Num(pl[k * 2 + 1]) + ",\"n\":" + IntegerToString(cnt[k * 2 + 1]) +
+             ",\"w\":" + IntegerToString(win[k * 2 + 1]) + "}}";
+   }
+   periodsJson = out + "}";
+   return true;
+}
+
+//--- Goi tu OnTimer (moi giay). Chi lam viec khi Gateway bao stats_on (co nguoi xem chi tiet terminal nay);
+//--- khong ai xem thi khong tinh gi, khong ton CPU. WebRequest chan luong nen KHONG goi trong OnTradeTransaction.
+void CheckStats()
+{
+   if (!g_statsOn || g_state == ST_GW_DOWN)
+      return;
+   ulong now = GetTickCount64();
+   if (now < g_nextStatsMs)
+      return;
+   g_nextStatsMs = now + (ulong)STAT_REFRESH_SEC * 1000;
+   g_statsDirty = false;
+
+   string periods;
+   if (!ComputeStats(periods))
+      return; // khong doc duoc lich su: thu lai o nhip sau, khong gui so gia
+   string body = "{" + Ident() +
+                 ",\"sts\":" + IntegerToString((long)TimeGMT()) +
+                 ",\"ccy\":" + Q(AccountInfoString(ACCOUNT_CURRENCY)) +
+                 "," + periods + "}";
+   string resp;
+   int code = HttpPost("/v1/stats", body, resp);
+   if (code != 200)
+      g_nextStatsMs = now + 5000; // Gateway chua nhan (khoi dong lai, chua ping): thu lai som
+}
+
+//+------------------------------------------------------------------+
 //| Vong doi EA                                                       |
 //+------------------------------------------------------------------+
 bool AnotherInstanceRunning()
@@ -1731,6 +1943,7 @@ void OnTimer()
 
    FlushEvents();
    CheckLossAlert();
+   CheckStats();
    SendPendingTradeResult();
 }
 
@@ -1748,6 +1961,10 @@ void OnTradeTransaction(const MqlTradeTransaction &trans, const MqlTradeRequest 
       return;
    if (trans.type == TRADE_TRANSACTION_DEAL_ADD && trans.deal > 0)
    {
+      g_statsDirty = true; // co deal moi: thong ke (neu dang co nguoi xem) tinh lai som
+      ulong soon = GetTickCount64() + (ulong)STAT_DIRTY_GAP_SEC * 1000;
+      if (g_nextStatsMs > soon)
+         g_nextStatsMs = soon;
       QueueDeal(trans.deal);
       CacheRebuild();
    }

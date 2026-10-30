@@ -10,6 +10,7 @@ import {
   sampleSchema,
   tradeEventSchema,
 } from './ingest-schema'
+import { statsFields } from './stats-schema'
 import {
   CLOSE_ALL_FILTERS,
   CMD_ID,
@@ -164,6 +165,16 @@ export type AlertRequest = z.infer<typeof alertRequestSchema>
 /** Phản hồi `POST /v1/alert`: Gateway đã nhận và giữ để gửi lên cloud (chưa nghĩa là cloud đã nhận). */
 export type LocalAlertResponse = { ok: true; ack_aseq: number }
 
+/**
+ * EA gửi thống kê lãi/lỗ theo kỳ cho Gateway (`POST /v1/stats`, EA 0.7.0). Chỉ gửi khi phản hồi ping báo
+ * `stats_on` (có người đang xem trang chi tiết terminal này).
+ */
+export const statsRequestSchema = identity.extend(statsFields)
+export type StatsRequest = z.infer<typeof statsRequestSchema>
+
+/** Phản hồi `POST /v1/stats`: Gateway đã nhận và giữ. */
+export type LocalStatsResponse = { ok: true }
+
 export const BIND_STATES = ['pending', 'ok', 'rejected'] as const
 export type BindState = (typeof BIND_STATES)[number]
 
@@ -181,6 +192,11 @@ export type LocalPingResponse = {
    * chuyển tiếp; EA không có input riêng cho việc này.
    */
   alert_bp: number
+  /**
+   * Có người đang xem riêng terminal này (trang chi tiết): EA tính và gửi thống kê lãi/lỗ theo kỳ (`/v1/stats`).
+   * Chỉ có (true) khi có người xem; vắng = không ai xem và EA không tính gì (giữ nguyên phản hồi cũ cho EA cũ).
+   */
+  stats_on?: true
   /**
    * Lệnh giao dịch thủ công đang chờ EA (v0.2.6). Phẳng, tiền tố `tr_`, để EA (MQL5) tách bằng tìm chuỗi.
    * Vắng cả nhóm = không có lệnh. `tr_ttl` là số ms CÒN LẠI của hạn dùng tại lúc Gateway trả lời.
@@ -264,6 +280,8 @@ export const gwClientMessageSchema = z.discriminatedUnion('t', [
     snap: snapSchema.optional(),
   }),
   z.object({ t: z.literal('alert'), tid, ...alertFields }),
+  /** Thống kê lãi/lỗ theo kỳ do EA tính (EA 0.7.0). Cloud chỉ chuyển tiếp cho người xem chi tiết. */
+  z.object({ t: z.literal('stats'), tid, ...statsFields }),
   /** Kết quả lệnh giao dịch thủ công (v0.2.6). */
   z.object({ t: z.literal('trade_result'), tid, ...tradeResultFields }),
 ])

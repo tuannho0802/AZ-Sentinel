@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { MAX_POSITIONS, MAX_SAMPLES, plSchema, positionSchema, sampleSchema } from './ingest-schema'
+import { statsFields, statsSchema } from './stats-schema'
 import { tradeResultFields } from './trade-schema'
 
 /**
@@ -91,6 +92,8 @@ export const serverMessageSchema = z.discriminatedUnion('t', [
         sample: sampleSchema.nullable(),
         positions: z.array(positionSchema).max(MAX_POSITIONS).optional(),
         pos_hash: z.string().max(64).optional(),
+        /** Thống kê lãi/lỗ theo kỳ gần nhất hub đang giữ (chỉ gửi cho người xem chi tiết). */
+        stats: statsSchema.optional(),
       }),
     ),
   }),
@@ -114,6 +117,13 @@ export const serverMessageSchema = z.discriminatedUnion('t', [
     id: linkIdSchema,
     server_time: z.number().int(),
     state: liveStateSchema,
+  }),
+  /** Thống kê lãi/lỗ theo kỳ do EA tính, hub chuyển nguyên (chỉ cho người xem riêng liên kết `id`). */
+  z.object({
+    t: z.literal('stats'),
+    id: linkIdSchema,
+    server_time: z.number().int(),
+    ...statsFields,
   }),
   /** Kết quả lệnh giao dịch thủ công của liên kết `id` (v0.2.6). FE ghép với lệnh đã gửi bằng `cmd_id`. */
   z.object({

@@ -1,4 +1,4 @@
-import type { LinkDetail, LiveState } from '@az-sentinel/shared'
+import type { LinkDetail, LiveState, Stats } from '@az-sentinel/shared'
 import type { ReactNode } from 'react'
 import { Card } from '../../components/Card'
 import { Delta, Money } from '../../components/Money'
@@ -9,6 +9,7 @@ import { LinkActions } from './LinkActions'
 import { classify } from './links-view'
 import { PositionsToolbar } from './OrderControls'
 import { PositionsFooter } from './PositionsFooter'
+import { StatsCard } from './StatsCard'
 import { StatusBadge } from './StatusBadge'
 import { PositionTradeActions, TradeEnableToggle } from './TradeControls'
 import { VpsNameCell } from './VpsNameCell'
@@ -50,6 +51,7 @@ export function LinkDetailView({
   link,
   liveState = null,
   tradeAdmin = false,
+  stats = null,
 }: {
   /** Đã phủ số liệu live (`mergeLiveDetail`) nếu đang nối. */
   link: LinkDetail
@@ -57,6 +59,8 @@ export function LinkDetailView({
   liveState?: LiveState | null
   /** Quản trị viên: thấy công tắc và nút giao dịch từ xa. Mặc định tắt. */
   tradeAdmin?: boolean
+  /** Thống kê lãi/lỗ theo kỳ do EA tính (từ hub); null = chưa nhận. */
+  stats?: Stats | null
 }) {
   const now = useNow()
   const a = link.account
@@ -98,6 +102,8 @@ export function LinkDetailView({
           </dl>
         </section>
       )}
+
+      <StatsCard stats={stats} currency={currency} />
 
       <div className="grid gap-4 lg:grid-cols-2">
         <Card title={strings.accountTitle}>

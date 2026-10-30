@@ -8,6 +8,7 @@ import {
   type PositionPl,
   type Sample,
   type ServerMessage,
+  type Stats,
 } from '@az-sentinel/shared'
 
 /**
@@ -24,6 +25,8 @@ export type LiveEntry = {
   positions: Position[] | null
   /** Lãi/lỗ hiện tại từng lệnh, đến theo tick khi xem riêng; phủ lên `positions` (hoặc D1). */
   pl: PositionPl | null
+  /** Thống kê lãi/lỗ theo kỳ do EA tính, hub chuyển nguyên (chỉ có ở trang chi tiết). */
+  stats: Stats | null
   /** Số lần cấu trúc danh sách lệnh đổi (mở/đóng/sửa); trang chi tiết dùng để làm mới sự kiện. */
   posVersion: number
   /** Mốc `performance.now()` mà mẫu hiện tại ra đời theo giờ server; null = chưa có mẫu. */
@@ -91,6 +94,7 @@ const empty = (): LiveEntry => ({
   positionsCount: null,
   positions: null,
   pl: null,
+  stats: null,
   posVersion: 0,
   sampleAtPerf: null,
 })
@@ -112,6 +116,7 @@ export function applyLiveMessage(msg: ServerMessage, perfNow: number = performan
           positionsCount: l.positions?.length ?? null,
           positions: l.positions ?? null,
           pl: null,
+          stats: l.stats ?? null,
           posVersion: 0,
           sampleAtPerf: l.sample ? sampleAt(msg.server_time, l.sample, perfNow) : null,
         })
@@ -146,6 +151,14 @@ export function applyLiveMessage(msg: ServerMessage, perfNow: number = performan
     case 'live_state': {
       const prev = entries.get(msg.id) ?? empty()
       entries.set(msg.id, { ...prev, state: msg.state })
+      break
+    }
+    case 'stats': {
+      const prev = entries.get(msg.id) ?? empty()
+      entries.set(msg.id, {
+        ...prev,
+        stats: { sts: msg.sts, periods: msg.periods, ...(msg.ccy ? { ccy: msg.ccy } : {}) },
+      })
       break
     }
     case 'trade_result':

@@ -112,6 +112,7 @@ export function LinkDetailPanel({ id }: { id: number }) {
             link={mergeLiveDetail(q.data, entry)}
             liveState={liveState}
             tradeAdmin={tradeAdmin}
+            stats={entry?.stats ?? null}
           />
         )}
       </div>
